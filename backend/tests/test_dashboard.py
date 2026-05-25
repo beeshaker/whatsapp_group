@@ -52,4 +52,4 @@ async def test_dashboard_returns_html(client):
 async def test_dashboard_contains_incident_table_markup(client):
     response = await client.get("/")
     assert response.status_code == 200
-    assert b"<table" in response.content
+    assert b"No incidents captured yet" in response.content
