@@ -50,6 +50,29 @@ async def test_dashboard_returns_html(client):
 
 
 async def test_dashboard_contains_incident_table_markup(client):
+    classification = {
+        "is_incident": True,
+        "category": "plumbing",
+        "severity": "high",
+        "confidence": 0.90,
+    }
+    payload = {
+        "event": "message",
+        "data": {
+            "type": "chat",
+            "isGroup": True,
+            "chatId": "111@g.us",
+            "chat": {"name": "Test Property"},
+            "sender": {"name": "Tester", "pushname": "Tester"},
+            "author": "25400000000@c.us",
+            "body": "Pipe burst in basement",
+            "timestamp": 1782293340,
+        },
+    }
+    with patch("main.classify_message", new=AsyncMock(return_value=classification)):
+        with patch("main.push_incident", new=AsyncMock()):
+            await client.post("/api/v1/ops/ingest", json=payload, headers={"X-API-Key": "test-secret"})
+
     response = await client.get("/")
     assert response.status_code == 200
-    assert b"No incidents captured yet" in response.content
+    assert b"<table" in response.content
