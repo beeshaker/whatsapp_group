@@ -1,0 +1,54 @@
+import os
+
+# Set env vars BEFORE any app imports — database.py reads these at module load
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+os.environ["GATEWAY_SECRET_TOKEN"] = "test-secret"
+os.environ["MIN_CONFIDENCE"] = "0.65"
+
+import pytest
+import pytest_asyncio
+from httpx import AsyncClient, ASGITransport
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from database import Base, get_db
+from main import app
+
+_test_engine = create_async_engine(
+    "sqlite+aiosqlite:///:memory:",
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+_TestSession = async_sessionmaker(_test_engine, expire_on_commit=False)
+
+
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def create_schema():
+    async with _test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def clean_tables():
+    yield
+    async with _test_engine.begin() as conn:
+        for table in reversed(Base.metadata.sorted_tables):
+            await conn.execute(table.delete())
+
+
+@pytest_asyncio.fixture
+async def client():
+    async def _override_get_db():
+        async with _TestSession() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _override_get_db
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        yield ac
+    app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def db_session():
+    async with _TestSession() as session:
+        yield session
