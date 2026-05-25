@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head><title>{{ title }}</title></head>
+<body>
+<h1>{{ title }}</h1>
+<table>
+<thead><tr><th>ID</th><th>Property</th><th>Category</th></tr></thead>
+<tbody>
+{% for i in incidents %}
+<tr><td>{{ i.id }}</td><td>{{ i.property_name }}</td><td>{{ i.category }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</body>
+</html>
