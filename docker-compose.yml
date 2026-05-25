@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - ops-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      GATEWAY_SECRET_TOKEN: ${GATEWAY_SECRET_TOKEN}
+      OLLAMA_HOST: ${OLLAMA_HOST}
+      OLLAMA_MODEL: ${OLLAMA_MODEL}
+      OLLAMA_TIMEOUT: ${OLLAMA_TIMEOUT:-10}
+      MIN_CONFIDENCE: ${MIN_CONFIDENCE:-0.65}
+      DASHBOARD_TITLE: ${DASHBOARD_TITLE:-Ops Incident Monitor}
+    networks:
+      - ops-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  openwa:
+    build:
+      context: ./openwa
+    ports:
+      - "2785:2785"
+      - "2886:2886"
+    networks:
+      - ops-net
+    depends_on:
+      - backend
+
+networks:
+  ops-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
