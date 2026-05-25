@@ -8,7 +8,11 @@ logger = logging.getLogger(__name__)
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
-OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "10"))
+try:
+    OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "10"))
+except ValueError:
+    logger.warning("Invalid OLLAMA_TIMEOUT env var, using default of 10 seconds")
+    OLLAMA_TIMEOUT = 10.0
 
 _FALLBACK: dict = {
     "is_incident": False,
@@ -19,6 +23,7 @@ _FALLBACK: dict = {
 
 
 def _build_prompt(message: str) -> str:
+    safe_message = json.dumps(message)  # produces "..." with all control chars escaped
     return (
         "Classify this WhatsApp message from a property management group.\n"
         "Return ONLY valid JSON, no explanation:\n"
@@ -28,12 +33,12 @@ def _build_prompt(message: str) -> str:
         '  "severity": "low|medium|high",\n'
         '  "confidence": 0.0 to 1.0\n'
         "}\n\n"
-        f'Message: "{message}"'
+        f"Message: {safe_message}"
     )
 
 
 async def classify_message(message: str) -> dict:
-    prompt = _build_prompt(message.replace('"', '\\"'))
+    prompt = _build_prompt(message)  # no pre-escaping needed — _build_prompt handles it
     try:
         async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
             response = await client.post(
