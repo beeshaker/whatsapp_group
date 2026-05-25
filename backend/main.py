@@ -69,8 +69,11 @@ async def ingest(
     reporter_name = sender.get("name") or sender.get("pushname") or "Anonymous"
     reporter_phone = data.get("author", "").split("@")[0]
     message_body = data.get("body", "").strip()
-    epoch = data.get("timestamp", datetime.now(timezone.utc).timestamp())
+    epoch = data.get("timestamp") or datetime.now(timezone.utc).timestamp()
     received_at = datetime.fromtimestamp(epoch, tz=timezone.utc)
+
+    if not message_body:
+        return {"status": "ignored", "message": "Empty message body"}
 
     classification = await classify_message(message_body)
 
@@ -89,10 +92,18 @@ async def ingest(
         status="new",
         received_at=received_at,
     )
-    db.add(incident)
-    await db.commit()
-    await db.refresh(incident)
-    await push_incident(incident)
+    try:
+        db.add(incident)
+        await db.commit()
+        await db.refresh(incident)
+    except Exception as exc:
+        logger.error("DB commit failed: %s", exc)
+        return {"status": "error", "message": "Incident could not be persisted"}
+
+    try:
+        await push_incident(incident)
+    except Exception as exc:
+        logger.error("push_incident failed: %s", exc)
 
     logger.info(
         "[INCIDENT] property=%s category=%s severity=%s confidence=%.2f",
