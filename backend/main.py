@@ -1,3 +1,4 @@
+import hmac
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -53,10 +54,13 @@ async def ingest(
     x_api_key: str = Header(None, alias="X-API-Key"),
     db: AsyncSession = Depends(get_db),
 ):
-    if x_api_key != GATEWAY_SECRET_TOKEN:
+    if not hmac.compare_digest(x_api_key or "", GATEWAY_SECRET_TOKEN):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    payload = await request.json()
+    try:
+        payload = await request.json()
+    except Exception:
+        return {"status": "error", "message": "Invalid JSON body"}
     event_type = payload.get("event")
     data = payload.get("data", {})
 
@@ -68,7 +72,7 @@ async def ingest(
     sender = data.get("sender", {})
     reporter_name = sender.get("name") or sender.get("pushname") or "Anonymous"
     reporter_phone = data.get("author", "").split("@")[0]
-    message_body = data.get("body", "").strip()
+    message_body = data.get("body", "").strip()[:4000]
     epoch = data.get("timestamp") or datetime.now(timezone.utc).timestamp()
     received_at = datetime.fromtimestamp(epoch, tz=timezone.utc)
 
@@ -97,6 +101,7 @@ async def ingest(
         await db.commit()
         await db.refresh(incident)
     except Exception as exc:
+        await db.rollback()
         logger.error("DB commit failed: %s", exc)
         return {"status": "error", "message": "Incident could not be persisted"}
 

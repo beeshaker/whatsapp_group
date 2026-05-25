@@ -21,6 +21,9 @@ _FALLBACK: dict = {
     "confidence": 0.0,
 }
 
+_VALID_CATEGORIES = {"plumbing", "electrical", "lift", "security", "structural", "cleaning", "access", "other"}
+_VALID_SEVERITIES = {"low", "medium", "high"}
+
 
 def _build_prompt(message: str) -> str:
     safe_message = json.dumps(message)  # produces "..." with all control chars escaped
@@ -48,11 +51,14 @@ async def classify_message(message: str) -> dict:
             response.raise_for_status()
             raw = response.json().get("response", "")
             parsed = json.loads(raw)
+            raw_category = str(parsed.get("category", "other")).lower()
+            raw_severity = str(parsed.get("severity", "low")).lower()
+            raw_confidence = float(parsed.get("confidence", 0.0))
             return {
                 "is_incident": bool(parsed.get("is_incident", False)),
-                "category": str(parsed.get("category", "other")),
-                "severity": str(parsed.get("severity", "low")),
-                "confidence": float(parsed.get("confidence", 0.0)),
+                "category": raw_category if raw_category in _VALID_CATEGORIES else "other",
+                "severity": raw_severity if raw_severity in _VALID_SEVERITIES else "low",
+                "confidence": max(0.0, min(1.0, raw_confidence)),
             }
     except Exception as exc:
         logger.error("Ollama classification failed: %s", exc)
