@@ -109,6 +109,19 @@ async def test_ingest_stages_confirmed_incident(client):
     assert body["severity"] == "high"
 
 
+async def test_ingest_captures_reporter_identity(client):
+    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASSIFICATION)):
+        with patch("main.push_incident", new=AsyncMock()):
+            response = await client.post(
+                "/api/v1/ops/ingest", json=_VALID_PAYLOAD, headers={"X-API-Key": "test-secret"}
+            )
+    assert response.json()["status"] == "staged"
+    incidents_resp = await client.get("/incidents")
+    incident = incidents_resp.json()[0]
+    assert incident["reporter_phone"] == "254711223344"
+    assert incident["reporter_name"] == "John (Caretaker)"
+
+
 async def test_ingest_deduplicates_same_message_id(client):
     payload = {
         "event": "message.received",

@@ -78,8 +78,8 @@ async def ingest(
         if existing.scalar_one_or_none():
             return {"status": "duplicate", "message": "Message already processed"}
 
-    reporter_name = "Unknown"
-    reporter_phone = None
+    reporter_name = (data.get("notifyName") or "Unknown").strip()
+    reporter_phone = (data.get("author") or "").split("@")[0] or None
     message_body = data.get("body", "").strip()[:4000]
     epoch = data.get("timestamp") or datetime.now(timezone.utc).timestamp()
     received_at = datetime.fromtimestamp(epoch, tz=timezone.utc)
