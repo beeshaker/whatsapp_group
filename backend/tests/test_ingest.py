@@ -122,6 +122,28 @@ async def test_ingest_captures_reporter_identity(client):
     assert incident["reporter_name"] == "John (Caretaker)"
 
 
+async def test_ingest_reporter_defaults_when_fields_absent(client):
+    payload = {
+        "event": "message.received",
+        "data": {
+            "id": "msg-no-reporter",
+            "type": "chat",
+            "isGroup": True,
+            "chatId": "120363218945612345@g.us",
+            "body": "The water pump on floor 3 is leaking heavily",
+            "timestamp": 1782293340,
+        },
+    }
+    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASSIFICATION)):
+        with patch("main.push_incident", new=AsyncMock()):
+            resp = await client.post("/api/v1/ops/ingest", json=payload, headers={"X-API-Key": "test-secret"})
+    assert resp.json()["status"] == "staged"
+    incidents = (await client.get("/incidents")).json()
+    incident = incidents[0]
+    assert incident["reporter_name"] == "Unknown"
+    assert incident["reporter_phone"] is None
+
+
 async def test_ingest_deduplicates_same_message_id(client):
     payload = {
         "event": "message.received",
