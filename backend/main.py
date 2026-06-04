@@ -1,6 +1,7 @@
 import hmac
 import logging
 import os
+import socket
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
@@ -56,6 +57,12 @@ app = FastAPI(
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/webhook-url")
+async def webhook_url():
+    ip = socket.gethostbyname(socket.gethostname())
+    return {"url": f"http://{ip}:8000/api/v1/ops/ingest"}
 
 
 @app.post("/api/v1/ops/ingest", status_code=status.HTTP_202_ACCEPTED)

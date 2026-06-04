@@ -115,17 +115,13 @@
 
     async function registerWebhook() {
       document.getElementById('webhook-btn').disabled = true;
-      log('Detecting backend IP…');
-      // Try common Docker IPs
+      log('Getting backend webhook URL…');
       let backendUrl = null;
-      for (const ip of ['172.18.0.3','172.18.0.2','172.19.0.3','172.20.0.3']) {
-        try {
-          const r = await fetch('http://' + ip + ':8000/health');
-          if (r.ok) { backendUrl = 'http://' + ip + ':8000/api/v1/ops/ingest'; break; }
-        } catch(e) {}
-      }
-      if (!backendUrl) {
-        log('Could not detect backend IP — run: docker inspect whatsapp-ticketing-backend-1 --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"');
+      try {
+        const data = await fetch('http://localhost:8000/api/webhook-url').then(r => r.json());
+        backendUrl = data.url;
+      } catch(e) {
+        log('Backend unreachable — is it running?');
         document.getElementById('webhook-btn').disabled = false;
         return;
       }
