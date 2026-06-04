@@ -15,13 +15,12 @@ async def test_incidents_returns_staged_record(client):
         "confidence": 0.88,
     }
     payload = {
-        "event": "message",
+        "event": "message.received",
         "data": {
             "type": "chat",
             "isGroup": True,
             "chatId": "999@g.us",
             "chat": {"name": "Riverside Towers"},
-            "sender": {"name": "Ali (Caretaker)", "pushname": "Ali"},
             "author": "254700000001@c.us",
             "body": "Main fuse box tripped on ground floor",
             "timestamp": 1782293340,
@@ -40,7 +39,7 @@ async def test_incidents_returns_staged_record(client):
     assert records[0]["property_name"] == "Riverside Towers"
     assert records[0]["category"] == "electrical"
     assert records[0]["severity"] == "medium"
-    assert records[0]["status"] == "new"
+    assert records[0]["status"] == "review"
 
 
 async def test_dashboard_returns_html(client):
@@ -57,13 +56,12 @@ async def test_dashboard_contains_incident_table_markup(client):
         "confidence": 0.90,
     }
     payload = {
-        "event": "message",
+        "event": "message.received",
         "data": {
             "type": "chat",
             "isGroup": True,
             "chatId": "111@g.us",
             "chat": {"name": "Test Property"},
-            "sender": {"name": "Tester", "pushname": "Tester"},
             "author": "25400000000@c.us",
             "body": "Pipe burst in basement",
             "timestamp": 1782293340,

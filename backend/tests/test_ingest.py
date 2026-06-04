@@ -1,14 +1,16 @@
 from unittest.mock import AsyncMock, patch
 
 _VALID_PAYLOAD = {
-    "event": "message",
+    "event": "message.received",
     "data": {
+        "id": "msg-unique-xyz",
         "type": "chat",
         "isGroup": True,
         "chatId": "120363218945612345@g.us",
+        "from": "120363218945612345@g.us",
         "chat": {"name": "Oakridge Heights - Block B"},
-        "sender": {"name": "John (Caretaker)", "pushname": "John"},
         "author": "254711223344@c.us",
+        "notifyName": "John (Caretaker)",
         "body": "The water pump on floor 3 is leaking heavily",
         "timestamp": 1782293340,
     },
@@ -105,3 +107,23 @@ async def test_ingest_stages_confirmed_incident(client):
     assert body["property"] == "Oakridge Heights - Block B"
     assert body["category"] == "plumbing"
     assert body["severity"] == "high"
+
+
+async def test_ingest_deduplicates_same_message_id(client):
+    payload = {
+        "event": "message.received",
+        "data": {
+            "id": "msg-abc-123",
+            "type": "chat",
+            "isGroup": True,
+            "chatId": "120363218945612345@g.us",
+            "body": "The water pump on floor 3 is leaking heavily",
+            "timestamp": 1782293340,
+        },
+    }
+    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASSIFICATION)):
+        with patch("main.push_incident", new=AsyncMock()):
+            r1 = await client.post("/api/v1/ops/ingest", json=payload, headers={"X-API-Key": "test-secret"})
+            r2 = await client.post("/api/v1/ops/ingest", json=payload, headers={"X-API-Key": "test-secret"})
+    assert r1.json()["status"] == "staged"
+    assert r2.json()["status"] == "duplicate"

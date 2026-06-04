@@ -3,6 +3,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
@@ -64,14 +65,20 @@ async def ingest(
     event_type = payload.get("event")
     data = payload.get("data", {})
 
-    if event_type != "message" or data.get("type") != "chat" or not data.get("isGroup", False):
+    if event_type != "message.received" or data.get("type") != "chat" or not data.get("isGroup", False):
         return {"status": "ignored", "message": "Non-group or non-chat event skipped"}
 
     group_id = data.get("chatId") or data.get("from", "")
-    group_name = data.get("chat", {}).get("name", "Unmapped Property Group")
-    sender = data.get("sender", {})
-    reporter_name = sender.get("name") or sender.get("pushname") or "Anonymous"
-    reporter_phone = data.get("author", "").split("@")[0]
+    group_name = (data.get("chat") or {}).get("name") or (group_id.split("@")[0] if group_id else "Unmapped Property Group")
+    message_id: Optional[str] = data.get("id") or None
+
+    if message_id:
+        existing = await db.execute(select(Incident).where(Incident.message_id == message_id))
+        if existing.scalar_one_or_none():
+            return {"status": "duplicate", "message": "Message already processed"}
+
+    reporter_name = "Unknown"
+    reporter_phone = None
     message_body = data.get("body", "").strip()[:4000]
     epoch = data.get("timestamp") or datetime.now(timezone.utc).timestamp()
     received_at = datetime.fromtimestamp(epoch, tz=timezone.utc)
@@ -93,8 +100,9 @@ async def ingest(
         category=classification["category"],
         severity=classification["severity"],
         confidence=classification["confidence"],
-        status="new",
+        status="review",
         received_at=received_at,
+        message_id=message_id,
     )
     try:
         db.add(incident)
