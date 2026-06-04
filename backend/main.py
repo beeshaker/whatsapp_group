@@ -9,6 +9,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from classifier import classify_message
@@ -108,6 +109,9 @@ async def ingest(
         db.add(incident)
         await db.commit()
         await db.refresh(incident)
+    except IntegrityError:
+        await db.rollback()
+        return {"status": "duplicate", "message": "Message already processed"}
     except Exception as exc:
         await db.rollback()
         logger.error("DB commit failed: %s", exc)
