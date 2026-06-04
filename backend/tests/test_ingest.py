@@ -144,6 +144,33 @@ async def test_ingest_reporter_defaults_when_fields_absent(client):
     assert incident["reporter_phone"] is None
 
 
+async def test_patch_incident_status(client):
+    # Create an incident first
+    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASSIFICATION)):
+        with patch("main.push_incident", new=AsyncMock()):
+            await client.post("/api/v1/ops/ingest", json=_VALID_PAYLOAD, headers={"X-API-Key": "test-secret"})
+
+    incidents = (await client.get("/incidents")).json()
+    incident_id = incidents[0]["id"]
+
+    response = await client.patch(
+        f"/incidents/{incident_id}/status",
+        json={"status": "acknowledged"},
+        headers={"X-API-Key": "test-secret"},
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "acknowledged"
+
+
+async def test_patch_incident_status_rejects_invalid(client):
+    response = await client.patch(
+        "/incidents/1/status",
+        json={"status": "banana"},
+        headers={"X-API-Key": "test-secret"},
+    )
+    assert response.status_code == 422
+
+
 async def test_ingest_deduplicates_same_message_id(client):
     payload = {
         "event": "message.received",

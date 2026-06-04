@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from pydantic import BaseModel
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
@@ -16,6 +17,13 @@ from classifier import classify_message
 from database import get_db, init_db
 from models import Incident
 from odoo_stub import push_incident
+
+_VALID_STATUSES = {"new", "review", "acknowledged", "resolved", "ignored"}
+
+
+class StatusUpdate(BaseModel):
+    status: str
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -156,6 +164,26 @@ async def list_incidents(db: AsyncSession = Depends(get_db)):
         }
         for i in result.scalars().all()
     ]
+
+
+@app.patch("/incidents/{incident_id}/status")
+async def update_incident_status(
+    incident_id: int,
+    body: StatusUpdate,
+    x_api_key: str = Header(None, alias="X-API-Key"),
+    db: AsyncSession = Depends(get_db),
+):
+    if not hmac.compare_digest(x_api_key or "", GATEWAY_SECRET_TOKEN):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if body.status not in _VALID_STATUSES:
+        raise HTTPException(status_code=422, detail=f"status must be one of {sorted(_VALID_STATUSES)}")
+    result = await db.execute(select(Incident).where(Incident.id == incident_id))
+    incident = result.scalar_one_or_none()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    incident.status = body.status
+    await db.commit()
+    return {"id": incident.id, "status": incident.status}
 
 
 @app.get("/", response_class=HTMLResponse)
