@@ -37,6 +37,13 @@ _LOW_CONF_CLASSIFICATION = {
     "confidence": 0.3,
 }
 
+_MID_CONF_CLASSIFICATION = {
+    "is_incident": True,
+    "category": "plumbing",
+    "severity": "low",
+    "confidence": 0.75,
+}
+
 
 async def test_health(client):
     response = await client.get("/health")
@@ -86,6 +93,15 @@ async def test_ingest_discards_noise(client):
 
 async def test_ingest_discards_low_confidence(client):
     with patch("main.classify_message", new=AsyncMock(return_value=_LOW_CONF_CLASSIFICATION)):
+        response = await client.post(
+            "/api/v1/ops/ingest", json=_VALID_PAYLOAD, headers={"X-API-Key": "test-secret"}
+        )
+    assert response.status_code == 202
+    assert response.json()["status"] == "noise"
+
+
+async def test_ingest_discards_below_new_threshold(client):
+    with patch("main.classify_message", new=AsyncMock(return_value=_MID_CONF_CLASSIFICATION)):
         response = await client.post(
             "/api/v1/ops/ingest", json=_VALID_PAYLOAD, headers={"X-API-Key": "test-secret"}
         )

@@ -3,7 +3,7 @@ import os
 # Set env vars BEFORE any app imports — database.py reads these at module load
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 os.environ["GATEWAY_SECRET_TOKEN"] = "test-secret"
-os.environ["MIN_CONFIDENCE"] = "0.65"
+os.environ["MIN_CONFIDENCE"] = "0.80"
 
 import pytest
 import pytest_asyncio

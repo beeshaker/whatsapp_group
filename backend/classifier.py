@@ -26,10 +26,13 @@ _VALID_SEVERITIES = {"low", "medium", "high"}
 
 
 def _build_prompt(message: str) -> str:
-    safe_message = json.dumps(message)  # produces "..." with all control chars escaped
+    safe_message = json.dumps(message)
     return (
-        "Classify this WhatsApp message from a property management group.\n"
-        "Return ONLY valid JSON, no explanation:\n"
+        "You are classifying WhatsApp messages from a property management company.\n"
+        "Properties include residential blocks, lifts, water systems, electrical infrastructure.\n"
+        "An INCIDENT is a concrete, actionable operational problem requiring maintenance or emergency response.\n"
+        "NOT an incident: general chat, greetings, scheduling discussions, complaints without a specific fault.\n\n"
+        "Return ONLY valid JSON, no explanation, no markdown:\n"
         "{\n"
         '  "is_incident": true or false,\n'
         '  "category": "plumbing|electrical|lift|security|structural|cleaning|access|other",\n'
