@@ -42,6 +42,8 @@ services:
     ports:
       - "2785:2785"
       - "2886:2886"
+    volumes:
+      - openwa_data:/app/data
     networks:
       - ops-net
     depends_on:
@@ -53,3 +55,4 @@ networks:
 
 volumes:
   postgres_data:
+  openwa_data:

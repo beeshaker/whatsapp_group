@@ -1,0 +1,79 @@
+# ============================================================
+# WHATSAPP OPS GATEWAY — STARTUP RUNBOOK
+# ============================================================
+# NORMAL RESTART (session already linked, volumes intact):
+#   docker compose up -d        ← that's it, done
+#
+# FIRST-TIME SETUP or if session was wiped:
+#   Follow Steps 1–7 below
+# ============================================================
+
+# STEP 1 — Start all containers
+docker compose up -d
+
+# STEP 2 — Create a new WhatsApp session (only needed if session was wiped)
+curl -s -X POST http://localhost:2785/api/sessions \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: dev-admin-key" \
+  -d '{"name": "opsgateway"}' | jq '{id, status}'
+# → Copy the "id" value from the output and paste it as SESSION_ID below
+
+SESSION_ID=PASTE-UUID-HERE
+
+# STEP 3 — Start the session
+curl -s -X POST "http://localhost:2785/api/sessions/$SESSION_ID/start" \
+  -H "X-API-Key: dev-admin-key" | jq .status
+# → Wait 10–15 seconds, then check status:
+curl -s "http://localhost:2785/api/sessions/$SESSION_ID" \
+  -H "X-API-Key: dev-admin-key" | jq .status
+# → Repeat until status is "qr_ready" or "ready"
+# → If "ready" — session reconnected from cache, skip to STEP 5
+
+# STEP 4 — Scan QR code (open TWO terminals)
+# Terminal A — keep refreshing the QR file every 15 seconds:
+while true; do
+  curl -s "http://localhost:2785/api/sessions/$SESSION_ID/qr" \
+    -H "X-API-Key: dev-admin-key" | python3 -c "
+import sys, json, base64
+try:
+    data = json.load(sys.stdin)
+    qr = data['qrCode'].split(',', 1)[1]
+    sys.stdout.buffer.write(base64.b64decode(qr))
+except: pass
+" > /tmp/qr.png
+  echo "QR updated $(date +%H:%M:%S) — open http://localhost:9999/qr.png and scan NOW"
+  sleep 15
+done
+
+# Terminal B — serve the QR image:
+python3 -m http.server 9999 --directory /tmp
+# → Open http://localhost:9999/qr.png in browser
+# → On phone: WhatsApp → ⋮ → Linked Devices → Link a Device → scan
+# → Scan immediately after "QR updated" prints (within 15 seconds)
+
+# STEP 5 — Confirm session is connected
+curl -s "http://localhost:2785/api/sessions/$SESSION_ID" \
+  -H "X-API-Key: dev-admin-key" | jq '{status, phone}'
+# → Should show status "ready" and your phone number
+
+# STEP 6 — Register the webhook
+BACKEND_IP=$(docker inspect whatsapp-ticketing-backend-1 \
+  --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
+echo "Backend IP: $BACKEND_IP"
+
+curl -s -X POST "http://localhost:2785/api/sessions/$SESSION_ID/webhooks" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: dev-admin-key" \
+  -d "{
+    \"url\": \"http://$BACKEND_IP:8000/api/v1/ops/ingest\",
+    \"events\": [\"message.received\"],
+    \"headers\": {\"X-API-Key\": \"ops-gateway-secret-2026\"}
+  }" | jq '{id, url, active}'
+# → Should show active: true
+
+# STEP 7 — Verify the full pipeline
+curl -s http://localhost:8000/health | jq .
+# → Should show {"status": "ok"}
+# → Send a test message to any WhatsApp group
+# → Watch logs: docker compose logs backend -f
+# → Open dashboard: http://localhost:8000/
