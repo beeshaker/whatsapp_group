@@ -78,7 +78,7 @@ async def ingest(
         return {"status": "ignored", "message": "Non-group or non-chat event skipped"}
 
     group_id = data.get("chatId") or data.get("from", "")
-    group_name = (data.get("chat") or {}).get("name") or (group_id.split("@")[0] if group_id else "Unmapped Property Group")
+    group_name = data.get("chatName") or (data.get("chat") or {}).get("name") or (group_id.split("@")[0] if group_id else "Unmapped Property Group")
     message_id: Optional[str] = data.get("id") or None
 
     if message_id:
