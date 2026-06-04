@@ -21,13 +21,20 @@ async def get_db():
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Migrate: add message_id column if not present (no-op for fresh schemas)
-        try:
+
+    # Each migration runs in its own transaction so an expected failure (column/index
+    # already exists) doesn't abort the transaction that follows.
+    try:
+        async with engine.begin() as conn:
             await conn.execute(text("ALTER TABLE incidents ADD COLUMN message_id TEXT"))
-        except Exception:
-            pass
-        # Ensure unique index exists (idempotent — IF NOT EXISTS is safe on PG and SQLite)
-        await conn.execute(text(
-            "CREATE UNIQUE INDEX IF NOT EXISTS uq_incidents_message_id "
-            "ON incidents (message_id)"
-        ))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_incidents_message_id "
+                "ON incidents (message_id)"
+            ))
+    except Exception:
+        pass
