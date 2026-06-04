@@ -7,28 +7,72 @@
   <style>
     body { font-family: sans-serif; margin: 2rem; background: #f5f5f5; }
     h1 { color: #333; }
+    .filters { display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center; }
+    .filters label { font-size: 0.85rem; color: #555; }
+    .filters select { padding: 0.3rem 0.5rem; border: 1px solid #ccc; border-radius: 4px; font-size: 0.85rem; }
     table { width: 100%; border-collapse: collapse; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
     th { background: #2c3e50; color: #fff; padding: 0.75rem 1rem; text-align: left; font-size: 0.85rem; }
     td { padding: 0.7rem 1rem; border-bottom: 1px solid #eee; font-size: 0.9rem; vertical-align: top; }
     tr:last-child td { border-bottom: none; }
+    tr.hidden { display: none; }
     .sev-high   { background: #fdecea; }
     .sev-medium { background: #fff8e1; }
     .sev-low    { background: #e8f5e9; }
     .badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 3px; font-size: 0.78rem; font-weight: bold; }
-    .badge-high   { background: #e53935; color: #fff; }
-    .badge-medium { background: #f9a825; color: #fff; }
-    .badge-low    { background: #43a047; color: #fff; }
-    .badge-new    { background: #1565c0; color: #fff; }
+    .badge-high         { background: #e53935; color: #fff; }
+    .badge-medium       { background: #f9a825; color: #fff; }
+    .badge-low          { background: #43a047; color: #fff; }
+    .badge-new          { background: #1565c0; color: #fff; }
+    .badge-review       { background: #6a1b9a; color: #fff; }
+    .badge-acknowledged { background: #00695c; color: #fff; }
+    .badge-resolved     { background: #37474f; color: #fff; }
+    .badge-ignored      { background: #9e9e9e; color: #fff; }
+    .actions select { font-size: 0.78rem; padding: 0.15rem 0.3rem; border: 1px solid #ccc; border-radius: 3px; cursor: pointer; }
     .meta { color: #888; font-size: 0.8rem; }
     p.empty { color: #888; font-style: italic; }
   </style>
 </head>
 <body>
   <h1>{{ title }}</h1>
-  <p>{{ incidents|length }} incident(s) captured</p>
+  <p id="count">{{ incidents|length }} incident(s) captured</p>
+
+  <div class="filters">
+    <label>Status:
+      <select id="filter-status" onchange="applyFilters()">
+        <option value="">All</option>
+        <option value="review">review</option>
+        <option value="new">new</option>
+        <option value="acknowledged">acknowledged</option>
+        <option value="resolved">resolved</option>
+        <option value="ignored">ignored</option>
+      </select>
+    </label>
+    <label>Severity:
+      <select id="filter-severity" onchange="applyFilters()">
+        <option value="">All</option>
+        <option value="high">high</option>
+        <option value="medium">medium</option>
+        <option value="low">low</option>
+      </select>
+    </label>
+    <label>Category:
+      <select id="filter-category" onchange="applyFilters()">
+        <option value="">All</option>
+        <option value="plumbing">plumbing</option>
+        <option value="electrical">electrical</option>
+        <option value="lift">lift</option>
+        <option value="security">security</option>
+        <option value="structural">structural</option>
+        <option value="cleaning">cleaning</option>
+        <option value="access">access</option>
+        <option value="other">other</option>
+      </select>
+    </label>
+    <button onclick="location.reload()" style="padding:0.3rem 0.7rem;font-size:0.85rem;cursor:pointer;">&#8635; Refresh</button>
+  </div>
 
   {% if incidents %}
-  <table>
+  <table id="incident-table">
     <thead>
       <tr>
         <th>#</th>
@@ -39,22 +83,37 @@
         <th>Reporter</th>
         <th>Message</th>
         <th>Received</th>
+        <th>Action</th>
       </tr>
     </thead>
     <tbody>
       {% for i in incidents %}
-      <tr class="sev-{{ i.severity }}">
+      <tr class="sev-{{ i.severity }}"
+          data-incident-id="{{ i.id }}"
+          data-status="{{ i.status }}"
+          data-severity="{{ i.severity }}"
+          data-category="{{ i.category }}">
         <td class="meta">{{ i.id }}</td>
         <td><strong>{{ i.property_name }}</strong></td>
         <td>{{ i.category }}</td>
         <td><span class="badge badge-{{ i.severity }}">{{ i.severity }}</span></td>
-        <td><span class="badge badge-{{ i.status }}">{{ i.status }}</span></td>
+        <td class="status-cell"><span class="badge badge-{{ i.status }}">{{ i.status }}</span></td>
         <td>
           {{ i.reporter_name or "—" }}<br>
-          <span class="meta">+{{ i.reporter_phone or "unknown" }}</span>
+          <span class="meta">{{ ("+"+i.reporter_phone) if i.reporter_phone else "unknown" }}</span>
         </td>
         <td>{{ i.message_body }}</td>
         <td class="meta">{{ i.received_at.strftime("%Y-%m-%d %H:%M") }}</td>
+        <td class="actions">
+          <select onchange="updateStatus({{ i.id }}, this)">
+            <option value="">— set status —</option>
+            <option value="review">review</option>
+            <option value="new">new</option>
+            <option value="acknowledged">acknowledged</option>
+            <option value="resolved">resolved</option>
+            <option value="ignored">ignored</option>
+          </select>
+        </td>
       </tr>
       {% endfor %}
     </tbody>
@@ -62,5 +121,43 @@
   {% else %}
   <p class="empty">No incidents captured yet. Waiting for property group messages.</p>
   {% endif %}
+
+<script>
+function applyFilters() {
+  const status   = document.getElementById('filter-status').value;
+  const severity = document.getElementById('filter-severity').value;
+  const category = document.getElementById('filter-category').value;
+  let visible = 0;
+  document.querySelectorAll('#incident-table tbody tr').forEach(row => {
+    const match =
+      (!status   || row.dataset.status   === status)   &&
+      (!severity || row.dataset.severity === severity) &&
+      (!category || row.dataset.category === category);
+    row.classList.toggle('hidden', !match);
+    if (match) visible++;
+  });
+  document.getElementById('count').textContent = visible + ' incident(s) shown';
+}
+
+async function updateStatus(id, select) {
+  const newStatus = select.value;
+  if (!newStatus) return;
+  const resp = await fetch('/incidents/' + id + '/status', {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json', 'X-API-Key': '{{ api_key }}'},
+    body: JSON.stringify({status: newStatus}),
+  });
+  if (resp.ok) {
+    const row = select.closest('tr');
+    row.dataset.status = newStatus;
+    row.querySelector('.status-cell').innerHTML =
+      '<span class="badge badge-' + newStatus + '">' + newStatus + '</span>';
+    select.value = '';
+    applyFilters();
+  } else {
+    alert('Failed to update status');
+  }
+}
+</script>
 </body>
 </html>

@@ -74,3 +74,21 @@ async def test_dashboard_contains_incident_table_markup(client):
     response = await client.get("/")
     assert response.status_code == 200
     assert b"<table" in response.content
+
+
+async def test_dashboard_has_filter_controls(client):
+    response = await client.get("/")
+    assert response.status_code == 200
+    assert b'id="filter-status"' in response.content
+    assert b'id="filter-severity"' in response.content
+    assert b'id="filter-category"' in response.content
+
+
+async def test_dashboard_shows_review_badge(client):
+    from tests.test_ingest import _VALID_PAYLOAD, _INCIDENT_CLASSIFICATION
+    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASSIFICATION)):
+        with patch("main.push_incident", new=AsyncMock()):
+            await client.post("/api/v1/ops/ingest", json=_VALID_PAYLOAD, headers={"X-API-Key": "test-secret"})
+    response = await client.get("/")
+    assert b"badge-review" in response.content
+    assert b"data-incident-id" in response.content

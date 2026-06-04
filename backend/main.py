@@ -196,5 +196,6 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
             "request": request,
             "incidents": incidents,
             "title": os.getenv("DASHBOARD_TITLE", "Ops Incident Monitor"),
+            "api_key": GATEWAY_SECRET_TOKEN,
         },
     )
