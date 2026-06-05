@@ -28,6 +28,9 @@ services:
       OLLAMA_TIMEOUT: ${OLLAMA_TIMEOUT:-10}
       MIN_CONFIDENCE: ${MIN_CONFIDENCE:-0.65}
       DASHBOARD_TITLE: ${DASHBOARD_TITLE:-Ops Incident Monitor}
+      OPENWA_URL: ${OPENWA_URL:-http://openwa:2785}
+      OPENWA_SESSION: ${OPENWA_SESSION:-opsgateway}
+      OPENWA_API_KEY: ${OPENWA_API_KEY:-}
     networks:
       - ops-net
     extra_hosts:
