@@ -465,6 +465,78 @@ async def get_incident_detail(
     }
 
 
+@app.get("/media/{media_id}")
+async def serve_media(
+    media_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(IncidentMedia).where(IncidentMedia.id == media_id))
+    media = result.scalar_one_or_none()
+    if not media:
+        raise HTTPException(status_code=404, detail="Media not found")
+    if not os.path.exists(media.file_path):
+        raise HTTPException(status_code=404, detail="Media file not found on disk")
+    return FileResponse(media.file_path, media_type=media.mimetype, filename=media.filename)
+
+
+@app.patch("/incidents/{update_id}/relink")
+async def relink_update(
+    update_id: int,
+    body: RelinkBody,
+    x_api_key: str = Header(None, alias="X-API-Key"),
+    db: AsyncSession = Depends(get_db),
+):
+    if not hmac.compare_digest(x_api_key or "", GATEWAY_SECRET_TOKEN):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    result = await db.execute(select(IncidentUpdate).where(IncidentUpdate.id == update_id))
+    update = result.scalar_one_or_none()
+    if not update:
+        raise HTTPException(status_code=404, detail="Update not found")
+
+    if body.incident_id is None:
+        old_parent = await db.get(Incident, update.incident_id)
+        new_incident = Incident(
+            group_id=old_parent.group_id if old_parent else "",
+            property_name=old_parent.property_name if old_parent else "Unknown",
+            reporter_name=update.reporter_name,
+            reporter_phone=update.reporter_phone,
+            message_body=update.message_body,
+            category="other",
+            severity="low",
+            confidence=0.0,
+            status="review",
+            received_at=update.received_at,
+            message_id=update.message_id,
+        )
+        db.add(new_incident)
+        await db.flush()
+        media_res = await db.execute(
+            select(IncidentMedia).where(IncidentMedia.update_id == update_id)
+        )
+        for m in media_res.scalars().all():
+            m.incident_id = new_incident.id
+            m.update_id = None
+        await db.delete(update)
+        await db.commit()
+        return {"update_id": update_id, "incident_id": new_incident.id, "promoted": True}
+
+    target = await db.get(Incident, body.incident_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="Target incident not found")
+
+    update.incident_id = body.incident_id
+    update.ai_linked = False
+    media_res = await db.execute(
+        select(IncidentMedia).where(IncidentMedia.update_id == update_id)
+    )
+    for m in media_res.scalars().all():
+        m.incident_id = body.incident_id
+    target.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return {"update_id": update_id, "incident_id": body.incident_id}
+
+
 @app.patch("/incidents/{incident_id}/status")
 async def update_incident_status(
     incident_id: int,
