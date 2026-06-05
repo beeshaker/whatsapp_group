@@ -978,6 +978,14 @@
     }
 
     .media-file-row:hover { color: var(--text); border-color: rgba(56,189,248,0.3); }
+
+    .card.removing {
+      transition: opacity 0.25s ease, max-height 0.3s ease, margin-bottom 0.3s ease;
+      opacity: 0;
+      max-height: 0 !important;
+      overflow: hidden;
+      margin-bottom: 0;
+    }
   </style>
 </head>
 <body>
@@ -986,12 +994,20 @@
       <div class="brand">
         <div class="brand-mark">🏢</div>
         <div>
-          <div class="eyebrow">Incident Command Centre</div>
+          <div class="eyebrow">{% if mode == 'archive' %}Incident Archive{% else %}Incident Command Centre{% endif %}</div>
           <h1>{{ title }}</h1>
-          <div class="subline">Monitor WhatsApp property group incidents, triage priority cases, and update status.</div>
+          <div class="subline">{% if mode == 'archive' %}Browse and reopen resolved incidents.{% else %}Monitor WhatsApp property group incidents, triage priority cases, and update status.{% endif %}</div>
         </div>
       </div>
 
+      {% if mode == 'archive' %}
+      <div class="stats">
+        <div class="stat">
+          <div class="n" id="stat-total">0</div>
+          <div class="l">Total Resolved</div>
+        </div>
+      </div>
+      {% else %}
       <div class="stats">
         <div class="stat red">
           <div class="n" id="stat-high">0</div>
@@ -1010,6 +1026,12 @@
           <div class="l">Total Today</div>
         </div>
       </div>
+      {% endif %}
+      {% if mode == 'archive' %}
+      <a href="/" class="ghost-btn" style="align-self:center;text-decoration:none;white-space:nowrap">← Live Board</a>
+      {% else %}
+      <a href="/archive" class="ghost-btn" style="align-self:center;text-decoration:none;white-space:nowrap">Archive →</a>
+      {% endif %}
     </header>
 
     <div id="new-banner" onclick="loadNewIncidents()">
@@ -1024,6 +1046,7 @@
         </div>
 
         <div class="filter-scroll">
+          {% if mode != 'archive' %}
           <div class="filter-group collapsible" data-group="status">
             <button type="button" class="filter-header" onclick="toggleFilterGroup(this)">
               <h4>Status</h4>
@@ -1033,10 +1056,10 @@
               <div class="fopt" data-filter="status" data-val="review" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#a855f7"></span>Review</span><span class="cnt" data-cnt="review">0</span></div>
               <div class="fopt" data-filter="status" data-val="new" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#38bdf8"></span>New</span><span class="cnt" data-cnt="new">0</span></div>
               <div class="fopt" data-filter="status" data-val="acknowledged" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#14b8a6"></span>Acknowledged</span><span class="cnt" data-cnt="acknowledged">0</span></div>
-              <div class="fopt" data-filter="status" data-val="resolved" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#94a3b8"></span>Resolved</span><span class="cnt" data-cnt="resolved">0</span></div>
               <div class="fopt" data-filter="status" data-val="ignored" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#6b7280"></span>Ignored</span><span class="cnt" data-cnt="ignored">0</span></div>
             </div>
           </div>
+          {% endif %}
 
           <div class="filter-group collapsible" data-group="severity">
             <button type="button" class="filter-header" onclick="toggleFilterGroup(this)">
@@ -1076,7 +1099,7 @@
       <main class="main">
         <div class="toolbar">
           <div>
-            <div class="toolbar-title">Live incident queue</div>
+            <div class="toolbar-title">{% if mode == 'archive' %}Resolved incidents{% else %}Live incident queue{% endif %}</div>
             <div class="toolbar-meta"><span id="visible-count">0</span> visible · Polling every 30 seconds</div>
           </div>
           <div class="toolbar-actions">
@@ -1142,10 +1165,14 @@
                       <div class="message">{{ i.message_body }}</div>
                     </div>
                     <div class="actions" id="actions-{{ i.id }}">
+                      {% if mode == 'archive' %}
+                      <button class="act-btn btn-review" onclick="setStatus({{ i.id }}, 'review', event)">↩ Reopen</button>
+                      {% else %}
                       <button class="act-btn btn-ack" onclick="setStatus({{ i.id }}, 'acknowledged', event)">✓ Acknowledge</button>
                       <button class="act-btn btn-resolve" onclick="setStatus({{ i.id }}, 'resolved', event)">✓ Resolve</button>
                       <button class="act-btn btn-ignore" onclick="setStatus({{ i.id }}, 'ignored', event)">✗ Ignore</button>
                       <button class="act-btn btn-review" onclick="setStatus({{ i.id }}, 'review', event)">⟳ Send to Review</button>
+                      {% endif %}
                     </div>
                   </div>
                   <div class="side-details">
@@ -1192,6 +1219,7 @@
 
 <script>
 const API_KEY = '{{ api_key }}';
+const MODE = '{{ mode | default("live") }}';
 const POLL_INTERVAL = 30000;
 
 let allIncidents = [];
@@ -1327,23 +1355,33 @@ function extractIncidentFromCard(card) {
 
 async function poll() {
   try {
-    const data = await fetch('/incidents?since_id=' + maxId).then(r => r.json());
+    const pollUrl = MODE === 'archive'
+      ? '/incidents?statuses=resolved&since_id=' + maxId
+      : '/incidents?since_id=' + maxId;
+    const data = await fetch(pollUrl).then(r => r.json());
     if (!Array.isArray(data) || data.length === 0) return;
 
     const newMax = Math.max(...data.map(i => i.id));
     if (newMax > maxId) maxId = newMax;
 
+    const incoming = MODE === 'live'
+      ? data.filter(i => i.status !== 'resolved')
+      : data;
+
     const existingPending = new Set(pendingNew.map(i => i.id));
-    pendingNew = [...pendingNew, ...data.filter(i => !existingPending.has(i.id))];
+    pendingNew = [...pendingNew, ...incoming.filter(i => !existingPending.has(i.id))];
+    if (pendingNew.length === 0) return;
 
     document.getElementById('new-count').textContent = pendingNew.length;
     document.getElementById('new-banner').style.display = 'block';
     showToast(`${pendingNew.length} new incident${pendingNew.length === 1 ? '' : 's'} waiting to load`);
 
-    const highOpen = [...allIncidents, ...pendingNew].filter(
-      i => i.severity === 'high' && !['resolved','ignored'].includes(i.status)
-    ).length;
-    document.title = highOpen > 0 ? `(${highOpen} HIGH) {{ title }}` : '{{ title }}';
+    if (MODE === 'live') {
+      const highOpen = [...allIncidents, ...pendingNew].filter(
+        i => i.severity === 'high' && !['resolved','ignored'].includes(i.status)
+      ).length;
+      document.title = highOpen > 0 ? `(${highOpen} HIGH) {{ title }}` : '{{ title }}';
+    }
   } catch(e) {
     console.warn('Incident polling failed', e);
   }
@@ -1418,10 +1456,12 @@ function buildCard(raw) {
           <div class="message">${esc(i.message_body)}</div>
         </div>
         <div class="actions" id="actions-${i.id}">
-          <button class="act-btn btn-ack" onclick="setStatus(${i.id}, 'acknowledged', event)">✓ Acknowledge</button>
-          <button class="act-btn btn-resolve" onclick="setStatus(${i.id}, 'resolved', event)">✓ Resolve</button>
-          <button class="act-btn btn-ignore" onclick="setStatus(${i.id}, 'ignored', event)">✗ Ignore</button>
-          <button class="act-btn btn-review" onclick="setStatus(${i.id}, 'review', event)">⟳ Send to Review</button>
+          ${MODE === 'archive'
+            ? `<button class="act-btn btn-review" onclick="setStatus(${i.id}, 'review', event)">↩ Reopen</button>`
+            : `<button class="act-btn btn-ack" onclick="setStatus(${i.id}, 'acknowledged', event)">✓ Acknowledge</button>
+               <button class="act-btn btn-resolve" onclick="setStatus(${i.id}, 'resolved', event)">✓ Resolve</button>
+               <button class="act-btn btn-ignore" onclick="setStatus(${i.id}, 'ignored', event)">✗ Ignore</button>
+               <button class="act-btn btn-review" onclick="setStatus(${i.id}, 'review', event)">⟳ Send to Review</button>`}
         </div>
       </div>
       <div class="side-details">
@@ -1453,21 +1493,38 @@ async function setStatus(id, newStatus, event) {
 
     if (!r.ok) throw new Error('Failed to update status');
 
-    const card = document.querySelector(`.card[data-id="${id}"]`);
-    if (card) card.dataset.status = newStatus;
-
-    const badge = document.getElementById(`status-badge-${id}`);
-    if (badge) {
-      badge.className = `badge badge-${newStatus}`;
-      badge.textContent = statusLabels[newStatus] || newStatus;
-    }
-
     const inc = allIncidents.find(i => i.id === id);
     if (inc) inc.status = newStatus;
 
-    updateStats();
-    updateCounts();
-    applyFilters();
+    const shouldRemove =
+      (MODE === 'live' && newStatus === 'resolved') ||
+      (MODE === 'archive' && newStatus !== 'resolved');
+
+    if (shouldRemove) {
+      const card = document.querySelector(`.card[data-id="${id}"]`);
+      if (card) {
+        card.classList.add('removing');
+        setTimeout(() => {
+          card.remove();
+          const idx = allIncidents.findIndex(i => i.id === id);
+          if (idx !== -1) allIncidents.splice(idx, 1);
+          updateStats();
+          updateCounts();
+          applyFilters();
+        }, 320);
+      }
+    } else {
+      const card = document.querySelector(`.card[data-id="${id}"]`);
+      if (card) card.dataset.status = newStatus;
+      const badge = document.getElementById(`status-badge-${id}`);
+      if (badge) {
+        badge.className = `badge badge-${newStatus}`;
+        badge.textContent = statusLabels[newStatus] || newStatus;
+      }
+      updateStats();
+      updateCounts();
+      applyFilters();
+    }
     showToast(`Incident #${id} marked as ${newStatus}`);
   } catch (e) {
     showToast('Could not update status. Please try again.');
@@ -1571,10 +1628,14 @@ function applyFilters() {
 }
 
 function updateStats() {
+  if (MODE === 'archive') {
+    const total = document.getElementById('stat-total');
+    if (total) total.textContent = allIncidents.length;
+    return;
+  }
   const highOpen = allIncidents.filter(i => i.severity === 'high' && !['resolved','ignored'].includes(i.status)).length;
   const inReview = allIncidents.filter(i => i.status === 'review').length;
   const activeOpen = allIncidents.filter(i => !['resolved','ignored'].includes(i.status)).length;
-
   document.getElementById('stat-high').textContent = highOpen;
   document.getElementById('stat-review').textContent = inReview;
   document.getElementById('stat-open').textContent = activeOpen;
