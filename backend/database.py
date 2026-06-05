@@ -44,3 +44,34 @@ async def init_db():
             await conn.execute(text("ALTER TABLE incidents ADD COLUMN updated_at TIMESTAMP"))
     except Exception:
         pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE incident_updates ADD COLUMN relinked BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS incident_status_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    incident_id INTEGER NOT NULL REFERENCES incidents(id),
+                    from_status VARCHAR(20),
+                    to_status VARCHAR(20) NOT NULL,
+                    changed_at TIMESTAMP NOT NULL
+                )
+            """))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_incident_status_history_incident_id "
+                "ON incident_status_history (incident_id)"
+            ))
+    except Exception:
+        pass
