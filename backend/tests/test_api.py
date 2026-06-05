@@ -190,3 +190,40 @@ async def test_relink_404_for_missing_update(client):
         headers={"X-API-Key": "test-secret"},
     )
     assert r.status_code == 404
+
+
+async def test_relink_promote_update_to_standalone_incident(client):
+    # Create original incident
+    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+        with patch("main.push_incident", new=AsyncMock()):
+            await client.post("/api/v1/ops/ingest", json=_ORIGINAL, headers={"X-API-Key": "test-secret"})
+    incident_id = (await client.get("/incidents")).json()[0]["id"]
+
+    # Create an update on it
+    routing = {"routing": "update", "ticket_id": incident_id}
+    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+        with patch("main.classify_update_or_new", new=AsyncMock(return_value=routing)):
+            await client.post("/api/v1/ops/ingest", json=_FOLLOWUP, headers={"X-API-Key": "test-secret"})
+
+    detail = (await client.get(f"/incidents/{incident_id}")).json()
+    update_id = detail["updates"][0]["id"]
+
+    # Promote the update to a standalone incident
+    r = await client.patch(
+        f"/incidents/{update_id}/relink",
+        json={"incident_id": None},
+        headers={"X-API-Key": "test-secret"},
+    )
+    assert r.status_code == 200
+    assert r.json()["promoted"] is True
+    new_incident_id = r.json()["incident_id"]
+    assert new_incident_id != incident_id
+
+    # Original incident should have 0 updates now
+    detail_orig = (await client.get(f"/incidents/{incident_id}")).json()
+    assert len(detail_orig["updates"]) == 0
+
+    # New incident should exist and have the update's message body
+    new_detail = (await client.get(f"/incidents/{new_incident_id}")).json()
+    assert new_detail["message_body"] == "Still leaking"
+    assert new_detail["status"] == "review"
