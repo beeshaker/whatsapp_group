@@ -27,7 +27,7 @@ async def _create_incident(client) -> int:
 
 async def test_reply_creates_update_and_returns_it(client):
     incident_id = await _create_incident(client)
-    with patch("main.send_group_message", new=AsyncMock(return_value="wa-outgoing-123")):
+    with patch("main.reply_to_message", new=AsyncMock(return_value="wa-outgoing-123")):
         r = await client.post(
             f"/incidents/{incident_id}/reply",
             json={"text": "We are on our way"},
@@ -43,7 +43,7 @@ async def test_reply_creates_update_and_returns_it(client):
 
 async def test_reply_sets_incident_updated_at(client):
     incident_id = await _create_incident(client)
-    with patch("main.send_group_message", new=AsyncMock(return_value="wa-msg-upd")):
+    with patch("main.reply_to_message", new=AsyncMock(return_value="wa-msg-upd")):
         await client.post(
             f"/incidents/{incident_id}/reply",
             json={"text": "Acknowledged"},
@@ -55,7 +55,7 @@ async def test_reply_sets_incident_updated_at(client):
 
 async def test_reply_update_appears_in_detail_endpoint(client):
     incident_id = await _create_incident(client)
-    with patch("main.send_group_message", new=AsyncMock(return_value="wa-msg-detail")):
+    with patch("main.reply_to_message", new=AsyncMock(return_value="wa-msg-detail")):
         await client.post(
             f"/incidents/{incident_id}/reply",
             json={"text": "Technician dispatched"},
@@ -111,7 +111,7 @@ async def test_reply_returns_502_when_openwa_fails(client):
 async def test_reply_echo_dedup(client):
     incident_id = await _create_incident(client)
     wa_id = "wa-echo-test-999"
-    with patch("main.send_group_message", new=AsyncMock(return_value=wa_id)):
+    with patch("main.reply_to_message", new=AsyncMock(return_value=wa_id)):
         await client.post(
             f"/incidents/{incident_id}/reply",
             json={"text": "Echo test"},
