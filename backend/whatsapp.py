@@ -20,3 +20,15 @@ async def send_group_message(chat_id: str, text: str) -> str:
         )
         response.raise_for_status()
         return response.json()["messageId"]
+
+
+async def reply_to_message(chat_id: str, message_id: str, text: str) -> str:
+    """Reply to a specific WhatsApp message. Returns the WhatsApp message ID."""
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.post(
+            f"{OPENWA_URL}/api/sessions/{OPENWA_SESSION}/messages/reply",
+            headers={"X-API-Key": OPENWA_API_KEY, "Content-Type": "application/json"},
+            json={"chatId": chat_id, "quotedMessageId": message_id, "text": text},
+        )
+        response.raise_for_status()
+        return response.json()["messageId"]
