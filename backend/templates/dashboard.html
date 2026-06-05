@@ -986,6 +986,51 @@
       overflow: hidden;
       margin-bottom: 0;
     }
+
+    .reply-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .reply-textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--line);
+      background: var(--surface-2);
+      color: var(--text);
+      font: inherit;
+      font-size: 13px;
+      resize: vertical;
+      min-height: 72px;
+    }
+
+    .reply-textarea:focus {
+      outline: none;
+      border-color: rgba(56, 189, 248, 0.4);
+    }
+
+    .reply-send-btn {
+      align-self: flex-end;
+      padding: 7px 16px;
+      border-radius: var(--radius-sm);
+      border: none;
+      background: linear-gradient(135deg, #0ea5e9, #0284c7);
+      color: white;
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: filter 0.15s ease, opacity 0.15s ease;
+    }
+
+    .reply-send-btn:hover { filter: brightness(1.08); }
+    .reply-send-btn:disabled { opacity: 0.45; cursor: default; filter: none; }
+
+    .update-row-outbound {
+      background: rgba(7, 89, 133, 0.22);
+      border-color: rgba(56, 189, 248, 0.2);
+    }
   </style>
 </head>
 <body>
@@ -1272,7 +1317,8 @@ function renderDetailModal(detail) {
           </div>` : '';
         const mediaBadge = u.media_count > 0
           ? `<span style="color:var(--blue);font-size:11px">📎 ${u.media_count}</span>` : '';
-        return `<div class="update-row">
+        const isDashboard = u.reporter_name === 'Dashboard';
+        return `<div class="update-row${isDashboard ? ' update-row-outbound' : ''}">
           <div class="update-meta">
             <span>${esc(u.reporter_name || 'Unknown')} · ${formatTime(u.received_at)}${u.ai_linked ? ' · <em style="opacity:.6">AI-linked</em>' : ''}</span>
             ${mediaBadge}
@@ -1292,6 +1338,17 @@ function renderDetailModal(detail) {
         return `<a href="${url}" target="_blank" class="media-file-row" download="${esc(m.filename)}">📄 ${esc(m.filename)}</a>`;
       }).join('')}</div>`;
 
+  const replyHtml = API_KEY ? `
+    <div>
+      <div class="modal-section-label">Reply to group</div>
+      <div class="reply-wrap">
+        <textarea class="reply-textarea" id="reply-input-${detail.id}"
+          placeholder="Type a message to send to the group…" rows="3"></textarea>
+        <button class="reply-send-btn" id="reply-send-${detail.id}"
+          onclick="sendReply(${detail.id})">↑ Send</button>
+      </div>
+    </div>` : '';
+
   return `
     <div>
       <div class="modal-section-label">Original report</div>
@@ -1304,7 +1361,36 @@ function renderDetailModal(detail) {
     <div>
       <div class="modal-section-label">Attachments (${detail.media.length})</div>
       ${mediaHtml}
-    </div>`;
+    </div>
+    ${replyHtml}`;
+}
+
+async function sendReply(incidentId) {
+  const textarea = document.getElementById(`reply-input-${incidentId}`);
+  const btn = document.getElementById(`reply-send-${incidentId}`);
+  const text = textarea.value.trim();
+  if (!text) return;
+
+  btn.disabled = true;
+  btn.textContent = '…';
+  textarea.disabled = true;
+
+  try {
+    const r = await fetch(`/incidents/${incidentId}/reply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+      body: JSON.stringify({ text }),
+    });
+    if (!r.ok) throw new Error('Send failed');
+    textarea.value = '';
+    showToast('Message sent to group');
+    await openDetailModal(incidentId);
+  } catch(e) {
+    showToast('Failed to send — please try again');
+    btn.disabled = false;
+    btn.textContent = '↑ Send';
+    textarea.disabled = false;
+  }
 }
 
 async function relinkUpdate(updateId, currentIncidentId) {
