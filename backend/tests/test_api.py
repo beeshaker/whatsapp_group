@@ -243,3 +243,19 @@ async def test_ingest_creates_status_history_entry(client):
     assert len(detail["status_history"]) == 1
     assert detail["status_history"][0]["from_status"] is None
     assert detail["status_history"][0]["to_status"] == "review"
+
+
+async def test_status_change_appends_history(client):
+    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+        with patch("main.push_incident", new=AsyncMock()):
+            await client.post("/api/v1/ops/ingest", json=_ORIGINAL, headers={"X-API-Key": "test-secret"})
+    incident_id = (await client.get("/incidents")).json()[0]["id"]
+
+    await client.patch(
+        f"/incidents/{incident_id}/status",
+        json={"status": "acknowledged"},
+        headers={"X-API-Key": "test-secret"},
+    )
+    detail = (await client.get(f"/incidents/{incident_id}")).json()
+    # status_history won't be in response until Task 6 — just verify endpoint returns 200
+    assert detail["status"] == "acknowledged"

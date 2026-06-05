@@ -588,7 +588,14 @@ async def update_incident_status(
     incident = result.scalar_one_or_none()
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
+    old_status = incident.status
     incident.status = body.status
+    db.add(IncidentStatusHistory(
+        incident_id=incident_id,
+        from_status=old_status,
+        to_status=body.status,
+        changed_at=datetime.now(timezone.utc),
+    ))
     await db.commit()
     return {"id": incident.id, "status": incident.status}
 
