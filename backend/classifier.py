@@ -66,3 +66,47 @@ async def classify_message(message: str) -> dict:
     except Exception as exc:
         logger.error("Ollama classification failed: %s", exc)
         return _FALLBACK.copy()
+
+
+def _build_routing_prompt(message: str, open_tickets: list[dict]) -> str:
+    ticket_lines = "\n".join(
+        f"- ticket_id={t['id']}: [{t['category']}] {t['message_body'][:200]}"
+        for t in open_tickets
+    )
+    safe_message = json.dumps(message)
+    return (
+        "You are deciding whether a WhatsApp message is an update to an existing open ticket "
+        "or a brand new issue.\n\n"
+        "Open tickets in this group:\n"
+        f"{ticket_lines}\n\n"
+        "Return ONLY valid JSON, no explanation, no markdown:\n"
+        '{"routing": "new"}\n'
+        "or\n"
+        '{"routing": "update", "ticket_id": <integer id from the list above>}\n\n'
+        f"New message: {safe_message}"
+    )
+
+
+async def classify_update_or_new(message: str, open_tickets: list[dict]) -> dict:
+    if not open_tickets:
+        return {"routing": "new"}
+    prompt = _build_routing_prompt(message, open_tickets)
+    try:
+        async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
+            response = await client.post(
+                f"{OLLAMA_HOST}/api/generate",
+                json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+            )
+            response.raise_for_status()
+            raw = response.json().get("response", "")
+            parsed = json.loads(raw)
+            routing = str(parsed.get("routing", "new")).lower()
+            if routing == "update":
+                ticket_id = int(parsed["ticket_id"])
+                valid_ids = {t["id"] for t in open_tickets}
+                if ticket_id in valid_ids:
+                    return {"routing": "update", "ticket_id": ticket_id}
+            return {"routing": "new"}
+    except Exception as exc:
+        logger.error("classify_update_or_new failed: %s", exc)
+        return {"routing": "new"}
