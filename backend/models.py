@@ -36,6 +36,7 @@ class IncidentUpdate(Base):
     message_body: Mapped[str] = mapped_column(Text, nullable=False)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ai_linked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    relinked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
 
 class IncidentMedia(Base):
@@ -48,3 +49,13 @@ class IncidentMedia(Base):
     mimetype: Mapped[str] = mapped_column(Text, nullable=False)
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class IncidentStatusHistory(Base):
+    __tablename__ = "incident_status_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    incident_id: Mapped[int] = mapped_column(Integer, ForeignKey("incidents.id"), nullable=False, index=True)
+    from_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    to_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
