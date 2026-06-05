@@ -5,168 +5,1188 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ title }}</title>
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: sans-serif; background: #111; color: #eee; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+    :root {
+      --bg: #07111f;
+      --bg-soft: #0b1728;
+      --surface: #101f34;
+      --surface-2: #132840;
+      --surface-3: #18324f;
+      --line: rgba(148, 163, 184, 0.18);
+      --text: #eef6ff;
+      --muted: #91a3b8;
+      --muted-2: #65758a;
+      --blue: #38bdf8;
+      --blue-deep: #075985;
+      --red: #ef4444;
+      --red-soft: rgba(239, 68, 68, 0.14);
+      --amber: #f59e0b;
+      --amber-soft: rgba(245, 158, 11, 0.14);
+      --green: #22c55e;
+      --green-soft: rgba(34, 197, 94, 0.14);
+      --purple: #a855f7;
+      --purple-soft: rgba(168, 85, 247, 0.16);
+      --shadow: 0 18px 45px rgba(0, 0, 0, 0.28);
+      --radius-xl: 22px;
+      --radius-lg: 16px;
+      --radius-md: 12px;
+      --radius-sm: 10px;
+    }
 
-    /* Top bar */
-    .topbar { background: #1a1a2e; padding: 10px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #333; flex-shrink: 0; }
-    .topbar h1 { font-size: 15px; font-weight: 700; color: #fff; }
-    .stats { display: flex; gap: 8px; margin-left: auto; }
-    .stat { background: #0f3460; border-radius: 6px; padding: 4px 12px; text-align: center; min-width: 70px; }
-    .stat .n { font-size: 20px; font-weight: bold; line-height: 1.2; }
-    .stat .l { font-size: 9px; color: #aaa; text-transform: uppercase; }
-    .stat.red    { background: #7f1d1d; }
-    .stat.purple { background: #3b0764; }
+    *, *::before, *::after { box-sizing: border-box; }
+    * { margin: 0; padding: 0; }
 
-    /* New-incident banner */
-    #new-banner { display: none; background: #1565c0; padding: 8px 16px; font-size: 12px; cursor: pointer; flex-shrink: 0; border-bottom: 1px solid #1976d2; }
-    #new-banner:hover { background: #1976d2; }
+    html, body { height: 100%; }
 
-    /* Body */
-    .body { display: flex; flex: 1; overflow: hidden; }
+    body {
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(56, 189, 248, 0.16), transparent 34%),
+        radial-gradient(circle at top right, rgba(168, 85, 247, 0.14), transparent 30%),
+        var(--bg);
+      color: var(--text);
+      overflow: hidden;
+    }
 
-    /* Sidebar */
-    #sidebar { width: 210px; flex-shrink: 0; background: #16213e; padding: 12px; overflow-y: auto; border-right: 1px solid #333; display: flex; flex-direction: column; gap: 14px; }
-    #search-input { width: 100%; background: #0f3460; border: 1px solid #444; border-radius: 6px; padding: 6px 10px; color: #eee; font-size: 12px; }
-    #search-input::placeholder { color: #666; }
-    .filter-group h4 { font-size: 9px; text-transform: uppercase; color: #666; letter-spacing: 0.08em; margin-bottom: 6px; }
-    .fopt { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; user-select: none; }
-    .fopt:hover { background: #0f3460; }
-    .fopt.active { background: #1565c0; }
-    .fopt .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
-    .fopt .cnt { background: rgba(255,255,255,0.15); border-radius: 10px; padding: 1px 6px; font-size: 9px; min-width: 20px; text-align: center; }
+    button, input { font: inherit; }
 
-    /* Main area */
-    .main { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
-    .empty { color: #555; font-style: italic; text-align: center; margin-top: 4rem; font-size: 14px; }
+    .app-shell {
+      height: 100vh;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+    }
 
-    /* Cards */
-    .card { background: #1e1e2e; border-radius: 8px; border-left: 4px solid #444; overflow: hidden; cursor: pointer; transition: background 0.15s; }
-    .card:hover { background: #252540; }
-    .card[data-sev="high"]   { border-left-color: #e53935; }
-    .card[data-sev="medium"] { border-left-color: #f9a825; }
-    .card[data-sev="low"]    { border-left-color: #43a047; }
+    .topbar {
+      min-height: 78px;
+      padding: 16px 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(7, 17, 31, 0.78);
+      backdrop-filter: blur(18px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 260px;
+    }
+
+    .brand-mark {
+      width: 46px;
+      height: 46px;
+      border-radius: 16px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(145deg, #0ea5e9, #1e3a8a);
+      box-shadow: 0 12px 28px rgba(14, 165, 233, 0.22);
+      font-size: 22px;
+    }
+
+    .eyebrow {
+      color: var(--blue);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .topbar h1 {
+      font-size: 20px;
+      line-height: 1.2;
+      letter-spacing: -0.03em;
+    }
+
+    .topbar .subline {
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(118px, 1fr));
+      gap: 10px;
+      width: min(640px, 62vw);
+    }
+
+    .stat {
+      position: relative;
+      overflow: hidden;
+      background: linear-gradient(180deg, rgba(255,255,255,0.065), rgba(255,255,255,0.025));
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 12px 14px;
+      min-height: 66px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.16);
+    }
+
+    .stat::after {
+      content: "";
+      position: absolute;
+      inset: auto 12px 0 12px;
+      height: 3px;
+      border-radius: 99px 99px 0 0;
+      background: var(--blue);
+      opacity: 0.86;
+    }
+
+    .stat.red::after { background: var(--red); }
+    .stat.purple::after { background: var(--purple); }
+    .stat.green::after { background: var(--green); }
+
+    .stat .n {
+      font-size: 26px;
+      font-weight: 900;
+      line-height: 1;
+      letter-spacing: -0.06em;
+    }
+
+    .stat .l {
+      margin-top: 7px;
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 800;
+    }
+
+    #new-banner {
+      display: none;
+      padding: 10px 22px;
+      background: linear-gradient(90deg, rgba(14, 165, 233, 0.95), rgba(37, 99, 235, 0.95));
+      color: white;
+      border-bottom: 1px solid rgba(255,255,255,0.16);
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    #new-banner:hover { filter: brightness(1.05); }
+
+    .body {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 292px minmax(0, 1fr);
+      gap: 18px;
+      padding: 18px;
+      transition: grid-template-columns 0.22s ease;
+    }
+
+    .body.sidebar-hidden {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .body.sidebar-hidden #sidebar {
+      display: none;
+    }
+
+    #sidebar {
+      min-height: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      background: rgba(11, 23, 40, 0.78);
+      backdrop-filter: blur(16px);
+      box-shadow: var(--shadow);
+    }
+
+    .search-wrap {
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .search-wrap span {
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted-2);
+      font-size: 14px;
+    }
+
+    #search-input {
+      width: 100%;
+      height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(7, 17, 31, 0.84);
+      color: var(--text);
+      padding: 0 14px 0 40px;
+      outline: none;
+      transition: border 0.2s, box-shadow 0.2s;
+    }
+
+    #search-input:focus {
+      border-color: rgba(56, 189, 248, 0.75);
+      box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.12);
+    }
+
+    #search-input::placeholder { color: var(--muted-2); }
+
+    .filter-scroll {
+      min-height: 0;
+      overflow-y: auto;
+      padding-right: 2px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .filter-scroll::-webkit-scrollbar,
+    .main::-webkit-scrollbar { width: 8px; }
+    .filter-scroll::-webkit-scrollbar-thumb,
+    .main::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.18); border-radius: 99px; }
+
+    .filter-group {
+      padding: 12px;
+      background: rgba(255,255,255,0.035);
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      border-radius: var(--radius-lg);
+    }
+
+    .filter-group.collapsible {
+      padding: 0;
+      overflow: hidden;
+    }
+
+    .filter-header {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px;
+      background: transparent;
+      border: none;
+      color: inherit;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .filter-header:hover {
+      background: rgba(56, 189, 248, 0.05);
+    }
+
+    .filter-group h4,
+    .filter-header h4 {
+      margin-bottom: 9px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .filter-header h4 {
+      margin: 0;
+    }
+
+    .filter-header-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .filter-chevron {
+      color: var(--muted);
+      font-size: 12px;
+      transition: transform 0.18s ease;
+    }
+
+    .filter-content {
+      padding: 0 12px 12px;
+      border-top: 1px solid rgba(148, 163, 184, 0.08);
+    }
+
+    .filter-content > .fopt:first-child {
+      margin-top: 10px;
+    }
+
+    .filter-group.collapsed .filter-content {
+      display: none;
+    }
+
+    .filter-group.collapsed .filter-chevron {
+      transform: rotate(-90deg);
+    }
+
+    .fopt {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 9px 10px;
+      border-radius: 12px;
+      color: #dce9f7;
+      cursor: pointer;
+      user-select: none;
+      font-size: 13px;
+      transition: background 0.16s, transform 0.16s, color 0.16s;
+    }
+
+    .fopt + .fopt { margin-top: 2px; }
+    .fopt:hover { background: rgba(56, 189, 248, 0.08); }
+    .fopt.active {
+      background: linear-gradient(90deg, rgba(14, 165, 233, 0.24), rgba(59, 130, 246, 0.12));
+      color: white;
+    }
+
+    .fopt .left {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .dot {
+      flex: 0 0 auto;
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      box-shadow: 0 0 0 3px rgba(255,255,255,0.055);
+    }
+
+    .cnt {
+      min-width: 26px;
+      text-align: center;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.08);
+      color: #cbd5e1;
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .sidebar-actions {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .ghost-btn {
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: rgba(255,255,255,0.035);
+      color: var(--muted);
+      padding: 10px 12px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .ghost-btn:hover {
+      color: white;
+      border-color: rgba(56, 189, 248, 0.4);
+      background: rgba(56, 189, 248, 0.08);
+    }
+
+    .main {
+      min-width: 0;
+      min-height: 0;
+      overflow-y: auto;
+      padding-right: 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 13px 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      background: rgba(11, 23, 40, 0.86);
+      backdrop-filter: blur(16px);
+      box-shadow: 0 10px 28px rgba(0,0,0,0.2);
+    }
+
+    .toolbar-title {
+      font-size: 15px;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+    }
+
+    .toolbar-meta {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .toolbar-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 9px;
+      flex-wrap: wrap;
+    }
+
+    .sidebar-toggle {
+      min-height: 34px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(56, 189, 248, 0.22);
+      background: rgba(56, 189, 248, 0.08);
+      color: #dbeafe;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 900;
+      transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+    }
+
+    .sidebar-toggle:hover {
+      transform: translateY(-1px);
+      background: rgba(56, 189, 248, 0.14);
+      border-color: rgba(56, 189, 248, 0.42);
+    }
+
+    .sidebar-toggle .toggle-icon {
+      font-size: 14px;
+      line-height: 1;
+    }
+
+    .legend {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 7px;
+      justify-content: flex-end;
+    }
+
+    .legend-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.045);
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    #card-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .empty {
+      min-height: 300px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      border: 1px dashed rgba(148, 163, 184, 0.2);
+      border-radius: var(--radius-xl);
+      background: rgba(11, 23, 40, 0.55);
+      color: var(--muted);
+      padding: 28px;
+    }
+
+    .empty strong {
+      display: block;
+      color: var(--text);
+      font-size: 18px;
+      margin-bottom: 6px;
+    }
+
+    .card {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: var(--radius-xl);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.025)),
+        rgba(16, 31, 52, 0.86);
+      box-shadow: 0 10px 28px rgba(0,0,0,0.18);
+      transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+    }
+
+    .card::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 5px;
+      background: var(--muted-2);
+    }
+
+    .card:hover {
+      transform: translateY(-1px);
+      border-color: rgba(56, 189, 248, 0.32);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.03)),
+        rgba(16, 31, 52, 0.92);
+    }
+
+    .card[data-sev="high"]::before { background: var(--red); }
+    .card[data-sev="medium"]::before { background: var(--amber); }
+    .card[data-sev="low"]::before { background: var(--green); }
     .card.hidden { display: none; }
 
-    .card-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
-    .card-head .info { flex: 1; min-width: 0; }
-    .card-head .title { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .card-head .meta  { font-size: 10px; color: #888; margin-top: 2px; }
-    .chevron { color: #555; font-size: 12px; flex-shrink: 0; transition: transform 0.2s; }
+    .card-head {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 13px;
+      padding: 16px 18px 15px 20px;
+      cursor: pointer;
+    }
+
+    .category-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 15px;
+      display: grid;
+      place-items: center;
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.16);
+      font-size: 20px;
+    }
+
+    .info { min-width: 0; }
+
+    .title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .title {
+      min-width: 0;
+      font-size: 15px;
+      font-weight: 900;
+      letter-spacing: -0.025em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .meta {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+
+    .meta-dot {
+      width: 3px;
+      height: 3px;
+      border-radius: 99px;
+      background: rgba(148, 163, 184, 0.5);
+    }
+
+    .message-preview {
+      margin-top: 7px;
+      max-width: 980px;
+      color: #b8c7d8;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .card-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .chevron {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border-radius: 10px;
+      color: var(--muted);
+      background: rgba(255,255,255,0.045);
+      transition: transform 0.18s ease;
+      font-size: 12px;
+    }
+
     .card.open .chevron { transform: rotate(180deg); }
 
-    .card-body { display: none; padding: 0 12px 12px; border-top: 1px solid #2a2a3e; }
-    .card.open .card-body { display: block; }
-    .group-label { font-size: 10px; color: #888; margin-top: 10px; margin-bottom: 4px; }
-    .message { background: #12121e; border-radius: 6px; padding: 8px 10px; font-size: 11px; color: #ccc; line-height: 1.6; border-left: 2px solid #444; margin-bottom: 10px; }
-    .actions { display: flex; gap: 6px; flex-wrap: wrap; }
-    .act-btn { padding: 5px 12px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; }
-    .act-btn:disabled { opacity: 0.4; cursor: default; }
-    .btn-ack     { background: #00695c; color: #fff; }
-    .btn-resolve { background: #37474f; color: #fff; }
-    .btn-ignore  { background: #333; color: #aaa; }
-    .btn-review  { background: #4a148c; color: #fff; }
+    .card-body {
+      display: none;
+      padding: 0 18px 18px 77px;
+    }
 
-    /* Badges */
-    .badge { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; flex-shrink: 0; }
-    .badge-high         { background: #b71c1c; color: #fff; }
-    .badge-medium       { background: #e65100; color: #fff; }
-    .badge-low          { background: #1b5e20; color: #fff; }
-    .badge-new          { background: #0d47a1; color: #fff; }
-    .badge-review       { background: #4a148c; color: #fff; }
-    .badge-acknowledged { background: #004d40; color: #fff; }
-    .badge-resolved     { background: #263238; color: #aaa; }
-    .badge-ignored      { background: #212121; color: #777; }
+    .card.open .card-body { display: block; }
+
+    .details-panel {
+      border-top: 1px solid rgba(148, 163, 184, 0.14);
+      padding-top: 16px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 250px;
+      gap: 14px;
+    }
+
+    .message-box {
+      border-radius: var(--radius-lg);
+      background: rgba(7, 17, 31, 0.68);
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      padding: 14px;
+    }
+
+    .group-label {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .message {
+      color: #dbeafe;
+      line-height: 1.65;
+      font-size: 13px;
+      white-space: pre-wrap;
+    }
+
+    .side-details {
+      display: grid;
+      gap: 10px;
+      align-content: start;
+    }
+
+    .detail-card {
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      border-radius: 14px;
+      background: rgba(255,255,255,0.035);
+      padding: 12px;
+    }
+
+    .detail-card .label {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .detail-card .value {
+      margin-top: 4px;
+      color: white;
+      font-size: 13px;
+      font-weight: 800;
+      word-break: break-word;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .act-btn {
+      min-height: 36px;
+      padding: 0 13px;
+      border: none;
+      border-radius: 12px;
+      color: white;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 900;
+      transition: transform 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
+    }
+
+    .act-btn:hover { transform: translateY(-1px); filter: brightness(1.06); }
+    .act-btn:disabled { opacity: 0.46; cursor: default; transform: none; }
+    .btn-ack { background: linear-gradient(135deg, #059669, #047857); }
+    .btn-resolve { background: linear-gradient(135deg, #334155, #1f2937); }
+    .btn-ignore { background: rgba(255,255,255,0.08); color: #cbd5e1; }
+    .btn-review { background: linear-gradient(135deg, #9333ea, #6d28d9); }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 26px;
+      padding: 0 10px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 950;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .badge-high { background: var(--red-soft); color: #fecaca; }
+    .badge-medium { background: var(--amber-soft); color: #fde68a; }
+    .badge-low { background: var(--green-soft); color: #bbf7d0; }
+    .badge-new { background: rgba(14, 165, 233, 0.16); color: #bae6fd; }
+    .badge-review { background: var(--purple-soft); color: #e9d5ff; }
+    .badge-acknowledged { background: rgba(20, 184, 166, 0.16); color: #99f6e4; }
+    .badge-resolved { background: rgba(148, 163, 184, 0.14); color: #cbd5e1; }
+    .badge-ignored { background: rgba(75, 85, 99, 0.16); color: #9ca3af; }
+
+    .toast {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 30;
+      display: none;
+      max-width: 360px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      color: white;
+      background: rgba(15, 23, 42, 0.94);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      box-shadow: var(--shadow);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .toast.show { display: block; animation: slideUp 0.2s ease; }
+
+    @keyframes slideUp {
+      from { transform: translateY(10px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    @media (max-width: 980px) {
+      body { overflow: auto; }
+      .app-shell { min-height: 100vh; height: auto; }
+      .topbar { align-items: flex-start; flex-direction: column; }
+      .stats { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .body { grid-template-columns: 1fr; overflow: visible; }
+      #sidebar { max-height: none; }
+      .filter-scroll { max-height: none; overflow: visible; }
+      .main { overflow: visible; }
+      .toolbar { position: static; align-items: flex-start; flex-direction: column; }
+      .toolbar-actions { justify-content: flex-start; }
+      .legend { justify-content: flex-start; }
+      .details-panel { grid-template-columns: 1fr; }
+      .card-body { padding-left: 20px; }
+    }
+
+    @media (max-width: 620px) {
+      .topbar { padding: 14px; }
+      .body { padding: 12px; gap: 12px; }
+      .stats { grid-template-columns: 1fr; }
+      .brand { min-width: 0; }
+      .card-head { grid-template-columns: minmax(0, 1fr); }
+      .category-icon { display: none; }
+      .card-right { align-items: flex-start; flex-wrap: wrap; }
+      .message-preview { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    }
+
+    .card-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .card-badge-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      background: rgba(56, 189, 248, 0.08);
+      color: #7dd3fc;
+      font-size: 11px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .card-badge-btn:hover {
+      background: rgba(56, 189, 248, 0.16);
+      border-color: rgba(56, 189, 248, 0.55);
+    }
+
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(4px);
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal-overlay.open { display: flex; }
+
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      width: 100%;
+      max-width: 680px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: var(--shadow);
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 22px 14px;
+      border-bottom: 1px solid var(--line);
+      flex-shrink: 0;
+    }
+
+    .modal-header h2 { font-size: 16px; font-weight: 900; }
+
+    .modal-close {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 16px;
+      display: grid;
+      place-items: center;
+    }
+
+    .modal-close:hover { background: rgba(255,255,255,0.06); color: white; }
+
+    .modal-body {
+      overflow-y: auto;
+      padding: 18px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .modal-section-label {
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .update-thread { display: flex; flex-direction: column; gap: 10px; }
+
+    .update-row {
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+    }
+
+    .update-meta {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .update-body { font-size: 13px; line-height: 1.55; color: var(--text); }
+
+    .relink-wrap { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
+
+    .relink-select {
+      flex: 1;
+      padding: 5px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--surface-3);
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    .relink-btn {
+      padding: 5px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      background: rgba(56, 189, 248, 0.08);
+      color: #7dd3fc;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .relink-btn:hover { background: rgba(56, 189, 248, 0.18); }
+
+    .media-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+      gap: 8px;
+    }
+
+    .media-thumb {
+      aspect-ratio: 1;
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: var(--surface-2);
+    }
+
+    .media-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .media-file-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      color: var(--muted);
+      text-decoration: none;
+    }
+
+    .media-file-row:hover { color: var(--text); border-color: rgba(56,189,248,0.3); }
   </style>
 </head>
 <body>
-  <div class="topbar">
-    <h1>🏢 {{ title }}</h1>
-    <div class="stats">
-      <div class="stat red">
-        <div class="n" id="stat-high">0</div>
-        <div class="l">High · Open</div>
-      </div>
-      <div class="stat purple">
-        <div class="n" id="stat-review">0</div>
-        <div class="l">Review</div>
-      </div>
-      <div class="stat">
-        <div class="n" id="stat-total">0</div>
-        <div class="l">Total today</div>
-      </div>
-    </div>
-  </div>
-
-  <div id="new-banner" onclick="loadNewIncidents()">
-    ▲ <span id="new-count">0</span> new incident(s) arrived — click to load
-  </div>
-
-  <div class="body">
-    <div id="sidebar">
-      <input id="search-input" placeholder="🔍 Search messages…" oninput="applyFilters()">
-
-      <div class="filter-group">
-        <h4>Status</h4>
-        <div class="fopt" data-filter="status" data-val="review"       onclick="toggleFilter(this)"><span><span class="dot" style="background:#6a1b9a"></span>Review</span>       <span class="cnt" data-cnt="review">0</span></div>
-        <div class="fopt" data-filter="status" data-val="new"          onclick="toggleFilter(this)"><span><span class="dot" style="background:#1565c0"></span>New</span>          <span class="cnt" data-cnt="new">0</span></div>
-        <div class="fopt" data-filter="status" data-val="acknowledged" onclick="toggleFilter(this)"><span><span class="dot" style="background:#00695c"></span>Acknowledged</span> <span class="cnt" data-cnt="acknowledged">0</span></div>
-        <div class="fopt" data-filter="status" data-val="resolved"     onclick="toggleFilter(this)"><span><span class="dot" style="background:#37474f"></span>Resolved</span>     <span class="cnt" data-cnt="resolved">0</span></div>
-        <div class="fopt" data-filter="status" data-val="ignored"      onclick="toggleFilter(this)"><span><span class="dot" style="background:#424242"></span>Ignored</span>      <span class="cnt" data-cnt="ignored">0</span></div>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">🏢</div>
+        <div>
+          <div class="eyebrow">Incident Command Centre</div>
+          <h1>{{ title }}</h1>
+          <div class="subline">Monitor WhatsApp property group incidents, triage priority cases, and update status.</div>
+        </div>
       </div>
 
-      <div class="filter-group">
-        <h4>Severity</h4>
-        <div class="fopt" data-filter="sev" data-val="high"   onclick="toggleFilter(this)"><span><span class="dot" style="background:#e53935"></span>High</span>   <span class="cnt" data-cnt-sev="high">0</span></div>
-        <div class="fopt" data-filter="sev" data-val="medium" onclick="toggleFilter(this)"><span><span class="dot" style="background:#f9a825"></span>Medium</span> <span class="cnt" data-cnt-sev="medium">0</span></div>
-        <div class="fopt" data-filter="sev" data-val="low"    onclick="toggleFilter(this)"><span><span class="dot" style="background:#43a047"></span>Low</span>    <span class="cnt" data-cnt-sev="low">0</span></div>
+      <div class="stats">
+        <div class="stat red">
+          <div class="n" id="stat-high">0</div>
+          <div class="l">High · Open</div>
+        </div>
+        <div class="stat purple">
+          <div class="n" id="stat-review">0</div>
+          <div class="l">Needs Review</div>
+        </div>
+        <div class="stat green">
+          <div class="n" id="stat-open">0</div>
+          <div class="l">Active Open</div>
+        </div>
+        <div class="stat">
+          <div class="n" id="stat-total">0</div>
+          <div class="l">Total Today</div>
+        </div>
       </div>
+    </header>
 
-      <div class="filter-group">
-        <h4>Category</h4>
-        <div class="fopt" data-filter="cat" data-val="plumbing"   onclick="toggleFilter(this)">🔧 Plumbing   <span class="cnt" data-cnt-cat="plumbing">0</span></div>
-        <div class="fopt" data-filter="cat" data-val="electrical" onclick="toggleFilter(this)">⚡ Electrical <span class="cnt" data-cnt-cat="electrical">0</span></div>
-        <div class="fopt" data-filter="cat" data-val="lift"       onclick="toggleFilter(this)">🛗 Lift       <span class="cnt" data-cnt-cat="lift">0</span></div>
-        <div class="fopt" data-filter="cat" data-val="security"   onclick="toggleFilter(this)">🔒 Security   <span class="cnt" data-cnt-cat="security">0</span></div>
-        <div class="fopt" data-filter="cat" data-val="structural" onclick="toggleFilter(this)">🏗 Structural <span class="cnt" data-cnt-cat="structural">0</span></div>
-        <div class="fopt" data-filter="cat" data-val="cleaning"   onclick="toggleFilter(this)">🧹 Cleaning   <span class="cnt" data-cnt-cat="cleaning">0</span></div>
-        <div class="fopt" data-filter="cat" data-val="access"     onclick="toggleFilter(this)">🚪 Access     <span class="cnt" data-cnt-cat="access">0</span></div>
-        <div class="fopt" data-filter="cat" data-val="other"      onclick="toggleFilter(this)">📋 Other      <span class="cnt" data-cnt-cat="other">0</span></div>
-      </div>
+    <div id="new-banner" onclick="loadNewIncidents()">
+      ▲ <span id="new-count">0</span> new incident(s) arrived — click to load into the dashboard
     </div>
 
-    <div class="main" id="card-list">
-      {% if incidents %}
-        {% for i in incidents %}
-        <div class="card"
-             data-id="{{ i.id }}"
-             data-sev="{{ i.severity }}"
-             data-status="{{ i.status }}"
-             data-cat="{{ i.category }}">
-          <div class="card-head" onclick="toggleCard(this.closest('.card'))">
-            <div class="info">
-              <div class="title">{{ i.property_name }} — {{ i.category | capitalize }}</div>
-              <div class="meta">{{ i.reporter_name or "Unknown" }}{% if i.reporter_phone %} · +{{ i.reporter_phone }}{% endif %} · {{ i.received_at.strftime("%H:%M") }}</div>
+    <div class="body" id="dashboard-body">
+      <aside id="sidebar">
+        <div class="search-wrap">
+          <span>⌕</span>
+          <input id="search-input" placeholder="Search property, reporter, message…" oninput="applyFilters()">
+        </div>
+
+        <div class="filter-scroll">
+          <div class="filter-group collapsible" data-group="status">
+            <button type="button" class="filter-header" onclick="toggleFilterGroup(this)">
+              <h4>Status</h4>
+              <div class="filter-header-meta"><span class="cnt" id="selected-status-count">0</span><span class="filter-chevron">⌄</span></div>
+            </button>
+            <div class="filter-content">
+              <div class="fopt" data-filter="status" data-val="review" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#a855f7"></span>Review</span><span class="cnt" data-cnt="review">0</span></div>
+              <div class="fopt" data-filter="status" data-val="new" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#38bdf8"></span>New</span><span class="cnt" data-cnt="new">0</span></div>
+              <div class="fopt" data-filter="status" data-val="acknowledged" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#14b8a6"></span>Acknowledged</span><span class="cnt" data-cnt="acknowledged">0</span></div>
+              <div class="fopt" data-filter="status" data-val="resolved" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#94a3b8"></span>Resolved</span><span class="cnt" data-cnt="resolved">0</span></div>
+              <div class="fopt" data-filter="status" data-val="ignored" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#6b7280"></span>Ignored</span><span class="cnt" data-cnt="ignored">0</span></div>
             </div>
-            <span class="badge badge-{{ i.severity }}">{{ i.severity }}</span>
-            <span class="badge badge-{{ i.status }}" id="status-badge-{{ i.id }}">{{ i.status }}</span>
-            <span class="chevron">▼</span>
           </div>
-          <div class="card-body">
-            <div class="group-label">Group: <strong>{{ i.property_name }}</strong></div>
-            <div class="message">{{ i.message_body }}</div>
-            <div class="actions" id="actions-{{ i.id }}">
-              <button class="act-btn btn-ack"     onclick="setStatus({{ i.id }}, 'acknowledged')">✓ Acknowledge</button>
-              <button class="act-btn btn-resolve" onclick="setStatus({{ i.id }}, 'resolved')">✓ Resolve</button>
-              <button class="act-btn btn-ignore"  onclick="setStatus({{ i.id }}, 'ignored')">✗ Ignore</button>
-              <button class="act-btn btn-review"  onclick="setStatus({{ i.id }}, 'review')" style="margin-left:auto">⟳ Review</button>
+
+          <div class="filter-group collapsible" data-group="severity">
+            <button type="button" class="filter-header" onclick="toggleFilterGroup(this)">
+              <h4>Severity</h4>
+              <div class="filter-header-meta"><span class="cnt" id="selected-sev-count">0</span><span class="filter-chevron">⌄</span></div>
+            </button>
+            <div class="filter-content">
+              <div class="fopt" data-filter="sev" data-val="high" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#ef4444"></span>High Priority</span><span class="cnt" data-cnt-sev="high">0</span></div>
+              <div class="fopt" data-filter="sev" data-val="medium" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#f59e0b"></span>Medium</span><span class="cnt" data-cnt-sev="medium">0</span></div>
+              <div class="fopt" data-filter="sev" data-val="low" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#22c55e"></span>Low</span><span class="cnt" data-cnt-sev="low">0</span></div>
+            </div>
+          </div>
+
+          <div class="filter-group collapsible" data-group="category">
+            <button type="button" class="filter-header" onclick="toggleFilterGroup(this)">
+              <h4>Category</h4>
+              <div class="filter-header-meta"><span class="cnt" id="selected-cat-count">0</span><span class="filter-chevron">⌄</span></div>
+            </button>
+            <div class="filter-content">
+              <div class="fopt" data-filter="cat" data-val="plumbing" onclick="toggleFilter(this)"><span class="left">🔧 Plumbing</span><span class="cnt" data-cnt-cat="plumbing">0</span></div>
+              <div class="fopt" data-filter="cat" data-val="electrical" onclick="toggleFilter(this)"><span class="left">⚡ Electrical</span><span class="cnt" data-cnt-cat="electrical">0</span></div>
+              <div class="fopt" data-filter="cat" data-val="lift" onclick="toggleFilter(this)"><span class="left">🛗 Lift</span><span class="cnt" data-cnt-cat="lift">0</span></div>
+              <div class="fopt" data-filter="cat" data-val="security" onclick="toggleFilter(this)"><span class="left">🔒 Security</span><span class="cnt" data-cnt-cat="security">0</span></div>
+              <div class="fopt" data-filter="cat" data-val="structural" onclick="toggleFilter(this)"><span class="left">🏗 Structural</span><span class="cnt" data-cnt-cat="structural">0</span></div>
+              <div class="fopt" data-filter="cat" data-val="cleaning" onclick="toggleFilter(this)"><span class="left">🧹 Cleaning</span><span class="cnt" data-cnt-cat="cleaning">0</span></div>
+              <div class="fopt" data-filter="cat" data-val="access" onclick="toggleFilter(this)"><span class="left">🚪 Access</span><span class="cnt" data-cnt-cat="access">0</span></div>
+              <div class="fopt" data-filter="cat" data-val="other" onclick="toggleFilter(this)"><span class="left">📋 Other</span><span class="cnt" data-cnt-cat="other">0</span></div>
             </div>
           </div>
         </div>
-        {% endfor %}
-      {% else %}
-        <div class="empty">No incidents yet. Waiting for property group messages.</div>
-      {% endif %}
+
+        <div class="sidebar-actions">
+          <button type="button" class="ghost-btn" onclick="clearFilters()">Clear filters</button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <div class="toolbar">
+          <div>
+            <div class="toolbar-title">Live incident queue</div>
+            <div class="toolbar-meta"><span id="visible-count">0</span> visible · Polling every 30 seconds</div>
+          </div>
+          <div class="toolbar-actions">
+            <button type="button" class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()">
+              <span class="toggle-icon">☰</span>
+              <span id="sidebar-toggle-text">Hide filters</span>
+            </button>
+            <div class="legend">
+              <span class="legend-pill"><span class="dot" style="background:#ef4444"></span>High</span>
+              <span class="legend-pill"><span class="dot" style="background:#f59e0b"></span>Medium</span>
+              <span class="legend-pill"><span class="dot" style="background:#22c55e"></span>Low</span>
+            </div>
+          </div>
+        </div>
+
+        <section id="card-list">
+          {% if incidents_with_counts %}
+            {% for row in incidents_with_counts %}
+            {% set i = row.incident %}
+            {% set update_count = row.update_count %}
+            {% set media_count = row.media_count %}
+            <article class="card"
+                 data-id="{{ i.id }}"
+                 data-sev="{{ i.severity }}"
+                 data-status="{{ i.status }}"
+                 data-cat="{{ i.category }}"
+                 data-updates="{{ update_count }}"
+                 data-media="{{ media_count }}">
+              <div class="card-head" onclick="toggleCard(this.closest('.card'))">
+                <div class="category-icon" data-cat="{{ i.category }}">📋</div>
+                <div class="info">
+                  <div class="title-row">
+                    <div class="title">{{ i.property_name }} — {{ i.category | capitalize }}</div>
+                  </div>
+                  <div class="meta">
+                    <span>{{ i.reporter_name or "Unknown reporter" }}</span>
+                    {% if i.reporter_phone %}<span class="meta-dot"></span><span>+{{ i.reporter_phone }}</span>{% endif %}
+                    <span class="meta-dot"></span><span>{{ i.received_at.strftime("%H:%M") }}</span>
+                  </div>
+                  <p class="message-preview">{{ i.message_body }}</p>
+                  {% if update_count > 0 or media_count > 0 %}
+                  <div class="card-badges">
+                    {% if update_count > 0 %}
+                    <button class="card-badge-btn" onclick="event.stopPropagation(); openDetailModal({{ i.id }})">↩ {{ update_count }} update{{ 's' if update_count != 1 else '' }}</button>
+                    {% endif %}
+                    {% if media_count > 0 %}
+                    <button class="card-badge-btn" onclick="event.stopPropagation(); openDetailModal({{ i.id }})">📎 {{ media_count }} attachment{{ 's' if media_count != 1 else '' }}</button>
+                    {% endif %}
+                  </div>
+                  {% endif %}
+                </div>
+                <div class="card-right">
+                  <span class="badge badge-{{ i.severity }}">{{ i.severity }}</span>
+                  <span class="badge badge-{{ i.status }}" id="status-badge-{{ i.id }}">{{ i.status }}</span>
+                  <span class="chevron">⌄</span>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="details-panel">
+                  <div>
+                    <div class="message-box">
+                      <div class="group-label">Reported message</div>
+                      <div class="message">{{ i.message_body }}</div>
+                    </div>
+                    <div class="actions" id="actions-{{ i.id }}">
+                      <button class="act-btn btn-ack" onclick="setStatus({{ i.id }}, 'acknowledged', event)">✓ Acknowledge</button>
+                      <button class="act-btn btn-resolve" onclick="setStatus({{ i.id }}, 'resolved', event)">✓ Resolve</button>
+                      <button class="act-btn btn-ignore" onclick="setStatus({{ i.id }}, 'ignored', event)">✗ Ignore</button>
+                      <button class="act-btn btn-review" onclick="setStatus({{ i.id }}, 'review', event)">⟳ Send to Review</button>
+                    </div>
+                  </div>
+                  <div class="side-details">
+                    <div class="detail-card">
+                      <div class="label">Property group</div>
+                      <div class="value">{{ i.property_name }}</div>
+                    </div>
+                    <div class="detail-card">
+                      <div class="label">Reporter</div>
+                      <div class="value">{{ i.reporter_name or "Unknown" }}{% if i.reporter_phone %}<br>+{{ i.reporter_phone }}{% endif %}</div>
+                    </div>
+                    <div class="detail-card">
+                      <div class="label">Incident ID</div>
+                      <div class="value">#{{ i.id }}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </article>
+            {% endfor %}
+          {% else %}
+            <div class="empty" id="empty-state"><div><strong>No incidents yet</strong>Waiting for property group messages.</div></div>
+          {% endif %}
+          <div class="empty" id="no-results" style="display:none;"><div><strong>No matching incidents</strong>Try clearing filters or searching a different keyword.</div></div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- Detail modal -->
+  <div class="modal-overlay" id="detail-modal-overlay" onclick="if(event.target===this)closeDetailModal()">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modal-title">Incident Detail</h2>
+        <button class="modal-close" onclick="closeDetailModal()">✕</button>
+      </div>
+      <div class="modal-body" id="modal-body">
+        <div style="color:var(--muted);text-align:center;padding:20px">Loading…</div>
+      </div>
     </div>
   </div>
 
@@ -179,49 +1199,166 @@ let pendingNew = [];
 let activeFilters = { status: new Set(), sev: new Set(), cat: new Set() };
 let maxId = 0;
 
-function init() {
-  document.querySelectorAll('.card[data-id]').forEach(card => {
-    const id = parseInt(card.dataset.id);
-    if (id > maxId) maxId = id;
-    allIncidents.push({
-      id,
-      property_name: card.querySelector('.title').textContent.split(' — ')[0],
-      severity: card.dataset.sev,
-      status: card.dataset.status,
-      category: card.dataset.cat,
+const statusLabels = {
+  new: 'new',
+  review: 'review',
+  acknowledged: 'acknowledged',
+  resolved: 'resolved',
+  ignored: 'ignored'
+};
+
+let _openIncidents = [];
+
+async function openDetailModal(incidentId) {
+  document.getElementById('detail-modal-overlay').classList.add('open');
+  document.getElementById('modal-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px">Loading…</div>';
+  try {
+    const detail = await fetch(`/incidents/${incidentId}`).then(r => r.json());
+    const allInc = await fetch('/incidents').then(r => r.json());
+    _openIncidents = allInc.filter(i => i.id !== incidentId && !['resolved','ignored'].includes(i.status));
+    document.getElementById('modal-title').textContent = `#${detail.id} — ${esc(detail.property_name)}`;
+    document.getElementById('modal-body').innerHTML = renderDetailModal(detail);
+  } catch(e) {
+    document.getElementById('modal-body').innerHTML = '<div style="color:var(--red)">Failed to load detail.</div>';
+  }
+}
+
+function closeDetailModal() {
+  document.getElementById('detail-modal-overlay').classList.remove('open');
+}
+
+function renderDetailModal(detail) {
+  const updatesHtml = detail.updates.length === 0
+    ? '<div style="color:var(--muted);font-size:13px">No updates yet.</div>'
+    : detail.updates.map(u => {
+        const relinkOpts = _openIncidents.map(i =>
+          `<option value="${i.id}">#${i.id} — ${esc(i.property_name)}</option>`
+        ).join('');
+        const relinkHtml = API_KEY ? `
+          <div class="relink-wrap">
+            <select class="relink-select" id="relink-select-${u.id}">
+              <option value="">Move to…</option>
+              ${relinkOpts}
+            </select>
+            <button class="relink-btn" onclick="relinkUpdate(${u.id}, ${detail.id})">Re-link</button>
+          </div>` : '';
+        const mediaBadge = u.media_count > 0
+          ? `<span style="color:var(--blue);font-size:11px">📎 ${u.media_count}</span>` : '';
+        return `<div class="update-row">
+          <div class="update-meta">
+            <span>${esc(u.reporter_name || 'Unknown')} · ${formatTime(u.received_at)}${u.ai_linked ? ' · <em style="opacity:.6">AI-linked</em>' : ''}</span>
+            ${mediaBadge}
+          </div>
+          <div class="update-body">${esc(u.message_body)}</div>
+          ${relinkHtml}
+        </div>`;
+      }).join('');
+
+  const mediaHtml = detail.media.length === 0
+    ? '<div style="color:var(--muted);font-size:13px">No attachments.</div>'
+    : `<div class="media-grid">${detail.media.map(m => {
+        const url = `/media/${m.id}`;
+        if (m.mimetype.startsWith('image/')) {
+          return `<a href="${url}" target="_blank" class="media-thumb"><img src="${url}" alt="${esc(m.filename)}" loading="lazy"></a>`;
+        }
+        return `<a href="${url}" target="_blank" class="media-file-row" download="${esc(m.filename)}">📄 ${esc(m.filename)}</a>`;
+      }).join('')}</div>`;
+
+  return `
+    <div>
+      <div class="modal-section-label">Original report</div>
+      <div class="message-box"><div class="message">${esc(detail.message_body)}</div></div>
+    </div>
+    <div>
+      <div class="modal-section-label">Updates (${detail.updates.length})</div>
+      <div class="update-thread">${updatesHtml}</div>
+    </div>
+    <div>
+      <div class="modal-section-label">Attachments (${detail.media.length})</div>
+      ${mediaHtml}
+    </div>`;
+}
+
+async function relinkUpdate(updateId, currentIncidentId) {
+  const sel = document.getElementById(`relink-select-${updateId}`);
+  const targetId = parseInt(sel.value, 10);
+  if (!targetId) return;
+  try {
+    await fetch(`/incidents/${updateId}/relink`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+      body: JSON.stringify({ incident_id: targetId }),
     });
+    showToast('Update re-linked');
+    await openDetailModal(currentIncidentId);
+  } catch(e) {
+    showToast('Re-link failed');
+  }
+}
+
+function init() {
+  hydrateCategoryIcons();
+  restoreSidebarState();
+  document.querySelectorAll('.card[data-id]').forEach(card => {
+    const id = parseInt(card.dataset.id, 10);
+    if (id > maxId) maxId = id;
+    allIncidents.push(extractIncidentFromCard(card));
   });
   updateStats();
   updateCounts();
+  updateSelectedFilterCounts();
+  applyFilters();
   setInterval(poll, POLL_INTERVAL);
+}
+
+function extractIncidentFromCard(card) {
+  const title = card.querySelector('.title')?.textContent || '';
+  const propertyName = title.split(' — ')[0] || 'Unknown property';
+  return {
+    id: parseInt(card.dataset.id, 10),
+    property_name: propertyName,
+    severity: card.dataset.sev,
+    status: card.dataset.status,
+    category: card.dataset.cat,
+    message_body: card.querySelector('.message')?.textContent || '',
+    reporter_name: card.querySelector('.meta span:first-child')?.textContent || 'Unknown reporter'
+  };
 }
 
 async function poll() {
   try {
     const data = await fetch('/incidents?since_id=' + maxId).then(r => r.json());
     if (!Array.isArray(data) || data.length === 0) return;
-    // Advance maxId immediately so next poll only fetches truly new records
+
     const newMax = Math.max(...data.map(i => i.id));
     if (newMax > maxId) maxId = newMax;
-    pendingNew = data;
-    document.getElementById('new-count').textContent = data.length;
+
+    const existingPending = new Set(pendingNew.map(i => i.id));
+    pendingNew = [...pendingNew, ...data.filter(i => !existingPending.has(i.id))];
+
+    document.getElementById('new-count').textContent = pendingNew.length;
     document.getElementById('new-banner').style.display = 'block';
-    const highOpen = [...allIncidents, ...data].filter(
+    showToast(`${pendingNew.length} new incident${pendingNew.length === 1 ? '' : 's'} waiting to load`);
+
+    const highOpen = [...allIncidents, ...pendingNew].filter(
       i => i.severity === 'high' && !['resolved','ignored'].includes(i.status)
     ).length;
     document.title = highOpen > 0 ? `(${highOpen} HIGH) {{ title }}` : '{{ title }}';
-  } catch(e) {}
+  } catch(e) {
+    console.warn('Incident polling failed', e);
+  }
 }
 
 function loadNewIncidents() {
   const list = document.getElementById('card-list');
-  const empty = list.querySelector('.empty');
+  const empty = document.getElementById('empty-state');
   if (empty) empty.remove();
+
   pendingNew.forEach(inc => {
-    if (inc.id > maxId) maxId = inc.id;
-    allIncidents.unshift(inc);
+    allIncidents.unshift(normalizeIncident(inc));
     list.insertAdjacentHTML('afterbegin', buildCard(inc));
   });
+
   pendingNew = [];
   document.getElementById('new-banner').style.display = 'none';
   updateStats();
@@ -229,53 +1366,139 @@ function loadNewIncidents() {
   applyFilters();
 }
 
-function buildCard(i) {
-  return `
-<div class="card" data-id="${i.id}" data-sev="${i.severity}" data-status="${i.status}" data-cat="${i.category}">
-  <div class="card-head" onclick="toggleCard(this.closest('.card'))">
-    <div class="info">
-      <div class="title">${esc(i.property_name)} — ${esc(cap(i.category))}</div>
-      <div class="meta">${esc(i.reporter_name||'Unknown')}${i.reporter_phone?' · +'+esc(i.reporter_phone):''} · ${new Date(i.received_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
-    </div>
-    <span class="badge badge-${esc(i.severity)}">${esc(i.severity)}</span>
-    <span class="badge badge-${esc(i.status)}" id="status-badge-${i.id}">${esc(i.status)}</span>
-    <span class="chevron">▼</span>
-  </div>
-  <div class="card-body">
-    <div class="group-label">Group: <strong>${esc(i.property_name)}</strong></div>
-    <div class="message">${esc(i.message_body)}</div>
-    <div class="actions" id="actions-${i.id}">
-      <button class="act-btn btn-ack"     onclick="setStatus(${i.id},'acknowledged')">✓ Acknowledge</button>
-      <button class="act-btn btn-resolve" onclick="setStatus(${i.id},'resolved')">✓ Resolve</button>
-      <button class="act-btn btn-ignore"  onclick="setStatus(${i.id},'ignored')">✗ Ignore</button>
-      <button class="act-btn btn-review"  onclick="setStatus(${i.id},'review')" style="margin-left:auto">⟳ Review</button>
-    </div>
-  </div>
-</div>`;
+function normalizeIncident(i) {
+  return {
+    id: i.id,
+    property_name: i.property_name || 'Unknown property',
+    severity: i.severity || 'low',
+    status: i.status || 'new',
+    category: i.category || 'other',
+    message_body: i.message_body || '',
+    reporter_name: i.reporter_name || 'Unknown reporter',
+    reporter_phone: i.reporter_phone || '',
+    received_at: i.received_at || new Date().toISOString(),
+    update_count: i.update_count || 0,
+    media_count: i.media_count || 0,
+  };
 }
 
-function toggleCard(card) { card.classList.toggle('open'); }
+function buildCard(raw) {
+  const i = normalizeIncident(raw);
+  const receivedAt = formatTime(i.received_at);
+  const icon = categoryIcon(i.category);
+  const category = cap(i.category);
+  const reporter = i.reporter_name || 'Unknown reporter';
+  const phone = i.reporter_phone ? ` · +${esc(i.reporter_phone)}` : '';
 
-async function setStatus(id, newStatus) {
+  return `
+<article class="card" data-id="${i.id}" data-sev="${esc(i.severity)}" data-status="${esc(i.status)}" data-cat="${esc(i.category)}">
+  <div class="card-head" onclick="toggleCard(this.closest('.card'))">
+    <div class="category-icon">${icon}</div>
+    <div class="info">
+      <div class="title-row"><div class="title">${esc(i.property_name)} — ${esc(category)}</div></div>
+      <div class="meta"><span>${esc(reporter)}</span>${i.reporter_phone ? '<span class="meta-dot"></span><span>+' + esc(i.reporter_phone) + '</span>' : ''}<span class="meta-dot"></span><span>${receivedAt}</span></div>
+      <p class="message-preview">${esc(i.message_body)}</p>
+      ${(i.update_count > 0 || i.media_count > 0) ? `
+      <div class="card-badges">
+        ${i.update_count > 0 ? `<button class="card-badge-btn" onclick="event.stopPropagation(); openDetailModal(${i.id})">↩ ${i.update_count} update${i.update_count !== 1 ? 's' : ''}</button>` : ''}
+        ${i.media_count > 0 ? `<button class="card-badge-btn" onclick="event.stopPropagation(); openDetailModal(${i.id})">📎 ${i.media_count} attachment${i.media_count !== 1 ? 's' : ''}</button>` : ''}
+      </div>` : ''}
+    </div>
+    <div class="card-right">
+      <span class="badge badge-${esc(i.severity)}">${esc(i.severity)}</span>
+      <span class="badge badge-${esc(i.status)}" id="status-badge-${i.id}">${esc(statusLabels[i.status] || i.status)}</span>
+      <span class="chevron">⌄</span>
+    </div>
+  </div>
+  <div class="card-body">
+    <div class="details-panel">
+      <div>
+        <div class="message-box">
+          <div class="group-label">Reported message</div>
+          <div class="message">${esc(i.message_body)}</div>
+        </div>
+        <div class="actions" id="actions-${i.id}">
+          <button class="act-btn btn-ack" onclick="setStatus(${i.id}, 'acknowledged', event)">✓ Acknowledge</button>
+          <button class="act-btn btn-resolve" onclick="setStatus(${i.id}, 'resolved', event)">✓ Resolve</button>
+          <button class="act-btn btn-ignore" onclick="setStatus(${i.id}, 'ignored', event)">✗ Ignore</button>
+          <button class="act-btn btn-review" onclick="setStatus(${i.id}, 'review', event)">⟳ Send to Review</button>
+        </div>
+      </div>
+      <div class="side-details">
+        <div class="detail-card"><div class="label">Property group</div><div class="value">${esc(i.property_name)}</div></div>
+        <div class="detail-card"><div class="label">Reporter</div><div class="value">${esc(reporter)}${i.reporter_phone ? '<br>+' + esc(i.reporter_phone) : ''}</div></div>
+        <div class="detail-card"><div class="label">Incident ID</div><div class="value">#${i.id}</div></div>
+      </div>
+    </div>
+  </div>
+</article>`;
+}
+
+function toggleCard(card) {
+  if (!card) return;
+  card.classList.toggle('open');
+}
+
+async function setStatus(id, newStatus, event) {
+  if (event) event.stopPropagation();
   const btns = document.querySelectorAll(`#actions-${id} button`);
   btns.forEach(b => b.disabled = true);
-  const r = await fetch(`/incidents/${id}/status`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
-    body: JSON.stringify({ status: newStatus }),
-  });
-  if (r.ok) {
+
+  try {
+    const r = await fetch(`/incidents/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+      body: JSON.stringify({ status: newStatus }),
+    });
+
+    if (!r.ok) throw new Error('Failed to update status');
+
     const card = document.querySelector(`.card[data-id="${id}"]`);
-    card.dataset.status = newStatus;
-    document.getElementById(`status-badge-${id}`).className = `badge badge-${newStatus}`;
-    document.getElementById(`status-badge-${id}`).textContent = newStatus;
+    if (card) card.dataset.status = newStatus;
+
+    const badge = document.getElementById(`status-badge-${id}`);
+    if (badge) {
+      badge.className = `badge badge-${newStatus}`;
+      badge.textContent = statusLabels[newStatus] || newStatus;
+    }
+
     const inc = allIncidents.find(i => i.id === id);
     if (inc) inc.status = newStatus;
+
     updateStats();
     updateCounts();
     applyFilters();
+    showToast(`Incident #${id} marked as ${newStatus}`);
+  } catch (e) {
+    showToast('Could not update status. Please try again.');
+  } finally {
+    btns.forEach(b => b.disabled = false);
   }
-  btns.forEach(b => b.disabled = false);
+}
+
+function toggleSidebar(forceHidden = null) {
+  const body = document.getElementById('dashboard-body');
+  const label = document.getElementById('sidebar-toggle-text');
+  const icon = document.querySelector('#sidebar-toggle .toggle-icon');
+  if (!body) return;
+
+  const shouldHide = forceHidden === null ? !body.classList.contains('sidebar-hidden') : forceHidden;
+  body.classList.toggle('sidebar-hidden', shouldHide);
+
+  if (label) label.textContent = shouldHide ? 'Show filters' : 'Hide filters';
+  if (icon) icon.textContent = shouldHide ? '☰' : '☰';
+
+  try {
+    localStorage.setItem('incidentSidebarHidden', shouldHide ? '1' : '0');
+  } catch (e) {}
+}
+
+function restoreSidebarState() {
+  try {
+    toggleSidebar(localStorage.getItem('incidentSidebarHidden') === '1');
+  } catch (e) {
+    toggleSidebar(false);
+  }
 }
 
 function toggleFilter(el) {
@@ -283,28 +1506,79 @@ function toggleFilter(el) {
   const set = activeFilters[filter];
   set.has(val) ? set.delete(val) : set.add(val);
   el.classList.toggle('active', set.has(val));
+  updateSelectedFilterCounts();
+  applyFilters();
+}
+
+function toggleFilterGroup(button) {
+  const group = button.closest('.filter-group');
+  if (!group) return;
+  group.classList.toggle('collapsed');
+}
+
+function updateSelectedFilterCounts() {
+  const statusCount = document.getElementById('selected-status-count');
+  const sevCount = document.getElementById('selected-sev-count');
+  const catCount = document.getElementById('selected-cat-count');
+  if (statusCount) statusCount.textContent = activeFilters.status.size;
+  if (sevCount) sevCount.textContent = activeFilters.sev.size;
+  if (catCount) catCount.textContent = activeFilters.cat.size;
+}
+
+function hydrateCategoryIcons(root = document) {
+  root.querySelectorAll('.category-icon[data-cat]').forEach(el => {
+    el.textContent = categoryIcon(el.dataset.cat);
+  });
+}
+
+function clearFilters() {
+  activeFilters = { status: new Set(), sev: new Set(), cat: new Set() };
+  document.getElementById('search-input').value = '';
+  document.querySelectorAll('.fopt.active').forEach(el => el.classList.remove('active'));
+  updateSelectedFilterCounts();
   applyFilters();
 }
 
 function applyFilters() {
-  const q = document.getElementById('search-input').value.toLowerCase();
+  const q = document.getElementById('search-input').value.toLowerCase().trim();
+  let visible = 0;
+
   document.querySelectorAll('.card[data-id]').forEach(card => {
     const matchStatus = activeFilters.status.size === 0 || activeFilters.status.has(card.dataset.status);
-    const matchSev    = activeFilters.sev.size === 0    || activeFilters.sev.has(card.dataset.sev);
-    const matchCat    = activeFilters.cat.size === 0    || activeFilters.cat.has(card.dataset.cat);
-    const matchSearch = !q
-      || card.querySelector('.title').textContent.toLowerCase().includes(q)
-      || (card.querySelector('.message')?.textContent.toLowerCase().includes(q));
-    card.classList.toggle('hidden', !(matchStatus && matchSev && matchCat && matchSearch));
+    const matchSev = activeFilters.sev.size === 0 || activeFilters.sev.has(card.dataset.sev);
+    const matchCat = activeFilters.cat.size === 0 || activeFilters.cat.has(card.dataset.cat);
+    const searchable = [
+      card.querySelector('.title')?.textContent,
+      card.querySelector('.message')?.textContent,
+      card.querySelector('.meta')?.textContent,
+      card.dataset.status,
+      card.dataset.sev,
+      card.dataset.cat
+    ].join(' ').toLowerCase();
+    const matchSearch = !q || searchable.includes(q);
+    const shouldShow = matchStatus && matchSev && matchCat && matchSearch;
+    card.classList.toggle('hidden', !shouldShow);
+    if (shouldShow) visible++;
   });
+
+  document.getElementById('visible-count').textContent = visible;
+
+  const noResults = document.getElementById('no-results');
+  if (noResults) {
+    const hasCards = document.querySelectorAll('.card[data-id]').length > 0;
+    noResults.style.display = hasCards && visible === 0 ? 'grid' : 'none';
+  }
 }
 
 function updateStats() {
   const highOpen = allIncidents.filter(i => i.severity === 'high' && !['resolved','ignored'].includes(i.status)).length;
   const inReview = allIncidents.filter(i => i.status === 'review').length;
-  document.getElementById('stat-high').textContent   = highOpen;
+  const activeOpen = allIncidents.filter(i => !['resolved','ignored'].includes(i.status)).length;
+
+  document.getElementById('stat-high').textContent = highOpen;
   document.getElementById('stat-review').textContent = inReview;
-  document.getElementById('stat-total').textContent  = allIncidents.length;
+  document.getElementById('stat-open').textContent = activeOpen;
+  document.getElementById('stat-total').textContent = allIncidents.length;
 }
 
 function updateCounts() {
@@ -322,8 +1596,40 @@ function updateCounts() {
   });
 }
 
+function categoryIcon(category) {
+  return {
+    plumbing: '🔧',
+    electrical: '⚡',
+    lift: '🛗',
+    security: '🔒',
+    structural: '🏗',
+    cleaning: '🧹',
+    access: '🚪',
+    other: '📋'
+  }[category] || '📋';
+}
+
+function formatTime(value) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function showToast(message) {
+  const toast = document.getElementById('toast');
+  toast.textContent = message;
+  toast.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => toast.classList.remove('show'), 2600);
+}
+
 function esc(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
 
