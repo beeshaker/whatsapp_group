@@ -400,6 +400,71 @@ async def list_incidents(
     ]
 
 
+@app.get("/incidents/{incident_id}")
+async def get_incident_detail(
+    incident_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Incident).where(Incident.id == incident_id))
+    incident = result.scalar_one_or_none()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    updates_result = await db.execute(
+        select(IncidentUpdate)
+        .where(IncidentUpdate.incident_id == incident_id)
+        .order_by(IncidentUpdate.received_at.asc())
+    )
+    updates = updates_result.scalars().all()
+
+    update_rows = []
+    for u in updates:
+        mc_result = await db.execute(
+            select(func.count(IncidentMedia.id)).where(IncidentMedia.update_id == u.id)
+        )
+        mc = mc_result.scalar() or 0
+        update_rows.append({
+            "id": u.id,
+            "reporter_name": u.reporter_name,
+            "reporter_phone": u.reporter_phone,
+            "message_body": u.message_body,
+            "received_at": u.received_at.isoformat(),
+            "ai_linked": u.ai_linked,
+            "media_count": mc,
+        })
+
+    media_result = await db.execute(
+        select(IncidentMedia)
+        .where(IncidentMedia.incident_id == incident_id)
+        .order_by(IncidentMedia.received_at.asc())
+    )
+    media_rows = [
+        {
+            "id": m.id,
+            "filename": m.filename,
+            "mimetype": m.mimetype,
+            "update_id": m.update_id,
+        }
+        for m in media_result.scalars().all()
+    ]
+
+    return {
+        "id": incident.id,
+        "property_name": incident.property_name,
+        "reporter_name": incident.reporter_name,
+        "reporter_phone": incident.reporter_phone,
+        "category": incident.category,
+        "severity": incident.severity,
+        "confidence": round(incident.confidence, 2),
+        "status": incident.status,
+        "message_body": incident.message_body,
+        "received_at": incident.received_at.isoformat(),
+        "updated_at": incident.updated_at.isoformat() if incident.updated_at else None,
+        "updates": update_rows,
+        "media": media_rows,
+    }
+
+
 @app.patch("/incidents/{incident_id}/status")
 async def update_incident_status(
     incident_id: int,
