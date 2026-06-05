@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -368,6 +368,7 @@ async def ingest(
 @app.get("/incidents")
 async def list_incidents(
     since_id: Optional[int] = None,
+    statuses: Optional[list[str]] = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ):
     update_count_sq = (
@@ -388,6 +389,8 @@ async def list_incidents(
     )
     if since_id is not None:
         query = query.where(Incident.id > since_id)
+    if statuses is not None:
+        query = query.where(Incident.status.in_(statuses))
     result = await db.execute(query)
     return [
         {
@@ -588,6 +591,7 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
     )
     result = await db.execute(
         select(Incident, update_count_sq.label("uc"), media_count_sq.label("mc"))
+        .where(~Incident.status.in_(["resolved"]))
         .order_by(Incident.received_at.desc())
     )
     rows = result.all()
@@ -606,5 +610,44 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
             "incidents_with_counts": incidents_with_counts,
             "title": os.getenv("DASHBOARD_TITLE", "Ops Incident Monitor"),
             "api_key": GATEWAY_SECRET_TOKEN,
+            "mode": "live",
+        },
+    )
+
+
+@app.get("/archive", response_class=HTMLResponse)
+async def archive_dashboard(request: Request, db: AsyncSession = Depends(get_db)):
+    update_count_sq = (
+        select(func.count(IncidentUpdate.id))
+        .where(IncidentUpdate.incident_id == Incident.id)
+        .correlate(Incident)
+        .scalar_subquery()
+    )
+    media_count_sq = (
+        select(func.count(IncidentMedia.id))
+        .where(IncidentMedia.incident_id == Incident.id)
+        .correlate(Incident)
+        .scalar_subquery()
+    )
+    result = await db.execute(
+        select(Incident, update_count_sq.label("uc"), media_count_sq.label("mc"))
+        .where(Incident.status == "resolved")
+        .order_by(Incident.received_at.desc())
+    )
+    rows = result.all()
+    incidents_with_counts = [
+        {"incident": i, "update_count": uc, "media_count": mc}
+        for i, uc, mc in rows
+    ]
+    incidents = [row["incident"] for row in incidents_with_counts]
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {
+            "request": request,
+            "incidents": incidents,
+            "incidents_with_counts": incidents_with_counts,
+            "title": os.getenv("DASHBOARD_TITLE", "Ops Incident Monitor"),
+            "api_key": GATEWAY_SECRET_TOKEN,
+            "mode": "archive",
         },
     )
