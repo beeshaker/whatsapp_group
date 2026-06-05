@@ -847,12 +847,50 @@
       border: 1px solid var(--line);
       border-radius: var(--radius-xl);
       width: 100%;
-      max-width: 680px;
-      max-height: 85vh;
+      max-width: 860px;
+      max-height: 90vh;
       display: flex;
       flex-direction: column;
       box-shadow: var(--shadow);
     }
+
+    .modal-reply-bar {
+      flex-shrink: 0;
+      border-top: 1px solid var(--line);
+      padding: 12px 22px 14px;
+      background: var(--bg-soft);
+    }
+
+    .update-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 1px 8px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: .04em;
+    }
+    .update-badge-sent { background: rgba(14,165,233,0.12); color: #7dd3fc; }
+    .update-badge-moved { background: rgba(245,158,11,0.12); color: #fde68a; }
+
+    .update-row-moved { border-color: rgba(245,158,11,0.22); }
+
+    .status-history-list { display: flex; flex-direction: column; gap: 8px; }
+    .status-history-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .sh-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    }
+    .sh-dot-new       { background: #38bdf8; }
+    .sh-dot-review    { background: #a855f7; }
+    .sh-dot-acknowledged { background: #14b8a6; }
+    .sh-dot-resolved  { background: #64748b; }
+    .sh-dot-ignored   { background: #374151; }
 
     .modal-header {
       display: flex;
@@ -1259,6 +1297,14 @@
       <div class="modal-body" id="modal-body">
         <div style="color:var(--muted);text-align:center;padding:20px">Loading…</div>
       </div>
+      <div class="modal-reply-bar" id="modal-reply-bar" style="display:none">
+        <div class="modal-section-label">Reply to group</div>
+        <div class="reply-wrap">
+          <textarea class="reply-textarea" id="modal-reply-input"
+            placeholder="Type a message to send to the group…" rows="3"></textarea>
+          <button class="reply-send-btn" id="modal-reply-send" onclick="sendReplyFromBar()">↑ Send</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1300,7 +1346,20 @@ function closeDetailModal() {
   document.getElementById('detail-modal-overlay').classList.remove('open');
 }
 
+let _currentDetailId = null;
+
 function renderDetailModal(detail) {
+  _currentDetailId = detail.id;
+
+  const replyBar = document.getElementById('modal-reply-bar');
+  const replyInput = document.getElementById('modal-reply-input');
+  const replySend = document.getElementById('modal-reply-send');
+  if (replyBar) {
+    replyBar.style.display = API_KEY ? 'block' : 'none';
+    if (replyInput) { replyInput.value = ''; replyInput.disabled = false; }
+    if (replySend) { replySend.disabled = false; replySend.textContent = '↑ Send'; }
+  }
+
   const updatesHtml = detail.updates.length === 0
     ? '<div style="color:var(--muted);font-size:13px">No updates yet.</div>'
     : detail.updates.map(u => {
@@ -1315,18 +1374,49 @@ function renderDetailModal(detail) {
             </select>
             <button class="relink-btn" onclick="relinkUpdate(${u.id}, ${detail.id})">Re-link</button>
           </div>` : '';
+
+        const isDashboard = u.reporter_name === 'Dashboard';
+        const isMoved = u.relinked === true;
+
+        let badgeHtml = '';
+        let rowClass = 'update-row';
+        if (isDashboard) {
+          badgeHtml = '<span class="update-badge update-badge-sent">sent ↑</span>';
+          rowClass += ' update-row-outbound';
+        } else if (isMoved) {
+          badgeHtml = '<span class="update-badge update-badge-moved">moved in ↩</span>';
+          rowClass += ' update-row-moved';
+        }
+
         const mediaBadge = u.media_count > 0
           ? `<span style="color:var(--blue);font-size:11px">📎 ${u.media_count}</span>` : '';
-        const isDashboard = u.reporter_name === 'Dashboard';
-        return `<div class="update-row${isDashboard ? ' update-row-outbound' : ''}">
+
+        return `<div class="${rowClass}">
           <div class="update-meta">
             <span>${esc(u.reporter_name || 'Unknown')} · ${formatTime(u.received_at)}${u.ai_linked ? ' · <em style="opacity:.6">AI-linked</em>' : ''}</span>
-            ${mediaBadge}
+            <span style="display:flex;align-items:center;gap:6px">${mediaBadge}${badgeHtml}</span>
           </div>
           <div class="update-body">${esc(u.message_body)}</div>
           ${relinkHtml}
         </div>`;
       }).join('');
+
+  const statusDotClass = s => ({
+    new: 'sh-dot-new', review: 'sh-dot-review', acknowledged: 'sh-dot-acknowledged',
+    resolved: 'sh-dot-resolved', ignored: 'sh-dot-ignored'
+  }[s] || 'sh-dot-new');
+
+  const historyHtml = !detail.status_history || detail.status_history.length === 0
+    ? '<div style="color:var(--muted);font-size:13px">No history recorded.</div>'
+    : `<div class="status-history-list">${detail.status_history.map(h => {
+        const label = h.from_status
+          ? `${esc(h.from_status)} → ${esc(h.to_status)}`
+          : `Created as ${esc(h.to_status)}`;
+        return `<div class="status-history-row">
+          <div class="sh-dot ${statusDotClass(h.to_status)}"></div>
+          <span>${label} · ${formatTime(h.changed_at)}</span>
+        </div>`;
+      }).join('')}</div>`;
 
   const mediaHtml = detail.media.length === 0
     ? '<div style="color:var(--muted);font-size:13px">No attachments.</div>'
@@ -1338,17 +1428,6 @@ function renderDetailModal(detail) {
         return `<a href="${url}" target="_blank" class="media-file-row" download="${esc(m.filename)}">📄 ${esc(m.filename)}</a>`;
       }).join('')}</div>`;
 
-  const replyHtml = API_KEY ? `
-    <div>
-      <div class="modal-section-label">Reply to group</div>
-      <div class="reply-wrap">
-        <textarea class="reply-textarea" id="reply-input-${detail.id}"
-          placeholder="Type a message to send to the group…" rows="3"></textarea>
-        <button class="reply-send-btn" id="reply-send-${detail.id}"
-          onclick="sendReply(${detail.id})">↑ Send</button>
-      </div>
-    </div>` : '';
-
   return `
     <div>
       <div class="modal-section-label">Original report</div>
@@ -1359,15 +1438,19 @@ function renderDetailModal(detail) {
       <div class="update-thread">${updatesHtml}</div>
     </div>
     <div>
+      <div class="modal-section-label">Status history</div>
+      ${historyHtml}
+    </div>
+    <div>
       <div class="modal-section-label">Attachments (${detail.media.length})</div>
       ${mediaHtml}
-    </div>
-    ${replyHtml}`;
+    </div>`;
 }
 
-async function sendReply(incidentId) {
-  const textarea = document.getElementById(`reply-input-${incidentId}`);
-  const btn = document.getElementById(`reply-send-${incidentId}`);
+async function sendReplyFromBar() {
+  if (!_currentDetailId) return;
+  const textarea = document.getElementById('modal-reply-input');
+  const btn = document.getElementById('modal-reply-send');
   const text = textarea.value.trim();
   if (!text) return;
 
@@ -1376,7 +1459,7 @@ async function sendReply(incidentId) {
   textarea.disabled = true;
 
   try {
-    const r = await fetch(`/incidents/${incidentId}/reply`, {
+    const r = await fetch(`/incidents/${_currentDetailId}/reply`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
       body: JSON.stringify({ text }),
@@ -1384,7 +1467,7 @@ async function sendReply(incidentId) {
     if (!r.ok) throw new Error('Send failed');
     textarea.value = '';
     showToast('Message sent to group');
-    await openDetailModal(incidentId);
+    await openDetailModal(_currentDetailId);
   } catch(e) {
     showToast('Failed to send — please try again');
     btn.disabled = false;
