@@ -259,3 +259,46 @@ async def test_status_change_appends_history(client):
     detail = (await client.get(f"/incidents/{incident_id}")).json()
     # status_history won't be in response until Task 6 — just verify endpoint returns 200
     assert detail["status"] == "acknowledged"
+
+
+async def test_relink_sets_relinked_flag(client):
+    # Create two incidents
+    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+        with patch("main.push_incident", new=AsyncMock()):
+            await client.post("/api/v1/ops/ingest", json=_ORIGINAL, headers={"X-API-Key": "test-secret"})
+    incident_id = (await client.get("/incidents")).json()[0]["id"]
+
+    # Add an update to it
+    routing = {"routing": "update", "ticket_id": incident_id}
+    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+        with patch("main.classify_update_or_new", new=AsyncMock(return_value=routing)):
+            await client.post("/api/v1/ops/ingest", json=_FOLLOWUP, headers={"X-API-Key": "test-secret"})
+
+    # Create a second incident to relink to
+    second_payload = {
+        "event": "message.received",
+        "data": {
+            "id": "msg-c", "type": "chat", "isGroup": True,
+            "chatId": "123@g.us", "chat": {"name": "Block A"},
+            "author": "2541@c.us", "notifyName": "Alice",
+            "body": "Different issue", "timestamp": 1782293500,
+        },
+    }
+    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+        with patch("main.push_incident", new=AsyncMock()):
+            await client.post("/api/v1/ops/ingest", json=second_payload, headers={"X-API-Key": "test-secret"})
+    incidents = (await client.get("/incidents")).json()
+    second_id = next(i["id"] for i in incidents if i["id"] != incident_id)
+
+    # Get the update id
+    detail = (await client.get(f"/incidents/{incident_id}")).json()
+    update_id = detail["updates"][0]["id"]
+
+    # Relink the update to second incident
+    resp = await client.patch(
+        f"/incidents/{update_id}/relink",
+        json={"incident_id": second_id},
+        headers={"X-API-Key": "test-secret"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["incident_id"] == second_id

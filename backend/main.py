@@ -563,6 +563,7 @@ async def relink_update(
 
     update.incident_id = body.incident_id
     update.ai_linked = False
+    update.relinked = True
     media_res = await db.execute(
         select(IncidentMedia).where(IncidentMedia.update_id == update_id)
     )
