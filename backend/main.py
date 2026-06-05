@@ -475,7 +475,7 @@ async def get_incident_detail(
     history_result = await db.execute(
         select(IncidentStatusHistory)
         .where(IncidentStatusHistory.incident_id == incident_id)
-        .order_by(IncidentStatusHistory.changed_at.asc())
+        .order_by(IncidentStatusHistory.id.asc())
     )
     history_rows = [
         {
@@ -607,6 +607,7 @@ async def update_incident_status(
         raise HTTPException(status_code=404, detail="Incident not found")
     old_status = incident.status
     incident.status = body.status
+    db.add(incident)
     db.add(IncidentStatusHistory(
         incident_id=incident_id,
         from_status=old_status,

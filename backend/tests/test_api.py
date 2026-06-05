@@ -271,8 +271,10 @@ async def test_status_change_appends_history(client):
         headers={"X-API-Key": "test-secret"},
     )
     detail = (await client.get(f"/incidents/{incident_id}")).json()
-    # status_history won't be in response until Task 6 — just verify endpoint returns 200
     assert detail["status"] == "acknowledged"
+    assert len(detail["status_history"]) == 2          # creation row + status change
+    assert detail["status_history"][1]["from_status"] == "review"
+    assert detail["status_history"][1]["to_status"] == "acknowledged"
 
 
 async def test_relink_sets_relinked_flag(client):
@@ -316,3 +318,5 @@ async def test_relink_sets_relinked_flag(client):
     )
     assert resp.status_code == 200
     assert resp.json()["incident_id"] == second_id
+    second_detail = (await client.get(f"/incidents/{second_id}")).json()
+    assert second_detail["updates"][0]["relinked"] is True
