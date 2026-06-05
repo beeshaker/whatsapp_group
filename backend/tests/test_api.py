@@ -245,6 +245,20 @@ async def test_ingest_creates_status_history_entry(client):
     assert detail["status_history"][0]["to_status"] == "review"
 
 
+async def test_get_detail_includes_relinked_field(client):
+    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+        with patch("main.push_incident", new=AsyncMock()):
+            await client.post("/api/v1/ops/ingest", json=_ORIGINAL, headers={"X-API-Key": "test-secret"})
+    incident_id = (await client.get("/incidents")).json()[0]["id"]
+    routing = {"routing": "update", "ticket_id": incident_id}
+    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+        with patch("main.classify_update_or_new", new=AsyncMock(return_value=routing)):
+            await client.post("/api/v1/ops/ingest", json=_FOLLOWUP, headers={"X-API-Key": "test-secret"})
+    detail = (await client.get(f"/incidents/{incident_id}")).json()
+    assert "relinked" in detail["updates"][0]
+    assert detail["updates"][0]["relinked"] is False
+
+
 async def test_status_change_appends_history(client):
     with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
         with patch("main.push_incident", new=AsyncMock()):

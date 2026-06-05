@@ -453,6 +453,7 @@ async def get_incident_detail(
             "message_body": u.message_body,
             "received_at": u.received_at.isoformat(),
             "ai_linked": u.ai_linked,
+            "relinked": u.relinked,
             "media_count": mc,
         })
 
@@ -471,6 +472,20 @@ async def get_incident_detail(
         for m in media_result.scalars().all()
     ]
 
+    history_result = await db.execute(
+        select(IncidentStatusHistory)
+        .where(IncidentStatusHistory.incident_id == incident_id)
+        .order_by(IncidentStatusHistory.changed_at.asc())
+    )
+    history_rows = [
+        {
+            "from_status": h.from_status,
+            "to_status": h.to_status,
+            "changed_at": h.changed_at.isoformat(),
+        }
+        for h in history_result.scalars().all()
+    ]
+
     return {
         "id": incident.id,
         "property_name": incident.property_name,
@@ -485,6 +500,7 @@ async def get_incident_detail(
         "updated_at": incident.updated_at.isoformat() if incident.updated_at else None,
         "updates": update_rows,
         "media": media_rows,
+        "status_history": history_rows,
     }
 
 
