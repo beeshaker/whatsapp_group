@@ -5,159 +5,326 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ title }}</title>
   <style>
-    body { font-family: sans-serif; margin: 2rem; background: #f5f5f5; }
-    h1 { color: #333; }
-    .filters { display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center; }
-    .filters label { font-size: 0.85rem; color: #555; }
-    .filters select { padding: 0.3rem 0.5rem; border: 1px solid #ccc; border-radius: 4px; font-size: 0.85rem; }
-    table { width: 100%; border-collapse: collapse; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
-    th { background: #2c3e50; color: #fff; padding: 0.75rem 1rem; text-align: left; font-size: 0.85rem; }
-    td { padding: 0.7rem 1rem; border-bottom: 1px solid #eee; font-size: 0.9rem; vertical-align: top; }
-    tr:last-child td { border-bottom: none; }
-    tr.hidden { display: none; }
-    .sev-high   { background: #fdecea; }
-    .sev-medium { background: #fff8e1; }
-    .sev-low    { background: #e8f5e9; }
-    .badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 3px; font-size: 0.78rem; font-weight: bold; }
-    .badge-high         { background: #e53935; color: #fff; }
-    .badge-medium       { background: #f9a825; color: #fff; }
-    .badge-low          { background: #43a047; color: #fff; }
-    .badge-new          { background: #1565c0; color: #fff; }
-    .badge-review       { background: #6a1b9a; color: #fff; }
-    .badge-acknowledged { background: #00695c; color: #fff; }
-    .badge-resolved     { background: #37474f; color: #fff; }
-    .badge-ignored      { background: #9e9e9e; color: #fff; }
-    .actions select { font-size: 0.78rem; padding: 0.15rem 0.3rem; border: 1px solid #ccc; border-radius: 3px; cursor: pointer; }
-    .meta { color: #888; font-size: 0.8rem; }
-    p.empty { color: #888; font-style: italic; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #111; color: #eee; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* Top bar */
+    .topbar { background: #1a1a2e; padding: 10px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #333; flex-shrink: 0; }
+    .topbar h1 { font-size: 15px; font-weight: 700; color: #fff; }
+    .stats { display: flex; gap: 8px; margin-left: auto; }
+    .stat { background: #0f3460; border-radius: 6px; padding: 4px 12px; text-align: center; min-width: 70px; }
+    .stat .n { font-size: 20px; font-weight: bold; line-height: 1.2; }
+    .stat .l { font-size: 9px; color: #aaa; text-transform: uppercase; }
+    .stat.red    { background: #7f1d1d; }
+    .stat.purple { background: #3b0764; }
+
+    /* New-incident banner */
+    #new-banner { display: none; background: #1565c0; padding: 8px 16px; font-size: 12px; cursor: pointer; flex-shrink: 0; border-bottom: 1px solid #1976d2; }
+    #new-banner:hover { background: #1976d2; }
+
+    /* Body */
+    .body { display: flex; flex: 1; overflow: hidden; }
+
+    /* Sidebar */
+    #sidebar { width: 210px; flex-shrink: 0; background: #16213e; padding: 12px; overflow-y: auto; border-right: 1px solid #333; display: flex; flex-direction: column; gap: 14px; }
+    #search-input { width: 100%; background: #0f3460; border: 1px solid #444; border-radius: 6px; padding: 6px 10px; color: #eee; font-size: 12px; }
+    #search-input::placeholder { color: #666; }
+    .filter-group h4 { font-size: 9px; text-transform: uppercase; color: #666; letter-spacing: 0.08em; margin-bottom: 6px; }
+    .fopt { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; user-select: none; }
+    .fopt:hover { background: #0f3460; }
+    .fopt.active { background: #1565c0; }
+    .fopt .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .fopt .cnt { background: rgba(255,255,255,0.15); border-radius: 10px; padding: 1px 6px; font-size: 9px; min-width: 20px; text-align: center; }
+
+    /* Main area */
+    .main { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+    .empty { color: #555; font-style: italic; text-align: center; margin-top: 4rem; font-size: 14px; }
+
+    /* Cards */
+    .card { background: #1e1e2e; border-radius: 8px; border-left: 4px solid #444; overflow: hidden; cursor: pointer; transition: background 0.15s; }
+    .card:hover { background: #252540; }
+    .card[data-sev="high"]   { border-left-color: #e53935; }
+    .card[data-sev="medium"] { border-left-color: #f9a825; }
+    .card[data-sev="low"]    { border-left-color: #43a047; }
+    .card.hidden { display: none; }
+
+    .card-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
+    .card-head .info { flex: 1; min-width: 0; }
+    .card-head .title { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .card-head .meta  { font-size: 10px; color: #888; margin-top: 2px; }
+    .chevron { color: #555; font-size: 12px; flex-shrink: 0; transition: transform 0.2s; }
+    .card.open .chevron { transform: rotate(180deg); }
+
+    .card-body { display: none; padding: 0 12px 12px; border-top: 1px solid #2a2a3e; }
+    .card.open .card-body { display: block; }
+    .group-label { font-size: 10px; color: #888; margin-top: 10px; margin-bottom: 4px; }
+    .message { background: #12121e; border-radius: 6px; padding: 8px 10px; font-size: 11px; color: #ccc; line-height: 1.6; border-left: 2px solid #444; margin-bottom: 10px; }
+    .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .act-btn { padding: 5px 12px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; }
+    .act-btn:disabled { opacity: 0.4; cursor: default; }
+    .btn-ack     { background: #00695c; color: #fff; }
+    .btn-resolve { background: #37474f; color: #fff; }
+    .btn-ignore  { background: #333; color: #aaa; }
+    .btn-review  { background: #4a148c; color: #fff; }
+
+    /* Badges */
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; flex-shrink: 0; }
+    .badge-high         { background: #b71c1c; color: #fff; }
+    .badge-medium       { background: #e65100; color: #fff; }
+    .badge-low          { background: #1b5e20; color: #fff; }
+    .badge-new          { background: #0d47a1; color: #fff; }
+    .badge-review       { background: #4a148c; color: #fff; }
+    .badge-acknowledged { background: #004d40; color: #fff; }
+    .badge-resolved     { background: #263238; color: #aaa; }
+    .badge-ignored      { background: #212121; color: #777; }
   </style>
 </head>
 <body>
-  <h1>{{ title }}</h1>
-  <p id="count">{{ incidents|length }} incident(s) captured</p>
-
-  <div class="filters">
-    <label>Status:
-      <select id="filter-status" onchange="applyFilters()">
-        <option value="">All</option>
-        <option value="review">review</option>
-        <option value="new">new</option>
-        <option value="acknowledged">acknowledged</option>
-        <option value="resolved">resolved</option>
-        <option value="ignored">ignored</option>
-      </select>
-    </label>
-    <label>Severity:
-      <select id="filter-severity" onchange="applyFilters()">
-        <option value="">All</option>
-        <option value="high">high</option>
-        <option value="medium">medium</option>
-        <option value="low">low</option>
-      </select>
-    </label>
-    <label>Category:
-      <select id="filter-category" onchange="applyFilters()">
-        <option value="">All</option>
-        <option value="plumbing">plumbing</option>
-        <option value="electrical">electrical</option>
-        <option value="lift">lift</option>
-        <option value="security">security</option>
-        <option value="structural">structural</option>
-        <option value="cleaning">cleaning</option>
-        <option value="access">access</option>
-        <option value="other">other</option>
-      </select>
-    </label>
-    <button onclick="location.reload()" style="padding:0.3rem 0.7rem;font-size:0.85rem;cursor:pointer;">&#8635; Refresh</button>
+  <div class="topbar">
+    <h1>🏢 {{ title }}</h1>
+    <div class="stats">
+      <div class="stat red">
+        <div class="n" id="stat-high">0</div>
+        <div class="l">High · Open</div>
+      </div>
+      <div class="stat purple">
+        <div class="n" id="stat-review">0</div>
+        <div class="l">Review</div>
+      </div>
+      <div class="stat">
+        <div class="n" id="stat-total">0</div>
+        <div class="l">Total today</div>
+      </div>
+    </div>
   </div>
 
-  {% if incidents %}
-  <table id="incident-table">
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>Property</th>
-        <th>Category</th>
-        <th>Severity</th>
-        <th>Status</th>
-        <th>Reporter</th>
-        <th>Message</th>
-        <th>Received</th>
-        <th>Action</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for i in incidents %}
-      <tr class="sev-{{ i.severity }}"
-          data-incident-id="{{ i.id }}"
-          data-status="{{ i.status }}"
-          data-severity="{{ i.severity }}"
-          data-category="{{ i.category }}">
-        <td class="meta">{{ i.id }}</td>
-        <td><strong>{{ i.property_name }}</strong></td>
-        <td>{{ i.category }}</td>
-        <td><span class="badge badge-{{ i.severity }}">{{ i.severity }}</span></td>
-        <td class="status-cell"><span class="badge badge-{{ i.status }}">{{ i.status }}</span></td>
-        <td>
-          {{ i.reporter_name or "—" }}<br>
-          <span class="meta">{{ ("+"+i.reporter_phone) if i.reporter_phone else "unknown" }}</span>
-        </td>
-        <td>{{ i.message_body }}</td>
-        <td class="meta">{{ i.received_at.strftime("%Y-%m-%d %H:%M") }}</td>
-        <td class="actions">
-          <select onchange="updateStatus({{ i.id }}, this)">
-            <option value="">— set status —</option>
-            <option value="review">review</option>
-            <option value="new">new</option>
-            <option value="acknowledged">acknowledged</option>
-            <option value="resolved">resolved</option>
-            <option value="ignored">ignored</option>
-          </select>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="empty">No incidents captured yet. Waiting for property group messages.</p>
-  {% endif %}
+  <div id="new-banner" onclick="loadNewIncidents()">
+    ▲ <span id="new-count">0</span> new incident(s) arrived — click to load
+  </div>
+
+  <div class="body">
+    <div id="sidebar">
+      <input id="search-input" placeholder="🔍 Search messages…" oninput="applyFilters()">
+
+      <div class="filter-group">
+        <h4>Status</h4>
+        <div class="fopt" data-filter="status" data-val="review"       onclick="toggleFilter(this)"><span><span class="dot" style="background:#6a1b9a"></span>Review</span>       <span class="cnt" data-cnt="review">0</span></div>
+        <div class="fopt" data-filter="status" data-val="new"          onclick="toggleFilter(this)"><span><span class="dot" style="background:#1565c0"></span>New</span>          <span class="cnt" data-cnt="new">0</span></div>
+        <div class="fopt" data-filter="status" data-val="acknowledged" onclick="toggleFilter(this)"><span><span class="dot" style="background:#00695c"></span>Acknowledged</span> <span class="cnt" data-cnt="acknowledged">0</span></div>
+        <div class="fopt" data-filter="status" data-val="resolved"     onclick="toggleFilter(this)"><span><span class="dot" style="background:#37474f"></span>Resolved</span>     <span class="cnt" data-cnt="resolved">0</span></div>
+        <div class="fopt" data-filter="status" data-val="ignored"      onclick="toggleFilter(this)"><span><span class="dot" style="background:#424242"></span>Ignored</span>      <span class="cnt" data-cnt="ignored">0</span></div>
+      </div>
+
+      <div class="filter-group">
+        <h4>Severity</h4>
+        <div class="fopt" data-filter="sev" data-val="high"   onclick="toggleFilter(this)"><span><span class="dot" style="background:#e53935"></span>High</span>   <span class="cnt" data-cnt-sev="high">0</span></div>
+        <div class="fopt" data-filter="sev" data-val="medium" onclick="toggleFilter(this)"><span><span class="dot" style="background:#f9a825"></span>Medium</span> <span class="cnt" data-cnt-sev="medium">0</span></div>
+        <div class="fopt" data-filter="sev" data-val="low"    onclick="toggleFilter(this)"><span><span class="dot" style="background:#43a047"></span>Low</span>    <span class="cnt" data-cnt-sev="low">0</span></div>
+      </div>
+
+      <div class="filter-group">
+        <h4>Category</h4>
+        <div class="fopt" data-filter="cat" data-val="plumbing"   onclick="toggleFilter(this)">🔧 Plumbing   <span class="cnt" data-cnt-cat="plumbing">0</span></div>
+        <div class="fopt" data-filter="cat" data-val="electrical" onclick="toggleFilter(this)">⚡ Electrical <span class="cnt" data-cnt-cat="electrical">0</span></div>
+        <div class="fopt" data-filter="cat" data-val="lift"       onclick="toggleFilter(this)">🛗 Lift       <span class="cnt" data-cnt-cat="lift">0</span></div>
+        <div class="fopt" data-filter="cat" data-val="security"   onclick="toggleFilter(this)">🔒 Security   <span class="cnt" data-cnt-cat="security">0</span></div>
+        <div class="fopt" data-filter="cat" data-val="structural" onclick="toggleFilter(this)">🏗 Structural <span class="cnt" data-cnt-cat="structural">0</span></div>
+        <div class="fopt" data-filter="cat" data-val="cleaning"   onclick="toggleFilter(this)">🧹 Cleaning   <span class="cnt" data-cnt-cat="cleaning">0</span></div>
+        <div class="fopt" data-filter="cat" data-val="access"     onclick="toggleFilter(this)">🚪 Access     <span class="cnt" data-cnt-cat="access">0</span></div>
+        <div class="fopt" data-filter="cat" data-val="other"      onclick="toggleFilter(this)">📋 Other      <span class="cnt" data-cnt-cat="other">0</span></div>
+      </div>
+    </div>
+
+    <div class="main" id="card-list">
+      {% if incidents %}
+        {% for i in incidents %}
+        <div class="card"
+             data-id="{{ i.id }}"
+             data-sev="{{ i.severity }}"
+             data-status="{{ i.status }}"
+             data-cat="{{ i.category }}">
+          <div class="card-head" onclick="toggleCard(this.closest('.card'))">
+            <div class="info">
+              <div class="title">{{ i.property_name }} — {{ i.category | capitalize }}</div>
+              <div class="meta">{{ i.reporter_name or "Unknown" }}{% if i.reporter_phone %} · +{{ i.reporter_phone }}{% endif %} · {{ i.received_at.strftime("%H:%M") }}</div>
+            </div>
+            <span class="badge badge-{{ i.severity }}">{{ i.severity }}</span>
+            <span class="badge badge-{{ i.status }}" id="status-badge-{{ i.id }}">{{ i.status }}</span>
+            <span class="chevron">▼</span>
+          </div>
+          <div class="card-body">
+            <div class="group-label">Group: <strong>{{ i.property_name }}</strong></div>
+            <div class="message">{{ i.message_body }}</div>
+            <div class="actions" id="actions-{{ i.id }}">
+              <button class="act-btn btn-ack"     onclick="setStatus({{ i.id }}, 'acknowledged')">✓ Acknowledge</button>
+              <button class="act-btn btn-resolve" onclick="setStatus({{ i.id }}, 'resolved')">✓ Resolve</button>
+              <button class="act-btn btn-ignore"  onclick="setStatus({{ i.id }}, 'ignored')">✗ Ignore</button>
+              <button class="act-btn btn-review"  onclick="setStatus({{ i.id }}, 'review')" style="margin-left:auto">⟳ Review</button>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty">No incidents yet. Waiting for property group messages.</div>
+      {% endif %}
+    </div>
+  </div>
 
 <script>
-function applyFilters() {
-  const status   = document.getElementById('filter-status').value;
-  const severity = document.getElementById('filter-severity').value;
-  const category = document.getElementById('filter-category').value;
-  let visible = 0;
-  document.querySelectorAll('#incident-table tbody tr').forEach(row => {
-    const match =
-      (!status   || row.dataset.status   === status)   &&
-      (!severity || row.dataset.severity === severity) &&
-      (!category || row.dataset.category === category);
-    row.classList.toggle('hidden', !match);
-    if (match) visible++;
+const API_KEY = '{{ api_key }}';
+const POLL_INTERVAL = 30000;
+
+let allIncidents = [];
+let pendingNew = [];
+let activeFilters = { status: new Set(), sev: new Set(), cat: new Set() };
+let maxId = 0;
+
+function init() {
+  document.querySelectorAll('.card[data-id]').forEach(card => {
+    const id = parseInt(card.dataset.id);
+    if (id > maxId) maxId = id;
+    allIncidents.push({
+      id,
+      property_name: card.querySelector('.title').textContent.split(' — ')[0],
+      severity: card.dataset.sev,
+      status: card.dataset.status,
+      category: card.dataset.cat,
+    });
   });
-  document.getElementById('count').textContent = visible + ' incident(s) shown';
+  updateStats();
+  updateCounts();
+  setInterval(poll, POLL_INTERVAL);
 }
 
-async function updateStatus(id, select) {
-  const newStatus = select.value;
-  if (!newStatus) return;
-  const resp = await fetch('/incidents/' + id + '/status', {
-    method: 'PATCH',
-    headers: {'Content-Type': 'application/json', 'X-API-Key': '{{ api_key }}'},
-    body: JSON.stringify({status: newStatus}),
-  });
-  if (resp.ok) {
-    const row = select.closest('tr');
-    row.dataset.status = newStatus;
-    row.querySelector('.status-cell').innerHTML =
-      '<span class="badge badge-' + newStatus + '">' + newStatus + '</span>';
-    select.value = '';
-    applyFilters();
-  } else {
-    alert('Failed to update status');
-  }
+async function poll() {
+  try {
+    const data = await fetch('/incidents?since_id=' + maxId).then(r => r.json());
+    if (!Array.isArray(data) || data.length === 0) return;
+    pendingNew = data;
+    document.getElementById('new-count').textContent = data.length;
+    document.getElementById('new-banner').style.display = 'block';
+    const highOpen = [...allIncidents, ...data].filter(
+      i => i.severity === 'high' && !['resolved','ignored'].includes(i.status)
+    ).length;
+    document.title = highOpen > 0 ? `(${highOpen} HIGH) {{ title }}` : '{{ title }}';
+  } catch(e) {}
 }
+
+function loadNewIncidents() {
+  const list = document.getElementById('card-list');
+  const empty = list.querySelector('.empty');
+  if (empty) empty.remove();
+  pendingNew.forEach(inc => {
+    if (inc.id > maxId) maxId = inc.id;
+    allIncidents.unshift(inc);
+    list.insertAdjacentHTML('afterbegin', buildCard(inc));
+  });
+  pendingNew = [];
+  document.getElementById('new-banner').style.display = 'none';
+  updateStats();
+  updateCounts();
+  applyFilters();
+}
+
+function buildCard(i) {
+  return `
+<div class="card" data-id="${i.id}" data-sev="${i.severity}" data-status="${i.status}" data-cat="${i.category}">
+  <div class="card-head" onclick="toggleCard(this.closest('.card'))">
+    <div class="info">
+      <div class="title">${esc(i.property_name)} — ${esc(cap(i.category))}</div>
+      <div class="meta">${esc(i.reporter_name||'Unknown')}${i.reporter_phone?' · +'+esc(i.reporter_phone):''} · ${new Date(i.received_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
+    </div>
+    <span class="badge badge-${i.severity}">${i.severity}</span>
+    <span class="badge badge-${i.status}" id="status-badge-${i.id}">${i.status}</span>
+    <span class="chevron">▼</span>
+  </div>
+  <div class="card-body">
+    <div class="group-label">Group: <strong>${esc(i.property_name)}</strong></div>
+    <div class="message">${esc(i.message_body)}</div>
+    <div class="actions" id="actions-${i.id}">
+      <button class="act-btn btn-ack"     onclick="setStatus(${i.id},'acknowledged')">✓ Acknowledge</button>
+      <button class="act-btn btn-resolve" onclick="setStatus(${i.id},'resolved')">✓ Resolve</button>
+      <button class="act-btn btn-ignore"  onclick="setStatus(${i.id},'ignored')">✗ Ignore</button>
+      <button class="act-btn btn-review"  onclick="setStatus(${i.id},'review')" style="margin-left:auto">⟳ Review</button>
+    </div>
+  </div>
+</div>`;
+}
+
+function toggleCard(card) { card.classList.toggle('open'); }
+
+async function setStatus(id, newStatus) {
+  const btns = document.querySelectorAll(`#actions-${id} button`);
+  btns.forEach(b => b.disabled = true);
+  const r = await fetch(`/incidents/${id}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+    body: JSON.stringify({ status: newStatus }),
+  });
+  if (r.ok) {
+    const card = document.querySelector(`.card[data-id="${id}"]`);
+    card.dataset.status = newStatus;
+    document.getElementById(`status-badge-${id}`).className = `badge badge-${newStatus}`;
+    document.getElementById(`status-badge-${id}`).textContent = newStatus;
+    const inc = allIncidents.find(i => i.id === id);
+    if (inc) inc.status = newStatus;
+    updateStats();
+    updateCounts();
+    applyFilters();
+  }
+  btns.forEach(b => b.disabled = false);
+}
+
+function toggleFilter(el) {
+  const { filter, val } = el.dataset;
+  const set = activeFilters[filter];
+  set.has(val) ? set.delete(val) : set.add(val);
+  el.classList.toggle('active', set.has(val));
+  applyFilters();
+}
+
+function applyFilters() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  document.querySelectorAll('.card[data-id]').forEach(card => {
+    const matchStatus = activeFilters.status.size === 0 || activeFilters.status.has(card.dataset.status);
+    const matchSev    = activeFilters.sev.size === 0    || activeFilters.sev.has(card.dataset.sev);
+    const matchCat    = activeFilters.cat.size === 0    || activeFilters.cat.has(card.dataset.cat);
+    const matchSearch = !q
+      || card.querySelector('.title').textContent.toLowerCase().includes(q)
+      || (card.querySelector('.message')?.textContent.toLowerCase().includes(q));
+    card.classList.toggle('hidden', !(matchStatus && matchSev && matchCat && matchSearch));
+  });
+}
+
+function updateStats() {
+  const highOpen = allIncidents.filter(i => i.severity === 'high' && !['resolved','ignored'].includes(i.status)).length;
+  const inReview = allIncidents.filter(i => i.status === 'review').length;
+  document.getElementById('stat-high').textContent   = highOpen;
+  document.getElementById('stat-review').textContent = inReview;
+  document.getElementById('stat-total').textContent  = allIncidents.length;
+}
+
+function updateCounts() {
+  ['review','new','acknowledged','resolved','ignored'].forEach(s => {
+    const el = document.querySelector(`[data-cnt="${s}"]`);
+    if (el) el.textContent = allIncidents.filter(i => i.status === s).length;
+  });
+  ['high','medium','low'].forEach(s => {
+    const el = document.querySelector(`[data-cnt-sev="${s}"]`);
+    if (el) el.textContent = allIncidents.filter(i => i.severity === s).length;
+  });
+  ['plumbing','electrical','lift','security','structural','cleaning','access','other'].forEach(s => {
+    const el = document.querySelector(`[data-cnt-cat="${s}"]`);
+    if (el) el.textContent = allIncidents.filter(i => i.category === s).length;
+  });
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+
+init();
 </script>
 </body>
 </html>

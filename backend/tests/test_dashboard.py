@@ -48,40 +48,35 @@ async def test_dashboard_returns_html(client):
     assert "text/html" in response.headers["content-type"]
 
 
-async def test_dashboard_contains_incident_table_markup(client):
+async def test_dashboard_contains_incident_card_markup(client):
     classification = {
-        "is_incident": True,
-        "category": "plumbing",
-        "severity": "high",
-        "confidence": 0.90,
+        "is_incident": True, "category": "plumbing",
+        "severity": "high", "confidence": 0.90,
     }
     payload = {
         "event": "message.received",
         "data": {
-            "type": "chat",
-            "isGroup": True,
-            "chatId": "111@g.us",
-            "chat": {"name": "Test Property"},
+            "type": "chat", "isGroup": True,
+            "chatId": "111@g.us", "chat": {"name": "Test Property"},
             "author": "25400000000@c.us",
-            "body": "Pipe burst in basement",
-            "timestamp": 1782293340,
+            "body": "Pipe burst in basement", "timestamp": 1782293340,
         },
     }
     with patch("main.classify_message", new=AsyncMock(return_value=classification)):
         with patch("main.push_incident", new=AsyncMock()):
-            await client.post("/api/v1/ops/ingest", json=payload, headers={"X-API-Key": "test-secret"})
-
+            await client.post("/api/v1/ops/ingest", json=payload,
+                              headers={"X-API-Key": "test-secret"})
     response = await client.get("/")
     assert response.status_code == 200
-    assert b"<table" in response.content
+    assert b'class="card' in response.content
+    assert b"Test Property" in response.content
 
 
 async def test_dashboard_has_filter_controls(client):
     response = await client.get("/")
     assert response.status_code == 200
-    assert b'id="filter-status"' in response.content
-    assert b'id="filter-severity"' in response.content
-    assert b'id="filter-category"' in response.content
+    assert b'id="search-input"' in response.content
+    assert b'id="sidebar"' in response.content
 
 
 async def test_dashboard_shows_review_badge(client):
@@ -91,7 +86,7 @@ async def test_dashboard_shows_review_badge(client):
             await client.post("/api/v1/ops/ingest", json=_VALID_PAYLOAD, headers={"X-API-Key": "test-secret"})
     response = await client.get("/")
     assert b"badge-review" in response.content
-    assert b"data-incident-id" in response.content
+    assert b"data-id=" in response.content
 
 
 async def test_incidents_since_id_returns_only_newer(client):
