@@ -200,6 +200,9 @@ async function poll() {
   try {
     const data = await fetch('/incidents?since_id=' + maxId).then(r => r.json());
     if (!Array.isArray(data) || data.length === 0) return;
+    // Advance maxId immediately so next poll only fetches truly new records
+    const newMax = Math.max(...data.map(i => i.id));
+    if (newMax > maxId) maxId = newMax;
     pendingNew = data;
     document.getElementById('new-count').textContent = data.length;
     document.getElementById('new-banner').style.display = 'block';
@@ -234,8 +237,8 @@ function buildCard(i) {
       <div class="title">${esc(i.property_name)} — ${esc(cap(i.category))}</div>
       <div class="meta">${esc(i.reporter_name||'Unknown')}${i.reporter_phone?' · +'+esc(i.reporter_phone):''} · ${new Date(i.received_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
     </div>
-    <span class="badge badge-${i.severity}">${i.severity}</span>
-    <span class="badge badge-${i.status}" id="status-badge-${i.id}">${i.status}</span>
+    <span class="badge badge-${esc(i.severity)}">${esc(i.severity)}</span>
+    <span class="badge badge-${esc(i.status)}" id="status-badge-${i.id}">${esc(i.status)}</span>
     <span class="chevron">▼</span>
   </div>
   <div class="card-body">
