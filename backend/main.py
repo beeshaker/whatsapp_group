@@ -199,6 +199,7 @@ async def _handle_media_ingest(
 ) -> dict:
     incident_id: Optional[int] = None
     update_id: Optional[int] = None
+    _created_incident: Optional[Incident] = None
 
     if caption:
         classification = await classify_message(caption)
@@ -249,6 +250,7 @@ async def _handle_media_ingest(
                     db.add(new_inc)
                     await db.flush()
                     incident_id = new_inc.id
+                    _created_incident = new_inc
                 except IntegrityError:
                     await db.rollback()
                     return {"status": "duplicate", "message": "Message already processed"}
@@ -284,6 +286,12 @@ async def _handle_media_ingest(
         await db.rollback()
         logger.error("DB commit failed for media ingest: %s", exc)
         return {"status": "error", "message": "Media could not be persisted"}
+
+    if _created_incident is not None:
+        try:
+            await push_incident(_created_incident)
+        except Exception as exc:
+            logger.error("push_incident failed for media incident: %s", exc)
 
     if incident_id is None:
         logger.warning("Orphaned media: no open ticket in group %s and no classified caption", group_id)
@@ -468,14 +476,21 @@ async def get_incident_detail(
 @app.get("/media/{media_id}")
 async def serve_media(
     media_id: int,
+    x_api_key: str = Header(None, alias="X-API-Key"),
     db: AsyncSession = Depends(get_db),
 ):
+    if not hmac.compare_digest(x_api_key or "", GATEWAY_SECRET_TOKEN):
+        raise HTTPException(status_code=401, detail="Unauthorized")
     result = await db.execute(select(IncidentMedia).where(IncidentMedia.id == media_id))
     media = result.scalar_one_or_none()
     if not media:
         raise HTTPException(status_code=404, detail="Media not found")
     if not os.path.exists(media.file_path):
         raise HTTPException(status_code=404, detail="Media file not found on disk")
+    media_root = os.path.realpath(MEDIA_DIR)
+    file_real = os.path.realpath(media.file_path)
+    if not file_real.startswith(media_root + os.sep):
+        raise HTTPException(status_code=403, detail="Forbidden")
     return FileResponse(media.file_path, media_type=media.mimetype, filename=media.filename)
 
 

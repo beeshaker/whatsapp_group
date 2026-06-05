@@ -96,17 +96,16 @@ async def test_serve_media_returns_file(client, db_session):
             await client.post("/api/v1/ops/ingest", json=_ORIGINAL, headers={"X-API-Key": "test-secret"})
     incident_id = (await client.get("/incidents")).json()[0]["id"]
 
-    # Write a real temp file
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
-        f.write(b"\xff\xd8\xff")
-        tmp_path = f.name
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = os.path.join(tmpdir, "test.jpg")
+        with open(tmp_path, "wb") as f:
+            f.write(b"\xff\xd8\xff")
 
-    try:
         import datetime as dt
         media = IncidentMedia(
             incident_id=incident_id,
             update_id=None,
-            filename=os.path.basename(tmp_path),
+            filename="test.jpg",
             mimetype="image/jpeg",
             file_path=tmp_path,
             received_at=dt.datetime.now(dt.timezone.utc),
@@ -115,16 +114,21 @@ async def test_serve_media_returns_file(client, db_session):
         await db_session.commit()
         await db_session.refresh(media)
 
-        r = await client.get(f"/media/{media.id}")
+        # Patch MEDIA_DIR so the path-containment guard accepts tmpdir
+        with patch("main.MEDIA_DIR", tmpdir):
+            r = await client.get(f"/media/{media.id}", headers={"X-API-Key": "test-secret"})
         assert r.status_code == 200
         assert r.headers["content-type"].startswith("image/jpeg")
         assert r.content == b"\xff\xd8\xff"
-    finally:
-        os.unlink(tmp_path)
+
+
+async def test_serve_media_requires_auth(client):
+    r = await client.get("/media/1")
+    assert r.status_code == 401
 
 
 async def test_serve_media_404_for_missing_record(client):
-    r = await client.get("/media/9999")
+    r = await client.get("/media/9999", headers={"X-API-Key": "test-secret"})
     assert r.status_code == 404
 
 
