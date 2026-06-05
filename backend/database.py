@@ -38,3 +38,9 @@ async def init_db():
             ))
     except Exception:
         pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE incidents ADD COLUMN updated_at TIMESTAMP"))
+    except Exception:
+        pass

@@ -13,5 +13,5 @@ async def test_incident_model_columns():
     assert cols == {
         "id", "group_id", "property_name", "reporter_name", "reporter_phone",
         "message_body", "category", "severity", "confidence", "status", "received_at",
-        "message_id",
+        "message_id", "updated_at",
     }
