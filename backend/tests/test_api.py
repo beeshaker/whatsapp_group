@@ -231,3 +231,15 @@ async def test_relink_promote_update_to_standalone_incident(client):
     new_detail = (await client.get(f"/incidents/{new_incident_id}")).json()
     assert new_detail["message_body"] == "Still leaking"
     assert new_detail["status"] == "review"
+
+
+async def test_ingest_creates_status_history_entry(client):
+    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+        with patch("main.push_incident", new=AsyncMock()):
+            await client.post("/api/v1/ops/ingest", json=_ORIGINAL, headers={"X-API-Key": "test-secret"})
+    incident_id = (await client.get("/incidents")).json()[0]["id"]
+    detail = (await client.get(f"/incidents/{incident_id}")).json()
+    assert "status_history" in detail
+    assert len(detail["status_history"]) == 1
+    assert detail["status_history"][0]["from_status"] is None
+    assert detail["status_history"][0]["to_status"] == "review"

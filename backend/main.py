@@ -18,9 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from classifier import classify_message, classify_update_or_new
 from database import get_db, init_db
 from media import MEDIA_DIR, download_media
-from models import Incident, IncidentMedia, IncidentUpdate
+from models import Incident, IncidentMedia, IncidentStatusHistory, IncidentUpdate
 from odoo_stub import push_incident
-from whatsapp import send_group_message
+from whatsapp import reply_to_message, send_group_message
 
 _VALID_STATUSES = {"new", "review", "acknowledged", "resolved", "ignored"}
 _MEDIA_TYPES = {"image", "video", "document", "audio"}
@@ -161,6 +161,13 @@ async def _handle_text_ingest(
     )
     try:
         db.add(incident)
+        await db.flush()
+        db.add(IncidentStatusHistory(
+            incident_id=incident.id,
+            from_status=None,
+            to_status="review",
+            changed_at=received_at,
+        ))
         await db.commit()
         await db.refresh(incident)
     except IntegrityError:
@@ -534,6 +541,12 @@ async def relink_update(
         )
         db.add(new_incident)
         await db.flush()
+        db.add(IncidentStatusHistory(
+            incident_id=new_incident.id,
+            from_status=None,
+            to_status="review",
+            changed_at=new_incident.received_at,
+        ))
         media_res = await db.execute(
             select(IncidentMedia).where(IncidentMedia.update_id == update_id)
         )
@@ -601,7 +614,10 @@ async def reply_to_incident(
         raise HTTPException(status_code=404, detail="Incident not found")
 
     try:
-        wa_message_id = await send_group_message(incident.group_id, text)
+        if incident.message_id:
+            wa_message_id = await reply_to_message(incident.group_id, incident.message_id, text)
+        else:
+            wa_message_id = await send_group_message(incident.group_id, text)
     except Exception as exc:
         logger.error("send_group_message failed: %s", exc)
         raise HTTPException(status_code=502, detail="Failed to send message to WhatsApp")
