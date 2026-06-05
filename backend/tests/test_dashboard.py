@@ -92,3 +92,35 @@ async def test_dashboard_shows_review_badge(client):
     response = await client.get("/")
     assert b"badge-review" in response.content
     assert b"data-incident-id" in response.content
+
+
+async def test_incidents_since_id_returns_only_newer(client):
+    classification = {
+        "is_incident": True, "category": "plumbing",
+        "severity": "high", "confidence": 0.92,
+    }
+    base_payload = {
+        "event": "message.received",
+        "data": {
+            "type": "chat", "isGroup": True,
+            "chatId": "111@g.us", "chat": {"name": "Block A"},
+            "author": "254700000001@c.us",
+            "body": "Pipe burst in basement", "timestamp": 1782293340,
+        },
+    }
+    with patch("main.classify_message", new=AsyncMock(return_value=classification)):
+        with patch("main.push_incident", new=AsyncMock()):
+            await client.post("/api/v1/ops/ingest", json=base_payload,
+                              headers={"X-API-Key": "test-secret"})
+            second = {**base_payload, "data": {**base_payload["data"],
+                "id": "msg-second", "body": "Second incident"}}
+            await client.post("/api/v1/ops/ingest", json=second,
+                              headers={"X-API-Key": "test-secret"})
+
+    all_incidents = (await client.get("/incidents")).json()
+    assert len(all_incidents) == 2
+    first_id = min(i["id"] for i in all_incidents)
+
+    newer = (await client.get(f"/incidents?since_id={first_id}")).json()
+    assert len(newer) == 1
+    assert newer[0]["id"] > first_id

@@ -162,8 +162,14 @@ async def ingest(
 
 
 @app.get("/incidents")
-async def list_incidents(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Incident).order_by(Incident.received_at.desc()))
+async def list_incidents(
+    since_id: Optional[int] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    query = select(Incident).order_by(Incident.received_at.desc())
+    if since_id is not None:
+        query = query.where(Incident.id > since_id)
+    result = await db.execute(query)
     return [
         {
             "id": i.id,
