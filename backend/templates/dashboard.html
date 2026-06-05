@@ -1257,6 +1257,7 @@
                       <button class="act-btn btn-ignore" onclick="setStatus({{ i.id }}, 'ignored', event)">✗ Ignore</button>
                       <button class="act-btn btn-review" onclick="setStatus({{ i.id }}, 'review', event)">⟳ Send to Review</button>
                       {% endif %}
+                      <button class="act-btn btn-reply" onclick="event.stopPropagation(); openDetailModal({{ i.id }})">↩ View / Reply</button>
                     </div>
                   </div>
                   <div class="side-details">
@@ -1635,6 +1636,7 @@ function buildCard(raw) {
                <button class="act-btn btn-resolve" onclick="setStatus(${i.id}, 'resolved', event)">✓ Resolve</button>
                <button class="act-btn btn-ignore" onclick="setStatus(${i.id}, 'ignored', event)">✗ Ignore</button>
                <button class="act-btn btn-review" onclick="setStatus(${i.id}, 'review', event)">⟳ Send to Review</button>`}
+          <button class="act-btn btn-reply" onclick="event.stopPropagation(); openDetailModal(${i.id})">↩ View / Reply</button>
         </div>
       </div>
       <div class="side-details">
