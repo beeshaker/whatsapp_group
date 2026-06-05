@@ -919,6 +919,7 @@
     .modal-close:hover { background: rgba(255,255,255,0.06); color: white; }
 
     .modal-body {
+      flex: 1;
       overflow-y: auto;
       padding: 18px 22px;
       display: flex;
@@ -1339,6 +1340,9 @@ async function openDetailModal(incidentId) {
     document.getElementById('modal-body').innerHTML = renderDetailModal(detail);
   } catch(e) {
     document.getElementById('modal-body').innerHTML = '<div style="color:var(--red)">Failed to load detail.</div>';
+    _currentDetailId = null;
+    const bar = document.getElementById('modal-reply-bar');
+    if (bar) bar.style.display = 'none';
   }
 }
 
