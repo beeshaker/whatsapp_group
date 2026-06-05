@@ -20,6 +20,7 @@ from database import get_db, init_db
 from media import MEDIA_DIR, download_media
 from models import Incident, IncidentMedia, IncidentUpdate
 from odoo_stub import push_incident
+from whatsapp import send_group_message
 
 _VALID_STATUSES = {"new", "review", "acknowledged", "resolved", "ignored"}
 _MEDIA_TYPES = {"image", "video", "document", "audio"}
@@ -31,6 +32,10 @@ class StatusUpdate(BaseModel):
 
 class RelinkBody(BaseModel):
     incident_id: Optional[int]
+
+
+class ReplyBody(BaseModel):
+    text: str
 
 
 logging.basicConfig(level=logging.INFO)
@@ -573,6 +578,62 @@ async def update_incident_status(
     incident.status = body.status
     await db.commit()
     return {"id": incident.id, "status": incident.status}
+
+
+@app.post("/incidents/{incident_id}/reply")
+async def reply_to_incident(
+    incident_id: int,
+    body: ReplyBody,
+    x_api_key: str = Header(None, alias="X-API-Key"),
+    db: AsyncSession = Depends(get_db),
+):
+    if not hmac.compare_digest(x_api_key or "", GATEWAY_SECRET_TOKEN):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="text must not be empty")
+    text = text[:4000]
+
+    result = await db.execute(select(Incident).where(Incident.id == incident_id))
+    incident = result.scalar_one_or_none()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    try:
+        wa_message_id = await send_group_message(incident.group_id, text)
+    except Exception as exc:
+        logger.error("send_group_message failed: %s", exc)
+        raise HTTPException(status_code=502, detail="Failed to send message to WhatsApp")
+
+    now = datetime.now(timezone.utc)
+    update = IncidentUpdate(
+        incident_id=incident_id,
+        message_id=wa_message_id,
+        reporter_name="Dashboard",
+        reporter_phone=None,
+        message_body=text,
+        received_at=now,
+        ai_linked=False,
+    )
+    db.add(update)
+    incident.updated_at = now
+    try:
+        await db.commit()
+        await db.refresh(update)
+    except Exception as exc:
+        await db.rollback()
+        logger.error("DB commit failed after send: %s", exc)
+        raise HTTPException(status_code=500, detail="Message sent but could not be saved")
+
+    return {
+        "id": update.id,
+        "reporter_name": update.reporter_name,
+        "message_body": update.message_body,
+        "received_at": update.received_at.isoformat(),
+        "ai_linked": update.ai_linked,
+        "media_count": 0,
+    }
 
 
 @app.get("/", response_class=HTMLResponse)
