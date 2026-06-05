@@ -8,23 +8,29 @@ from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from classifier import classify_message
+from classifier import classify_message, classify_update_or_new
 from database import get_db, init_db
-from models import Incident
+from media import MEDIA_DIR, download_media
+from models import Incident, IncidentMedia, IncidentUpdate
 from odoo_stub import push_incident
 
 _VALID_STATUSES = {"new", "review", "acknowledged", "resolved", "ignored"}
+_MEDIA_TYPES = {"image", "video", "document", "audio"}
 
 
 class StatusUpdate(BaseModel):
     status: str
+
+
+class RelinkBody(BaseModel):
+    incident_id: Optional[int]
 
 
 logging.basicConfig(level=logging.INFO)
@@ -73,47 +79,67 @@ async def webhook_url():
     return {"url": f"http://{ip}:8000/api/v1/ops/ingest"}
 
 
-@app.post("/api/v1/ops/ingest", status_code=status.HTTP_202_ACCEPTED)
-async def ingest(
-    request: Request,
-    x_api_key: str = Header(None, alias="X-API-Key"),
-    db: AsyncSession = Depends(get_db),
-):
-    if not hmac.compare_digest(x_api_key or "", GATEWAY_SECRET_TOKEN):
-        raise HTTPException(status_code=401, detail="Unauthorized")
+async def _get_open_tickets(db: AsyncSession, group_id: str) -> list[dict]:
+    result = await db.execute(
+        select(Incident)
+        .where(Incident.group_id == group_id)
+        .where(~Incident.status.in_(["resolved", "ignored"]))
+        .order_by(Incident.received_at.desc())
+        .limit(5)
+    )
+    return [
+        {"id": i.id, "category": i.category, "message_body": i.message_body}
+        for i in result.scalars().all()
+    ]
 
-    try:
-        payload = await request.json()
-    except Exception:
-        return {"status": "error", "message": "Invalid JSON body"}
-    event_type = payload.get("event")
-    data = payload.get("data", {})
 
-    if event_type != "message.received" or data.get("type") != "chat" or not data.get("isGroup", False):
-        return {"status": "ignored", "message": "Non-group or non-chat event skipped"}
-
-    group_id = data.get("chatId") or data.get("from", "")
-    group_name = data.get("chatName") or (data.get("chat") or {}).get("name") or (group_id.split("@")[0] if group_id else "Unmapped Property Group")
-    message_id: Optional[str] = data.get("id") or None
-
-    if message_id:
-        existing = await db.execute(select(Incident).where(Incident.message_id == message_id))
-        if existing.scalar_one_or_none():
-            return {"status": "duplicate", "message": "Message already processed"}
-
-    reporter_name = (data.get("notifyName") or "").strip() or "Unknown"
-    reporter_phone = (data.get("author") or "").split("@")[0].strip() or None
-    message_body = data.get("body", "").strip()[:4000]
-    epoch = data.get("timestamp") or datetime.now(timezone.utc).timestamp()
-    received_at = datetime.fromtimestamp(epoch, tz=timezone.utc)
-
-    if not message_body:
-        return {"status": "ignored", "message": "Empty message body"}
-
+async def _handle_text_ingest(
+    db: AsyncSession,
+    group_id: str,
+    group_name: str,
+    reporter_name: str,
+    reporter_phone: Optional[str],
+    message_body: str,
+    received_at: datetime,
+    message_id: Optional[str],
+) -> dict:
     classification = await classify_message(message_body)
-
     if not classification["is_incident"] or classification["confidence"] < MIN_CONFIDENCE:
         return {"status": "noise", "message": "Message classified as non-incident"}
+
+    open_tickets = await _get_open_tickets(db, group_id)
+    if open_tickets:
+        routing = await classify_update_or_new(message_body, open_tickets)
+    else:
+        routing = {"routing": "new"}
+
+    if routing["routing"] == "update":
+        incident_id = routing["ticket_id"]
+        update = IncidentUpdate(
+            incident_id=incident_id,
+            message_id=message_id,
+            reporter_name=reporter_name,
+            reporter_phone=reporter_phone,
+            message_body=message_body,
+            received_at=received_at,
+            ai_linked=True,
+        )
+        try:
+            db.add(update)
+            parent = await db.get(Incident, incident_id)
+            if parent:
+                parent.updated_at = received_at
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            return {"status": "duplicate", "message": "Message already processed"}
+        except Exception as exc:
+            await db.rollback()
+            logger.error("DB commit failed for update: %s", exc)
+            return {"status": "error", "message": "Update could not be persisted"}
+
+        logger.info("[UPDATE] incident_id=%d reporter=%s", incident_id, reporter_name)
+        return {"status": "staged_update", "incident_id": incident_id}
 
     incident = Incident(
         group_id=group_id,
@@ -152,7 +178,6 @@ async def ingest(
         classification["severity"],
         classification["confidence"],
     )
-
     return {
         "status": "staged",
         "property": group_name,
@@ -161,12 +186,87 @@ async def ingest(
     }
 
 
+@app.post("/api/v1/ops/ingest", status_code=status.HTTP_202_ACCEPTED)
+async def ingest(
+    request: Request,
+    x_api_key: str = Header(None, alias="X-API-Key"),
+    db: AsyncSession = Depends(get_db),
+):
+    if not hmac.compare_digest(x_api_key or "", GATEWAY_SECRET_TOKEN):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        payload = await request.json()
+    except Exception:
+        return {"status": "error", "message": "Invalid JSON body"}
+
+    event_type = payload.get("event")
+    data = payload.get("data", {})
+    msg_type = data.get("type", "")
+
+    if event_type != "message.received" or not data.get("isGroup", False):
+        return {"status": "ignored", "message": "Non-group or non-chat event skipped"}
+
+    if msg_type != "chat" and msg_type not in _MEDIA_TYPES:
+        return {"status": "ignored", "message": "Non-group or non-chat event skipped"}
+
+    group_id = data.get("chatId") or data.get("from", "")
+    group_name = (
+        data.get("chatName")
+        or (data.get("chat") or {}).get("name")
+        or (group_id.split("@")[0] if group_id else "Unmapped Property Group")
+    )
+    message_id: Optional[str] = data.get("id") or None
+
+    if message_id:
+        existing_inc = await db.execute(select(Incident).where(Incident.message_id == message_id))
+        if existing_inc.scalar_one_or_none():
+            return {"status": "duplicate", "message": "Message already processed"}
+        existing_upd = await db.execute(
+            select(IncidentUpdate).where(IncidentUpdate.message_id == message_id)
+        )
+        if existing_upd.scalar_one_or_none():
+            return {"status": "duplicate", "message": "Message already processed"}
+
+    reporter_name = (data.get("notifyName") or "").strip() or "Unknown"
+    reporter_phone = (data.get("author") or "").split("@")[0].strip() or None
+    epoch = data.get("timestamp") or datetime.now(timezone.utc).timestamp()
+    received_at = datetime.fromtimestamp(epoch, tz=timezone.utc)
+
+    if msg_type == "chat":
+        message_body = data.get("body", "").strip()[:4000]
+        if not message_body:
+            return {"status": "ignored", "message": "Empty message body"}
+        return await _handle_text_ingest(
+            db, group_id, group_name, reporter_name, reporter_phone,
+            message_body, received_at, message_id,
+        )
+
+    # Media message — handled in Task 5
+    return {"status": "ignored", "message": "Media handling not yet implemented"}
+
+
 @app.get("/incidents")
 async def list_incidents(
     since_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(Incident).order_by(Incident.received_at.desc())
+    update_count_sq = (
+        select(func.count(IncidentUpdate.id))
+        .where(IncidentUpdate.incident_id == Incident.id)
+        .correlate(Incident)
+        .scalar_subquery()
+    )
+    media_count_sq = (
+        select(func.count(IncidentMedia.id))
+        .where(IncidentMedia.incident_id == Incident.id)
+        .correlate(Incident)
+        .scalar_subquery()
+    )
+    query = (
+        select(Incident, update_count_sq.label("uc"), media_count_sq.label("mc"))
+        .order_by(Incident.received_at.desc())
+    )
     if since_id is not None:
         query = query.where(Incident.id > since_id)
     result = await db.execute(query)
@@ -182,8 +282,10 @@ async def list_incidents(
             "status": i.status,
             "message_body": i.message_body,
             "received_at": i.received_at.isoformat(),
+            "update_count": uc,
+            "media_count": mc,
         }
-        for i in result.scalars().all()
+        for i, uc, mc in result.all()
     ]
 
 
@@ -209,13 +311,36 @@ async def update_incident_status(
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Incident).order_by(Incident.received_at.desc()))
-    incidents = result.scalars().all()
+    update_count_sq = (
+        select(func.count(IncidentUpdate.id))
+        .where(IncidentUpdate.incident_id == Incident.id)
+        .correlate(Incident)
+        .scalar_subquery()
+    )
+    media_count_sq = (
+        select(func.count(IncidentMedia.id))
+        .where(IncidentMedia.incident_id == Incident.id)
+        .correlate(Incident)
+        .scalar_subquery()
+    )
+    result = await db.execute(
+        select(Incident, update_count_sq.label("uc"), media_count_sq.label("mc"))
+        .order_by(Incident.received_at.desc())
+    )
+    rows = result.all()
+    incidents_with_counts = [
+        {"incident": i, "update_count": uc, "media_count": mc}
+        for i, uc, mc in rows
+    ]
+    # Pass both variables: incidents_with_counts for future template use,
+    # and incidents (list of Incident objects) for backward compat with current template.
+    incidents = [row["incident"] for row in incidents_with_counts]
     return templates.TemplateResponse(
         "dashboard.html",
         {
             "request": request,
             "incidents": incidents,
+            "incidents_with_counts": incidents_with_counts,
             "title": os.getenv("DASHBOARD_TITLE", "Ops Incident Monitor"),
             "api_key": GATEWAY_SECRET_TOKEN,
         },
