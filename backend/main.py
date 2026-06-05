@@ -186,6 +186,112 @@ async def _handle_text_ingest(
     }
 
 
+async def _handle_media_ingest(
+    db: AsyncSession,
+    group_id: str,
+    group_name: str,
+    reporter_name: str,
+    reporter_phone: Optional[str],
+    caption: str,
+    media_url: Optional[str],
+    received_at: datetime,
+    message_id: Optional[str],
+) -> dict:
+    incident_id: Optional[int] = None
+    update_id: Optional[int] = None
+
+    if caption:
+        classification = await classify_message(caption)
+        if classification["is_incident"] and classification["confidence"] >= MIN_CONFIDENCE:
+            open_tickets = await _get_open_tickets(db, group_id)
+            if open_tickets:
+                routing = await classify_update_or_new(caption, open_tickets)
+            else:
+                routing = {"routing": "new"}
+
+            if routing["routing"] == "update":
+                parent_id = routing["ticket_id"]
+                upd = IncidentUpdate(
+                    incident_id=parent_id,
+                    message_id=message_id,
+                    reporter_name=reporter_name,
+                    reporter_phone=reporter_phone,
+                    message_body=caption,
+                    received_at=received_at,
+                    ai_linked=True,
+                )
+                try:
+                    db.add(upd)
+                    parent = await db.get(Incident, parent_id)
+                    if parent:
+                        parent.updated_at = received_at
+                    await db.flush()
+                    incident_id = parent_id
+                    update_id = upd.id
+                except IntegrityError:
+                    await db.rollback()
+                    return {"status": "duplicate", "message": "Message already processed"}
+            else:
+                new_inc = Incident(
+                    group_id=group_id,
+                    property_name=group_name,
+                    reporter_name=reporter_name,
+                    reporter_phone=reporter_phone,
+                    message_body=caption,
+                    category=classification["category"],
+                    severity=classification["severity"],
+                    confidence=classification["confidence"],
+                    status="review",
+                    received_at=received_at,
+                    message_id=message_id,
+                )
+                try:
+                    db.add(new_inc)
+                    await db.flush()
+                    incident_id = new_inc.id
+                except IntegrityError:
+                    await db.rollback()
+                    return {"status": "duplicate", "message": "Message already processed"}
+
+    if incident_id is None and media_url:
+        open_tickets = await _get_open_tickets(db, group_id)
+        if open_tickets:
+            incident_id = open_tickets[0]["id"]
+
+    if media_url and incident_id is not None:
+        try:
+            filename, mimetype, file_path = await download_media(media_url, MEDIA_DIR)
+            media_rec = IncidentMedia(
+                incident_id=incident_id,
+                update_id=update_id,
+                filename=filename,
+                mimetype=mimetype,
+                file_path=file_path,
+                received_at=received_at,
+            )
+            db.add(media_rec)
+            parent = await db.get(Incident, incident_id)
+            if parent:
+                parent.updated_at = received_at
+        except Exception as exc:
+            logger.error("Media download failed: %s", exc)
+    elif media_url is None:
+        logger.warning("Media message has no mediaUrl — skipping download")
+
+    try:
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        logger.error("DB commit failed for media ingest: %s", exc)
+        return {"status": "error", "message": "Media could not be persisted"}
+
+    if incident_id is None:
+        logger.warning("Orphaned media: no open ticket in group %s and no classified caption", group_id)
+        return {"status": "staged_media", "message": "Media saved but no open ticket found"}
+
+    return {"status": "staged_media", "incident_id": incident_id}
+
+
 @app.post("/api/v1/ops/ingest", status_code=status.HTTP_202_ACCEPTED)
 async def ingest(
     request: Request,
@@ -242,8 +348,13 @@ async def ingest(
             message_body, received_at, message_id,
         )
 
-    # Media message — handled in Task 5
-    return {"status": "ignored", "message": "Media handling not yet implemented"}
+    # Media message
+    caption = (data.get("caption") or "").strip()[:4000]
+    media_url: Optional[str] = data.get("mediaUrl") or None
+    return await _handle_media_ingest(
+        db, group_id, group_name, reporter_name, reporter_phone,
+        caption, media_url, received_at, message_id,
+    )
 
 
 @app.get("/incidents")

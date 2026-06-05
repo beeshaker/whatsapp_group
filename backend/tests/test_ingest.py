@@ -70,7 +70,9 @@ async def test_ingest_ignores_non_group(client):
     assert response.json()["status"] == "ignored"
 
 
-async def test_ingest_ignores_non_chat_type(client):
+async def test_ingest_handles_image_type_as_media(client):
+    # Image messages are now handled by _handle_media_ingest instead of being ignored.
+    # This payload has no caption and no open tickets, so it returns staged_media with no incident_id.
     payload = {
         **_VALID_PAYLOAD,
         "data": {**_VALID_PAYLOAD["data"], "type": "image"},
@@ -79,7 +81,8 @@ async def test_ingest_ignores_non_chat_type(client):
         "/api/v1/ops/ingest", json=payload, headers={"X-API-Key": "test-secret"}
     )
     assert response.status_code == 202
-    assert response.json()["status"] == "ignored"
+    assert response.json()["status"] == "staged_media"
+    assert "incident_id" not in response.json()
 
 
 async def test_ingest_discards_noise(client):
