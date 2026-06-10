@@ -47,111 +47,123 @@
       overflow: hidden;
     }
 
-    button, input { font: inherit; }
+    button, input, textarea { font: inherit; }
 
-    .app-shell {
-      height: 100vh;
-      display: grid;
-      grid-template-rows: auto auto 1fr;
-    }
-
-    .topbar {
-      min-height: 78px;
-      padding: 16px 22px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 18px;
+    /* ── Nav ── */
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(7, 17, 31, 0.88);
+      backdrop-filter: blur(14px);
       border-bottom: 1px solid var(--line);
-      background: rgba(7, 17, 31, 0.78);
-      backdrop-filter: blur(18px);
-    }
-
-    .brand {
       display: flex;
       align-items: center;
-      gap: 12px;
-      min-width: 260px;
+      gap: 1rem;
+      padding: 0 1.25rem;
+      height: 52px;
+      flex-shrink: 0;
     }
 
-    .brand-mark {
-      width: 46px;
-      height: 46px;
-      border-radius: 16px;
-      display: grid;
-      place-items: center;
-      background: linear-gradient(145deg, #0ea5e9, #1e3a8a);
-      box-shadow: 0 12px 28px rgba(14, 165, 233, 0.22);
-      font-size: 22px;
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+      text-decoration: none;
+      color: var(--text);
+      font-weight: 700;
+      font-size: 0.9375rem;
+      letter-spacing: -0.01em;
+      flex-shrink: 0;
     }
 
-    .eyebrow {
-      color: var(--blue);
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      margin-bottom: 4px;
+    .nav-brand-icon {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(135deg, var(--blue) 0%, #7c3aed 100%);
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.875rem;
     }
 
-    .topbar h1 {
-      font-size: 20px;
-      line-height: 1.2;
-      letter-spacing: -0.03em;
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      flex: 1;
+      justify-content: center;
     }
 
-    .topbar .subline {
-      margin-top: 4px;
-      font-size: 12px;
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.35rem 0.7rem;
+      border-radius: 8px;
+      font-size: 0.8375rem;
+      font-weight: 500;
       color: var(--muted);
+      text-decoration: none;
+      transition: color 0.15s, background 0.15s;
     }
 
-    .stats {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(118px, 1fr));
-      gap: 10px;
-      width: min(640px, 62vw);
+    .nav-link:hover { color: var(--text); background: rgba(148, 163, 184, 0.08); }
+    .nav-link.active { color: var(--blue); background: rgba(56, 189, 248, 0.1); }
+
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-shrink: 0;
     }
 
-    .stat {
-      position: relative;
-      overflow: hidden;
-      background: linear-gradient(180deg, rgba(255,255,255,0.065), rgba(255,255,255,0.025));
+    .user-pill {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.28rem 0.6rem;
+      background: var(--surface-2);
       border: 1px solid var(--line);
-      border-radius: 16px;
-      padding: 12px 14px;
-      min-height: 66px;
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.16);
+      border-radius: 99px;
+      font-size: 0.8rem;
+      font-weight: 500;
     }
 
-    .stat::after {
-      content: "";
-      position: absolute;
-      inset: auto 12px 0 12px;
-      height: 3px;
-      border-radius: 99px 99px 0 0;
-      background: var(--blue);
-      opacity: 0.86;
+    .user-avatar {
+      width: 21px;
+      height: 21px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--blue) 0%, #7c3aed 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.6rem;
+      font-weight: 700;
+      color: #fff;
+      flex-shrink: 0;
     }
 
-    .stat.red::after { background: var(--red); }
-    .stat.purple::after { background: var(--purple); }
-    .stat.green::after { background: var(--green); }
-
-    .stat .n {
-      font-size: 26px;
-      font-weight: 900;
-      line-height: 1;
-      letter-spacing: -0.06em;
-    }
-
-    .stat .l {
-      margin-top: 7px;
-      font-size: 10px;
+    .btn-signout {
+      padding: 0.3rem 0.75rem;
+      background: transparent;
+      border: 1px solid var(--line);
+      border-radius: 8px;
       color: var(--muted);
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      font-weight: 800;
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .btn-signout:hover { color: var(--red); border-color: rgba(239, 68, 68, 0.4); }
+
+    /* ── App shell below nav ── */
+    .app-shell {
+      height: calc(100vh - 52px);
+      display: grid;
+      grid-template-rows: auto 1fr;
     }
 
     #new-banner {
@@ -271,9 +283,7 @@
       text-align: left;
     }
 
-    .filter-header:hover {
-      background: rgba(56, 189, 248, 0.05);
-    }
+    .filter-header:hover { background: rgba(56, 189, 248, 0.05); }
 
     .filter-group h4,
     .filter-header h4 {
@@ -285,9 +295,7 @@
       text-transform: uppercase;
     }
 
-    .filter-header h4 {
-      margin: 0;
-    }
+    .filter-header h4 { margin: 0; }
 
     .filter-header-meta {
       display: flex;
@@ -306,17 +314,10 @@
       border-top: 1px solid rgba(148, 163, 184, 0.08);
     }
 
-    .filter-content > .fopt:first-child {
-      margin-top: 10px;
-    }
+    .filter-content > .fopt:first-child { margin-top: 10px; }
 
-    .filter-group.collapsed .filter-content {
-      display: none;
-    }
-
-    .filter-group.collapsed .filter-chevron {
-      transform: rotate(-90deg);
-    }
+    .filter-group.collapsed .filter-content { display: none; }
+    .filter-group.collapsed .filter-chevron { transform: rotate(-90deg); }
 
     .fopt {
       width: 100%;
@@ -461,10 +462,7 @@
       border-color: rgba(56, 189, 248, 0.42);
     }
 
-    .sidebar-toggle .toggle-icon {
-      font-size: 14px;
-      line-height: 1;
-    }
+    .sidebar-toggle .toggle-icon { font-size: 14px; line-height: 1; }
 
     .legend {
       display: flex;
@@ -484,6 +482,54 @@
       border: 1px solid rgba(148, 163, 184, 0.12);
       color: var(--muted);
       font-size: 11px;
+      font-weight: 800;
+    }
+
+    /* ── Stats bar ── */
+    .stats-bar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .stat {
+      position: relative;
+      overflow: hidden;
+      background: linear-gradient(180deg, rgba(255,255,255,0.065), rgba(255,255,255,0.025));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 10px 14px;
+      min-width: 100px;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14);
+    }
+
+    .stat::after {
+      content: "";
+      position: absolute;
+      inset: auto 10px 0 10px;
+      height: 3px;
+      border-radius: 99px 99px 0 0;
+      background: var(--blue);
+      opacity: 0.86;
+    }
+
+    .stat.red::after { background: var(--red); }
+    .stat.purple::after { background: var(--purple); }
+    .stat.green::after { background: var(--green); }
+
+    .stat .n {
+      font-size: 22px;
+      font-weight: 900;
+      line-height: 1;
+      letter-spacing: -0.06em;
+    }
+
+    .stat .l {
+      margin-top: 5px;
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
       font-weight: 800;
     }
 
@@ -526,9 +572,7 @@
     .card::before {
       content: "";
       position: absolute;
-      left: 0;
-      top: 0;
-      bottom: 0;
+      left: 0; top: 0; bottom: 0;
       width: 5px;
       background: var(--muted-2);
     }
@@ -596,8 +640,7 @@
     }
 
     .meta-dot {
-      width: 3px;
-      height: 3px;
+      width: 3px; height: 3px;
       border-radius: 99px;
       background: rgba(148, 163, 184, 0.5);
     }
@@ -620,8 +663,7 @@
     }
 
     .chevron {
-      width: 28px;
-      height: 28px;
+      width: 28px; height: 28px;
       display: grid;
       place-items: center;
       border-radius: 10px;
@@ -753,8 +795,7 @@
 
     .toast {
       position: fixed;
-      right: 18px;
-      bottom: 18px;
+      right: 18px; bottom: 18px;
       z-index: 30;
       display: none;
       max-width: 360px;
@@ -773,33 +814,6 @@
     @keyframes slideUp {
       from { transform: translateY(10px); opacity: 0; }
       to { transform: translateY(0); opacity: 1; }
-    }
-
-    @media (max-width: 980px) {
-      body { overflow: auto; }
-      .app-shell { min-height: 100vh; height: auto; }
-      .topbar { align-items: flex-start; flex-direction: column; }
-      .stats { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .body { grid-template-columns: 1fr; overflow: visible; }
-      #sidebar { max-height: none; }
-      .filter-scroll { max-height: none; overflow: visible; }
-      .main { overflow: visible; }
-      .toolbar { position: static; align-items: flex-start; flex-direction: column; }
-      .toolbar-actions { justify-content: flex-start; }
-      .legend { justify-content: flex-start; }
-      .details-panel { grid-template-columns: 1fr; }
-      .card-body { padding-left: 20px; }
-    }
-
-    @media (max-width: 620px) {
-      .topbar { padding: 14px; }
-      .body { padding: 12px; gap: 12px; }
-      .stats { grid-template-columns: 1fr; }
-      .brand { min-width: 0; }
-      .card-head { grid-template-columns: minmax(0, 1fr); }
-      .category-icon { display: none; }
-      .card-right { align-items: flex-start; flex-wrap: wrap; }
-      .message-preview { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
     }
 
     .card-badges {
@@ -829,6 +843,7 @@
       border-color: rgba(56, 189, 248, 0.55);
     }
 
+    /* ── Modal ── */
     .modal-overlay {
       display: none;
       position: fixed;
@@ -855,44 +870,6 @@
       box-shadow: var(--shadow);
     }
 
-    .modal-reply-bar {
-      flex-shrink: 0;
-      border-top: 1px solid var(--line);
-      padding: 12px 22px 14px;
-      background: var(--bg-soft);
-    }
-
-    .update-badge {
-      display: inline-flex;
-      align-items: center;
-      padding: 1px 8px;
-      border-radius: 999px;
-      font-size: 10px;
-      font-weight: 900;
-      letter-spacing: .04em;
-    }
-    .update-badge-sent { background: rgba(14,165,233,0.12); color: #7dd3fc; }
-    .update-badge-moved { background: rgba(245,158,11,0.12); color: #fde68a; }
-
-    .update-row-moved { border-color: rgba(245,158,11,0.22); }
-
-    .status-history-list { display: flex; flex-direction: column; gap: 8px; }
-    .status-history-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 12px;
-      color: var(--muted);
-    }
-    .sh-dot {
-      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
-    }
-    .sh-dot-new       { background: #38bdf8; }
-    .sh-dot-review    { background: #a855f7; }
-    .sh-dot-acknowledged { background: #14b8a6; }
-    .sh-dot-resolved  { background: #64748b; }
-    .sh-dot-ignored   { background: #374151; }
-
     .modal-header {
       display: flex;
       align-items: center;
@@ -905,8 +882,7 @@
     .modal-header h2 { font-size: 16px; font-weight: 900; }
 
     .modal-close {
-      width: 32px;
-      height: 32px;
+      width: 32px; height: 32px;
       border-radius: 50%;
       border: 1px solid var(--line);
       background: transparent;
@@ -926,6 +902,13 @@
       display: flex;
       flex-direction: column;
       gap: 20px;
+    }
+
+    .modal-reply-bar {
+      flex-shrink: 0;
+      border-top: 1px solid var(--line);
+      padding: 12px 22px 14px;
+      background: var(--bg-soft);
     }
 
     .modal-section-label {
@@ -998,8 +981,7 @@
     }
 
     .media-thumb img {
-      width: 100%;
-      height: 100%;
+      width: 100%; height: 100%;
       object-fit: cover;
       display: block;
     }
@@ -1032,6 +1014,20 @@
       flex-direction: column;
       gap: 8px;
     }
+
+    .reply-top-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .reply-who {
+      font-size: 12px;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+
+    .reply-who strong { color: var(--blue); }
 
     .reply-textarea {
       width: 100%;
@@ -1071,248 +1067,320 @@
       background: rgba(7, 89, 133, 0.22);
       border-color: rgba(56, 189, 248, 0.2);
     }
+
+    .update-row-moved { border-color: rgba(245,158,11,0.22); }
+
+    .update-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 1px 8px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: .04em;
+    }
+
+    .update-badge-sent { background: rgba(14,165,233,0.12); color: #7dd3fc; }
+    .update-badge-moved { background: rgba(245,158,11,0.12); color: #fde68a; }
+
+    .status-history-list { display: flex; flex-direction: column; gap: 8px; }
+
+    .status-history-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .sh-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    }
+
+    .sh-dot-new       { background: #38bdf8; }
+    .sh-dot-review    { background: #a855f7; }
+    .sh-dot-acknowledged { background: #14b8a6; }
+    .sh-dot-resolved  { background: #64748b; }
+    .sh-dot-ignored   { background: #374151; }
+
+    /* ── Audit log ── */
+    .audit-row {
+      display: grid;
+      grid-template-columns: 90px 110px minmax(0,1fr) 60px;
+      gap: 8px;
+      padding: 8px 10px;
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+    }
+
+    .audit-row + .audit-row { margin-top: 6px; }
+
+    .audit-who { font-weight: 700; color: var(--blue); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .audit-action { color: var(--muted); white-space: nowrap; }
+    .audit-detail { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .audit-time { color: var(--muted-2); text-align: right; white-space: nowrap; }
+
+    @media (max-width: 980px) {
+      body { overflow: auto; }
+      .app-shell { min-height: calc(100vh - 52px); height: auto; }
+      .body { grid-template-columns: 1fr; overflow: visible; }
+      #sidebar { max-height: none; }
+      .filter-scroll { max-height: none; overflow: visible; }
+      .main { overflow: visible; }
+      .toolbar { position: static; align-items: flex-start; flex-direction: column; }
+      .toolbar-actions { justify-content: flex-start; }
+      .legend { justify-content: flex-start; }
+      .details-panel { grid-template-columns: 1fr; }
+      .card-body { padding-left: 20px; }
+    }
+
+    @media (max-width: 620px) {
+      .nav { padding: 0 0.75rem; }
+      .nav-links { display: none; }
+      .body { padding: 12px; gap: 12px; }
+      .brand { min-width: 0; }
+      .card-head { grid-template-columns: minmax(0, 1fr); }
+      .category-icon { display: none; }
+      .card-right { align-items: flex-start; flex-wrap: wrap; }
+      .message-preview { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    }
   </style>
 </head>
 <body>
-  <div class="app-shell">
-    <header class="topbar">
-      <div class="brand">
-        <div class="brand-mark">🏢</div>
-        <div>
-          <div class="eyebrow">{% if mode == 'archive' %}Incident Archive{% else %}Incident Command Centre{% endif %}</div>
-          <h1>{{ title }}</h1>
-          <div class="subline">{% if mode == 'archive' %}Browse and reopen resolved incidents.{% else %}Monitor WhatsApp property group incidents, triage priority cases, and update status.{% endif %}</div>
-        </div>
-      </div>
 
-      {% if mode == 'archive' %}
-      <div class="stats">
-        <div class="stat">
-          <div class="n" id="stat-total">0</div>
-          <div class="l">Total Resolved</div>
-        </div>
-      </div>
-      {% else %}
-      <div class="stats">
-        <div class="stat red">
-          <div class="n" id="stat-high">0</div>
-          <div class="l">High · Open</div>
-        </div>
-        <div class="stat purple">
-          <div class="n" id="stat-review">0</div>
-          <div class="l">Needs Review</div>
-        </div>
-        <div class="stat green">
-          <div class="n" id="stat-open">0</div>
-          <div class="l">Active Open</div>
-        </div>
-        <div class="stat">
-          <div class="n" id="stat-total">0</div>
-          <div class="l">Total Today</div>
-        </div>
-      </div>
-      {% endif %}
-      {% if mode == 'archive' %}
-      <a href="/" class="ghost-btn" style="align-self:center;text-decoration:none;white-space:nowrap">← Live Board</a>
-      {% else %}
-      <a href="/archive" class="ghost-btn" style="align-self:center;text-decoration:none;white-space:nowrap">Archive →</a>
-      {% endif %}
-    </header>
-
-    <div id="new-banner" onclick="loadNewIncidents()">
-      ▲ <span id="new-count">0</span> new incident(s) arrived — click to load into the dashboard
+<!-- ── Top nav ── -->
+<nav class="nav">
+  <a class="nav-brand" href="/">
+    <div class="nav-brand-icon">🎫</div>
+    Ops Ticketing
+  </a>
+  <div class="nav-links">
+    <a class="nav-link {% if mode != 'archive' %}active{% endif %}" href="/">📋 Live Queue</a>
+    <a class="nav-link {% if mode == 'archive' %}active{% endif %}" href="/archive">📁 Archive</a>
+    <a class="nav-link" href="/users">👥 Users</a>
+  </div>
+  <div class="nav-right">
+    <div class="user-pill">
+      <div class="user-avatar" id="nav-avatar"></div>
+      <span>{{ username }}</span>
     </div>
+    <form method="post" action="/logout" style="margin:0">
+      <button class="btn-signout" type="submit">Sign out</button>
+    </form>
+  </div>
+</nav>
 
-    <div class="body" id="dashboard-body">
-      <aside id="sidebar">
-        <div class="search-wrap">
-          <span>⌕</span>
-          <input id="search-input" placeholder="Search property, reporter, message…" oninput="applyFilters()">
+<div class="app-shell">
+  <div id="new-banner" onclick="loadNewIncidents()">
+    ▲ <span id="new-count">0</span> new incident(s) arrived — click to load
+  </div>
+
+  <div class="body" id="dashboard-body">
+    <aside id="sidebar">
+      <div class="search-wrap">
+        <span>⌕</span>
+        <input id="search-input" placeholder="Search property, reporter, message…" oninput="applyFilters()">
+      </div>
+
+      <div class="filter-scroll">
+        {% if mode != 'archive' %}
+        <div class="filter-group collapsible" data-group="status">
+          <button type="button" class="filter-header" onclick="toggleFilterGroup(this)">
+            <h4>Status</h4>
+            <div class="filter-header-meta"><span class="cnt" id="selected-status-count">0</span><span class="filter-chevron">⌄</span></div>
+          </button>
+          <div class="filter-content">
+            <div class="fopt" data-filter="status" data-val="review" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#a855f7"></span>Review</span><span class="cnt" data-cnt="review">0</span></div>
+            <div class="fopt" data-filter="status" data-val="new" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#38bdf8"></span>New</span><span class="cnt" data-cnt="new">0</span></div>
+            <div class="fopt" data-filter="status" data-val="acknowledged" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#14b8a6"></span>Acknowledged</span><span class="cnt" data-cnt="acknowledged">0</span></div>
+            <div class="fopt" data-filter="status" data-val="ignored" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#6b7280"></span>Ignored</span><span class="cnt" data-cnt="ignored">0</span></div>
+          </div>
+        </div>
+        {% endif %}
+
+        <div class="filter-group collapsible" data-group="severity">
+          <button type="button" class="filter-header" onclick="toggleFilterGroup(this)">
+            <h4>Severity</h4>
+            <div class="filter-header-meta"><span class="cnt" id="selected-sev-count">0</span><span class="filter-chevron">⌄</span></div>
+          </button>
+          <div class="filter-content">
+            <div class="fopt" data-filter="sev" data-val="high" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#ef4444"></span>High Priority</span><span class="cnt" data-cnt-sev="high">0</span></div>
+            <div class="fopt" data-filter="sev" data-val="medium" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#f59e0b"></span>Medium</span><span class="cnt" data-cnt-sev="medium">0</span></div>
+            <div class="fopt" data-filter="sev" data-val="low" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#22c55e"></span>Low</span><span class="cnt" data-cnt-sev="low">0</span></div>
+          </div>
         </div>
 
-        <div class="filter-scroll">
+        <div class="filter-group collapsible" data-group="category">
+          <button type="button" class="filter-header" onclick="toggleFilterGroup(this)">
+            <h4>Category</h4>
+            <div class="filter-header-meta"><span class="cnt" id="selected-cat-count">0</span><span class="filter-chevron">⌄</span></div>
+          </button>
+          <div class="filter-content">
+            <div class="fopt" data-filter="cat" data-val="plumbing" onclick="toggleFilter(this)"><span class="left">🔧 Plumbing</span><span class="cnt" data-cnt-cat="plumbing">0</span></div>
+            <div class="fopt" data-filter="cat" data-val="electrical" onclick="toggleFilter(this)"><span class="left">⚡ Electrical</span><span class="cnt" data-cnt-cat="electrical">0</span></div>
+            <div class="fopt" data-filter="cat" data-val="lift" onclick="toggleFilter(this)"><span class="left">🛗 Lift</span><span class="cnt" data-cnt-cat="lift">0</span></div>
+            <div class="fopt" data-filter="cat" data-val="security" onclick="toggleFilter(this)"><span class="left">🔒 Security</span><span class="cnt" data-cnt-cat="security">0</span></div>
+            <div class="fopt" data-filter="cat" data-val="structural" onclick="toggleFilter(this)"><span class="left">🏗 Structural</span><span class="cnt" data-cnt-cat="structural">0</span></div>
+            <div class="fopt" data-filter="cat" data-val="cleaning" onclick="toggleFilter(this)"><span class="left">🧹 Cleaning</span><span class="cnt" data-cnt-cat="cleaning">0</span></div>
+            <div class="fopt" data-filter="cat" data-val="access" onclick="toggleFilter(this)"><span class="left">🚪 Access</span><span class="cnt" data-cnt-cat="access">0</span></div>
+            <div class="fopt" data-filter="cat" data-val="other" onclick="toggleFilter(this)"><span class="left">📋 Other</span><span class="cnt" data-cnt-cat="other">0</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-actions">
+        <button type="button" class="ghost-btn" onclick="clearFilters()">Clear filters</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="toolbar">
+        <div>
+          <div class="toolbar-title">{% if mode == 'archive' %}Resolved incidents{% else %}Live incident queue{% endif %}</div>
+          <div class="toolbar-meta"><span id="visible-count">0</span> visible · Polling every 30 s</div>
+        </div>
+        <div class="toolbar-actions">
           {% if mode != 'archive' %}
-          <div class="filter-group collapsible" data-group="status">
-            <button type="button" class="filter-header" onclick="toggleFilterGroup(this)">
-              <h4>Status</h4>
-              <div class="filter-header-meta"><span class="cnt" id="selected-status-count">0</span><span class="filter-chevron">⌄</span></div>
-            </button>
-            <div class="filter-content">
-              <div class="fopt" data-filter="status" data-val="review" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#a855f7"></span>Review</span><span class="cnt" data-cnt="review">0</span></div>
-              <div class="fopt" data-filter="status" data-val="new" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#38bdf8"></span>New</span><span class="cnt" data-cnt="new">0</span></div>
-              <div class="fopt" data-filter="status" data-val="acknowledged" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#14b8a6"></span>Acknowledged</span><span class="cnt" data-cnt="acknowledged">0</span></div>
-              <div class="fopt" data-filter="status" data-val="ignored" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#6b7280"></span>Ignored</span><span class="cnt" data-cnt="ignored">0</span></div>
-            </div>
+          <div class="stats-bar">
+            <div class="stat red"><div class="n" id="stat-high">0</div><div class="l">High · Open</div></div>
+            <div class="stat purple"><div class="n" id="stat-review">0</div><div class="l">In Review</div></div>
+            <div class="stat"><div class="n" id="stat-total">0</div><div class="l">Total</div></div>
+          </div>
+          {% else %}
+          <div class="stats-bar">
+            <div class="stat"><div class="n" id="stat-total">0</div><div class="l">Resolved</div></div>
           </div>
           {% endif %}
-
-          <div class="filter-group collapsible" data-group="severity">
-            <button type="button" class="filter-header" onclick="toggleFilterGroup(this)">
-              <h4>Severity</h4>
-              <div class="filter-header-meta"><span class="cnt" id="selected-sev-count">0</span><span class="filter-chevron">⌄</span></div>
-            </button>
-            <div class="filter-content">
-              <div class="fopt" data-filter="sev" data-val="high" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#ef4444"></span>High Priority</span><span class="cnt" data-cnt-sev="high">0</span></div>
-              <div class="fopt" data-filter="sev" data-val="medium" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#f59e0b"></span>Medium</span><span class="cnt" data-cnt-sev="medium">0</span></div>
-              <div class="fopt" data-filter="sev" data-val="low" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#22c55e"></span>Low</span><span class="cnt" data-cnt-sev="low">0</span></div>
-            </div>
-          </div>
-
-          <div class="filter-group collapsible" data-group="category">
-            <button type="button" class="filter-header" onclick="toggleFilterGroup(this)">
-              <h4>Category</h4>
-              <div class="filter-header-meta"><span class="cnt" id="selected-cat-count">0</span><span class="filter-chevron">⌄</span></div>
-            </button>
-            <div class="filter-content">
-              <div class="fopt" data-filter="cat" data-val="plumbing" onclick="toggleFilter(this)"><span class="left">🔧 Plumbing</span><span class="cnt" data-cnt-cat="plumbing">0</span></div>
-              <div class="fopt" data-filter="cat" data-val="electrical" onclick="toggleFilter(this)"><span class="left">⚡ Electrical</span><span class="cnt" data-cnt-cat="electrical">0</span></div>
-              <div class="fopt" data-filter="cat" data-val="lift" onclick="toggleFilter(this)"><span class="left">🛗 Lift</span><span class="cnt" data-cnt-cat="lift">0</span></div>
-              <div class="fopt" data-filter="cat" data-val="security" onclick="toggleFilter(this)"><span class="left">🔒 Security</span><span class="cnt" data-cnt-cat="security">0</span></div>
-              <div class="fopt" data-filter="cat" data-val="structural" onclick="toggleFilter(this)"><span class="left">🏗 Structural</span><span class="cnt" data-cnt-cat="structural">0</span></div>
-              <div class="fopt" data-filter="cat" data-val="cleaning" onclick="toggleFilter(this)"><span class="left">🧹 Cleaning</span><span class="cnt" data-cnt-cat="cleaning">0</span></div>
-              <div class="fopt" data-filter="cat" data-val="access" onclick="toggleFilter(this)"><span class="left">🚪 Access</span><span class="cnt" data-cnt-cat="access">0</span></div>
-              <div class="fopt" data-filter="cat" data-val="other" onclick="toggleFilter(this)"><span class="left">📋 Other</span><span class="cnt" data-cnt-cat="other">0</span></div>
-            </div>
+          <button type="button" class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()">
+            <span class="toggle-icon">☰</span>
+            <span id="sidebar-toggle-text">Hide filters</span>
+          </button>
+          <div class="legend">
+            <span class="legend-pill"><span class="dot" style="background:#ef4444"></span>High</span>
+            <span class="legend-pill"><span class="dot" style="background:#f59e0b"></span>Med</span>
+            <span class="legend-pill"><span class="dot" style="background:#22c55e"></span>Low</span>
           </div>
         </div>
+      </div>
 
-        <div class="sidebar-actions">
-          <button type="button" class="ghost-btn" onclick="clearFilters()">Clear filters</button>
-        </div>
-      </aside>
-
-      <main class="main">
-        <div class="toolbar">
-          <div>
-            <div class="toolbar-title">{% if mode == 'archive' %}Resolved incidents{% else %}Live incident queue{% endif %}</div>
-            <div class="toolbar-meta"><span id="visible-count">0</span> visible · Polling every 30 seconds</div>
-          </div>
-          <div class="toolbar-actions">
-            <button type="button" class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()">
-              <span class="toggle-icon">☰</span>
-              <span id="sidebar-toggle-text">Hide filters</span>
-            </button>
-            <div class="legend">
-              <span class="legend-pill"><span class="dot" style="background:#ef4444"></span>High</span>
-              <span class="legend-pill"><span class="dot" style="background:#f59e0b"></span>Medium</span>
-              <span class="legend-pill"><span class="dot" style="background:#22c55e"></span>Low</span>
-            </div>
-          </div>
-        </div>
-
-        <section id="card-list">
-          {% if incidents_with_counts %}
-            {% for row in incidents_with_counts %}
-            {% set i = row.incident %}
-            {% set update_count = row.update_count %}
-            {% set media_count = row.media_count %}
-            <article class="card"
-                 data-id="{{ i.id }}"
-                 data-sev="{{ i.severity }}"
-                 data-status="{{ i.status }}"
-                 data-cat="{{ i.category }}"
-                 data-updates="{{ update_count }}"
-                 data-media="{{ media_count }}">
-              <div class="card-head" onclick="toggleCard(this.closest('.card'))">
-                <div class="category-icon" data-cat="{{ i.category }}">📋</div>
-                <div class="info">
-                  <div class="title-row">
-                    <div class="title">{{ i.property_name }} — {{ i.category | capitalize }}</div>
-                  </div>
-                  <div class="meta">
-                    <span>{{ i.reporter_name or "Unknown reporter" }}</span>
-                    {% if i.reporter_phone %}<span class="meta-dot"></span><span>+{{ i.reporter_phone }}</span>{% endif %}
-                    <span class="meta-dot"></span><span>{{ i.received_at.strftime("%H:%M") }}</span>
-                  </div>
-                  <p class="message-preview">{{ i.message_body }}</p>
-                  {% if update_count > 0 or media_count > 0 %}
-                  <div class="card-badges">
-                    {% if update_count > 0 %}
-                    <button class="card-badge-btn" onclick="event.stopPropagation(); openDetailModal({{ i.id }})">↩ {{ update_count }} update{{ 's' if update_count != 1 else '' }}</button>
-                    {% endif %}
-                    {% if media_count > 0 %}
-                    <button class="card-badge-btn" onclick="event.stopPropagation(); openDetailModal({{ i.id }})">📎 {{ media_count }} attachment{{ 's' if media_count != 1 else '' }}</button>
-                    {% endif %}
-                  </div>
+      <section id="card-list">
+        {% if incidents_with_counts %}
+          {% for row in incidents_with_counts %}
+          {% set i = row.incident %}
+          {% set update_count = row.update_count %}
+          {% set media_count = row.media_count %}
+          <article class="card"
+               data-id="{{ i.id }}"
+               data-sev="{{ i.severity }}"
+               data-status="{{ i.status }}"
+               data-cat="{{ i.category }}"
+               data-updates="{{ update_count }}"
+               data-media="{{ media_count }}">
+            <div class="card-head" onclick="toggleCard(this.closest('.card'))">
+              <div class="category-icon" data-cat="{{ i.category }}">📋</div>
+              <div class="info">
+                <div class="title-row">
+                  <div class="title">{{ i.property_name }} — {{ i.category | capitalize }}</div>
+                </div>
+                <div class="meta">
+                  <span>{{ i.reporter_name or "Unknown reporter" }}</span>
+                  {% if i.reporter_phone %}<span class="meta-dot"></span><span>+{{ i.reporter_phone }}</span>{% endif %}
+                  <span class="meta-dot"></span><span>{{ i.received_at.strftime("%H:%M") }}</span>
+                </div>
+                <p class="message-preview">{{ i.message_body }}</p>
+                {% if update_count > 0 or media_count > 0 %}
+                <div class="card-badges">
+                  {% if update_count > 0 %}
+                  <button class="card-badge-btn" onclick="event.stopPropagation(); openDetailModal({{ i.id }})">↩ {{ update_count }} update{{ 's' if update_count != 1 else '' }}</button>
+                  {% endif %}
+                  {% if media_count > 0 %}
+                  <button class="card-badge-btn" onclick="event.stopPropagation(); openDetailModal({{ i.id }})">📎 {{ media_count }} attachment{{ 's' if media_count != 1 else '' }}</button>
                   {% endif %}
                 </div>
-                <div class="card-right">
-                  <span class="badge badge-{{ i.severity }}">{{ i.severity }}</span>
-                  <span class="badge badge-{{ i.status }}" id="status-badge-{{ i.id }}">{{ i.status }}</span>
-                  <span class="chevron">⌄</span>
-                </div>
+                {% endif %}
               </div>
-              <div class="card-body">
-                <div class="details-panel">
-                  <div>
-                    <div class="message-box">
-                      <div class="group-label">Reported message</div>
-                      <div class="message">{{ i.message_body }}</div>
-                    </div>
-                    <div class="actions" id="actions-{{ i.id }}">
-                      {% if mode == 'archive' %}
-                      <button class="act-btn btn-review" onclick="setStatus({{ i.id }}, 'review', event)">↩ Reopen</button>
-                      {% else %}
-                      <button class="act-btn btn-ack" onclick="setStatus({{ i.id }}, 'acknowledged', event)">✓ Acknowledge</button>
-                      <button class="act-btn btn-resolve" onclick="setStatus({{ i.id }}, 'resolved', event)">✓ Resolve</button>
-                      <button class="act-btn btn-ignore" onclick="setStatus({{ i.id }}, 'ignored', event)">✗ Ignore</button>
-                      <button class="act-btn btn-review" onclick="setStatus({{ i.id }}, 'review', event)">⟳ Send to Review</button>
-                      {% endif %}
-                      <button class="act-btn btn-reply" onclick="event.stopPropagation(); openDetailModal({{ i.id }})">↩ View / Reply</button>
-                    </div>
+              <div class="card-right">
+                <span class="badge badge-{{ i.severity }}">{{ i.severity }}</span>
+                <span class="badge badge-{{ i.status }}" id="status-badge-{{ i.id }}">{{ i.status }}</span>
+                <span class="chevron">⌄</span>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="details-panel">
+                <div>
+                  <div class="message-box">
+                    <div class="group-label">Reported message</div>
+                    <div class="message">{{ i.message_body }}</div>
                   </div>
-                  <div class="side-details">
-                    <div class="detail-card">
-                      <div class="label">Property group</div>
-                      <div class="value">{{ i.property_name }}</div>
-                    </div>
-                    <div class="detail-card">
-                      <div class="label">Reporter</div>
-                      <div class="value">{{ i.reporter_name or "Unknown" }}{% if i.reporter_phone %}<br>+{{ i.reporter_phone }}{% endif %}</div>
-                    </div>
-                    <div class="detail-card">
-                      <div class="label">Incident ID</div>
-                      <div class="value">#{{ i.id }}</div>
-                    </div>
+                  <div class="actions" id="actions-{{ i.id }}">
+                    {% if mode == 'archive' %}
+                    <button class="act-btn btn-review" onclick="setStatus({{ i.id }}, 'review', event)">↩ Reopen</button>
+                    {% else %}
+                    <button class="act-btn btn-ack" onclick="setStatus({{ i.id }}, 'acknowledged', event)">✓ Acknowledge</button>
+                    <button class="act-btn btn-resolve" onclick="setStatus({{ i.id }}, 'resolved', event)">✓ Resolve</button>
+                    <button class="act-btn btn-ignore" onclick="setStatus({{ i.id }}, 'ignored', event)">✗ Ignore</button>
+                    <button class="act-btn btn-review" onclick="setStatus({{ i.id }}, 'review', event)">⟳ Review</button>
+                    {% endif %}
+                    <button class="act-btn btn-reply" onclick="event.stopPropagation(); openDetailModal({{ i.id }})">↩ View / Reply</button>
                   </div>
                 </div>
+                <div class="side-details">
+                  <div class="detail-card">
+                    <div class="label">Property group</div>
+                    <div class="value">{{ i.property_name }}</div>
+                  </div>
+                  <div class="detail-card">
+                    <div class="label">Reporter</div>
+                    <div class="value">{{ i.reporter_name or "Unknown" }}{% if i.reporter_phone %}<br>+{{ i.reporter_phone }}{% endif %}</div>
+                  </div>
+                  <div class="detail-card">
+                    <div class="label">Incident ID</div>
+                    <div class="value">#{{ i.id }}</div>
+                  </div>
+                </div>
               </div>
-            </article>
-            {% endfor %}
-          {% else %}
-            <div class="empty" id="empty-state"><div><strong>No incidents yet</strong>Waiting for property group messages.</div></div>
-          {% endif %}
-          <div class="empty" id="no-results" style="display:none;"><div><strong>No matching incidents</strong>Try clearing filters or searching a different keyword.</div></div>
-        </section>
-      </main>
-    </div>
+            </div>
+          </article>
+          {% endfor %}
+        {% else %}
+          <div class="empty" id="empty-state"><div><strong>No incidents yet</strong>Waiting for property group messages.</div></div>
+        {% endif %}
+        <div class="empty" id="no-results" style="display:none;"><div><strong>No matching incidents</strong>Try clearing filters.</div></div>
+      </section>
+    </main>
   </div>
+</div>
 
-  <div class="toast" id="toast"></div>
+<div class="toast" id="toast"></div>
 
-  <!-- Detail modal -->
-  <div class="modal-overlay" id="detail-modal-overlay" onclick="if(event.target===this)closeDetailModal()">
-    <div class="modal">
-      <div class="modal-header">
-        <h2 id="modal-title">Incident Detail</h2>
-        <button class="modal-close" onclick="closeDetailModal()">✕</button>
-      </div>
-      <div class="modal-body" id="modal-body">
-        <div style="color:var(--muted);text-align:center;padding:20px">Loading…</div>
-      </div>
-      <div class="modal-reply-bar" id="modal-reply-bar" style="display:none">
-        <div class="modal-section-label">Reply to group</div>
-        <div class="reply-wrap">
-          <textarea class="reply-textarea" id="modal-reply-input"
-            placeholder="Type a message to send to the group…" rows="3"></textarea>
-          <button class="reply-send-btn" id="modal-reply-send" onclick="sendReplyFromBar()">↑ Send</button>
+<!-- ── Detail modal ── -->
+<div class="modal-overlay" id="detail-modal-overlay" onclick="if(event.target===this)closeDetailModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modal-title">Incident Detail</h2>
+      <button class="modal-close" onclick="closeDetailModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body">
+      <div style="color:var(--muted);text-align:center;padding:20px">Loading…</div>
+    </div>
+    <div class="modal-reply-bar" id="modal-reply-bar" style="display:none">
+      <div class="reply-wrap">
+        <div class="reply-top-row">
+          <div class="modal-section-label" style="margin:0">Reply as</div>
+          <div class="reply-who"><strong id="reply-who-name"></strong></div>
         </div>
+        <textarea class="reply-textarea" id="modal-reply-input"
+          placeholder="Type a message to send to the group…" rows="3"></textarea>
+        <button class="reply-send-btn" id="modal-reply-send" onclick="sendReplyFromBar()">↑ Send</button>
       </div>
     </div>
   </div>
+</div>
 
 <script>
-const API_KEY = '{{ api_key }}';
+const CURRENT_USER = {{ username | tojson }};
 const MODE = '{{ mode | default("live") }}';
 const POLL_INTERVAL = 30000;
 
@@ -1321,19 +1389,25 @@ let pendingNew = [];
 let activeFilters = { status: new Set(), sev: new Set(), cat: new Set() };
 let maxId = 0;
 
-const statusLabels = {
-  new: 'new',
-  review: 'review',
-  acknowledged: 'acknowledged',
-  resolved: 'resolved',
-  ignored: 'ignored'
-};
+const statusLabels = { new: 'new', review: 'review', acknowledged: 'acknowledged', resolved: 'resolved', ignored: 'ignored' };
 
 let _openIncidents = [];
+let _currentDetailId = null;
+
+// Set nav avatar
+(function() {
+  const el = document.getElementById('nav-avatar');
+  if (el && CURRENT_USER) {
+    el.textContent = CURRENT_USER.slice(0, 2).toUpperCase();
+  }
+})();
 
 async function openDetailModal(incidentId) {
+  _currentDetailId = null;
   document.getElementById('detail-modal-overlay').classList.add('open');
   document.getElementById('modal-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px">Loading…</div>';
+  const replyBar = document.getElementById('modal-reply-bar');
+  if (replyBar) replyBar.style.display = 'none';
   try {
     const detail = await fetch(`/incidents/${incidentId}`).then(r => r.json());
     const allInc = await fetch('/incidents').then(r => r.json());
@@ -1342,9 +1416,6 @@ async function openDetailModal(incidentId) {
     document.getElementById('modal-body').innerHTML = renderDetailModal(detail);
   } catch(e) {
     document.getElementById('modal-body').innerHTML = '<div style="color:var(--red)">Failed to load detail.</div>';
-    _currentDetailId = null;
-    const bar = document.getElementById('modal-reply-bar');
-    if (bar) bar.style.display = 'none';
   }
 }
 
@@ -1352,16 +1423,16 @@ function closeDetailModal() {
   document.getElementById('detail-modal-overlay').classList.remove('open');
 }
 
-let _currentDetailId = null;
-
 function renderDetailModal(detail) {
   _currentDetailId = detail.id;
 
   const replyBar = document.getElementById('modal-reply-bar');
   const replyInput = document.getElementById('modal-reply-input');
   const replySend = document.getElementById('modal-reply-send');
+  const replyWhoName = document.getElementById('reply-who-name');
   if (replyBar) {
-    replyBar.style.display = API_KEY ? 'block' : 'none';
+    replyBar.style.display = 'block';
+    if (replyWhoName) replyWhoName.textContent = CURRENT_USER;
     if (replyInput) { replyInput.value = ''; replyInput.disabled = false; }
     if (replySend) { replySend.disabled = false; replySend.textContent = '↑ Send'; }
   }
@@ -1372,26 +1443,26 @@ function renderDetailModal(detail) {
         const relinkOpts = _openIncidents.map(i =>
           `<option value="${i.id}">#${i.id} — ${esc(i.property_name)}</option>`
         ).join('');
-        const relinkHtml = API_KEY ? `
+        const relinkHtml = `
           <div class="relink-wrap">
             <select class="relink-select" id="relink-select-${u.id}">
               <option value="">Move to…</option>
               ${relinkOpts}
             </select>
             <button class="relink-btn" onclick="relinkUpdate(${u.id}, ${detail.id})">Re-link</button>
-          </div>` : '';
+          </div>`;
 
-        const isDashboard = u.reporter_name === 'Dashboard';
+        const isDashboard = u.reporter_name !== 'Unknown' && (u.reporter_name === CURRENT_USER || u.reporter_name === 'Dashboard');
         const isMoved = u.relinked === true;
 
         let badgeHtml = '';
         let rowClass = 'update-row';
-        if (isDashboard) {
-          badgeHtml = '<span class="update-badge update-badge-sent">sent ↑</span>';
-          rowClass += ' update-row-outbound';
-        } else if (isMoved) {
+        if (isMoved) {
           badgeHtml = '<span class="update-badge update-badge-moved">moved in ↩</span>';
           rowClass += ' update-row-moved';
+        } else if (u.ai_linked === false && !u.reporter_phone) {
+          badgeHtml = '<span class="update-badge update-badge-sent">sent ↑</span>';
+          rowClass += ' update-row-outbound';
         }
 
         const mediaBadge = u.media_count > 0
@@ -1418,11 +1489,23 @@ function renderDetailModal(detail) {
         const label = h.from_status
           ? `${esc(h.from_status)} → ${esc(h.to_status)}`
           : `Created as ${esc(h.to_status)}`;
+        const by = h.changed_by ? ` <span style="color:var(--blue)">by ${esc(h.changed_by)}</span>` : '';
         return `<div class="status-history-row">
           <div class="sh-dot ${statusDotClass(h.to_status)}"></div>
-          <span>${label} · ${formatTime(h.changed_at)}</span>
+          <span>${label} · ${formatTime(h.changed_at)}${by}</span>
         </div>`;
       }).join('')}</div>`;
+
+  const auditRows = detail.audit_log || [];
+  const auditHtml = auditRows.length === 0
+    ? '<div style="color:var(--muted);font-size:13px">No audit entries.</div>'
+    : auditRows.map(a => `
+        <div class="audit-row">
+          <div class="audit-who">${esc(a.username)}</div>
+          <div class="audit-action">${esc(a.action)}</div>
+          <div class="audit-detail">${a.detail ? esc(a.detail) : '—'}</div>
+          <div class="audit-time">${formatTime(a.created_at)}</div>
+        </div>`).join('');
 
   const mediaHtml = detail.media.length === 0
     ? '<div style="color:var(--muted);font-size:13px">No attachments.</div>'
@@ -1448,6 +1531,10 @@ function renderDetailModal(detail) {
       ${historyHtml}
     </div>
     <div>
+      <div class="modal-section-label">Activity</div>
+      ${auditHtml}
+    </div>
+    <div>
       <div class="modal-section-label">Attachments (${detail.media.length})</div>
       ${mediaHtml}
     </div>`;
@@ -1467,7 +1554,7 @@ async function sendReplyFromBar() {
   try {
     const r = await fetch(`/incidents/${_currentDetailId}/reply`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     });
     if (!r.ok) throw new Error('Send failed');
@@ -1489,7 +1576,7 @@ async function relinkUpdate(updateId, currentIncidentId) {
   try {
     await fetch(`/incidents/${updateId}/relink`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ incident_id: targetId }),
     });
     showToast('Update re-linked');
@@ -1549,7 +1636,7 @@ async function poll() {
 
     document.getElementById('new-count').textContent = pendingNew.length;
     document.getElementById('new-banner').style.display = 'block';
-    showToast(`${pendingNew.length} new incident${pendingNew.length === 1 ? '' : 's'} waiting to load`);
+    showToast(`${pendingNew.length} new incident${pendingNew.length === 1 ? '' : 's'} waiting`);
 
     if (MODE === 'live') {
       const highOpen = [...allIncidents, ...pendingNew].filter(
@@ -1600,8 +1687,6 @@ function buildCard(raw) {
   const receivedAt = formatTime(i.received_at);
   const icon = categoryIcon(i.category);
   const category = cap(i.category);
-  const reporter = i.reporter_name || 'Unknown reporter';
-  const phone = i.reporter_phone ? ` · +${esc(i.reporter_phone)}` : '';
 
   return `
 <article class="card" data-id="${i.id}" data-sev="${esc(i.severity)}" data-status="${esc(i.status)}" data-cat="${esc(i.category)}">
@@ -1609,7 +1694,7 @@ function buildCard(raw) {
     <div class="category-icon">${icon}</div>
     <div class="info">
       <div class="title-row"><div class="title">${esc(i.property_name)} — ${esc(category)}</div></div>
-      <div class="meta"><span>${esc(reporter)}</span>${i.reporter_phone ? '<span class="meta-dot"></span><span>+' + esc(i.reporter_phone) + '</span>' : ''}<span class="meta-dot"></span><span>${receivedAt}</span></div>
+      <div class="meta"><span>${esc(i.reporter_name)}</span>${i.reporter_phone ? '<span class="meta-dot"></span><span>+' + esc(i.reporter_phone) + '</span>' : ''}<span class="meta-dot"></span><span>${receivedAt}</span></div>
       <p class="message-preview">${esc(i.message_body)}</p>
       ${(i.update_count > 0 || i.media_count > 0) ? `
       <div class="card-badges">
@@ -1636,13 +1721,13 @@ function buildCard(raw) {
             : `<button class="act-btn btn-ack" onclick="setStatus(${i.id}, 'acknowledged', event)">✓ Acknowledge</button>
                <button class="act-btn btn-resolve" onclick="setStatus(${i.id}, 'resolved', event)">✓ Resolve</button>
                <button class="act-btn btn-ignore" onclick="setStatus(${i.id}, 'ignored', event)">✗ Ignore</button>
-               <button class="act-btn btn-review" onclick="setStatus(${i.id}, 'review', event)">⟳ Send to Review</button>`}
+               <button class="act-btn btn-review" onclick="setStatus(${i.id}, 'review', event)">⟳ Review</button>`}
           <button class="act-btn btn-reply" onclick="event.stopPropagation(); openDetailModal(${i.id})">↩ View / Reply</button>
         </div>
       </div>
       <div class="side-details">
         <div class="detail-card"><div class="label">Property group</div><div class="value">${esc(i.property_name)}</div></div>
-        <div class="detail-card"><div class="label">Reporter</div><div class="value">${esc(reporter)}${i.reporter_phone ? '<br>+' + esc(i.reporter_phone) : ''}</div></div>
+        <div class="detail-card"><div class="label">Reporter</div><div class="value">${esc(i.reporter_name)}${i.reporter_phone ? '<br>+' + esc(i.reporter_phone) : ''}</div></div>
         <div class="detail-card"><div class="label">Incident ID</div><div class="value">#${i.id}</div></div>
       </div>
     </div>
@@ -1663,7 +1748,7 @@ async function setStatus(id, newStatus, event) {
   try {
     const r = await fetch(`/incidents/${id}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: newStatus }),
     });
 
@@ -1712,14 +1797,11 @@ async function setStatus(id, newStatus, event) {
 function toggleSidebar(forceHidden = null) {
   const body = document.getElementById('dashboard-body');
   const label = document.getElementById('sidebar-toggle-text');
-  const icon = document.querySelector('#sidebar-toggle .toggle-icon');
   if (!body) return;
 
   const shouldHide = forceHidden === null ? !body.classList.contains('sidebar-hidden') : forceHidden;
   body.classList.toggle('sidebar-hidden', shouldHide);
-
   if (label) label.textContent = shouldHide ? 'Show filters' : 'Hide filters';
-  if (icon) icon.textContent = shouldHide ? '☰' : '☰';
 
   try {
     localStorage.setItem('incidentSidebarHidden', shouldHide ? '1' : '0');
@@ -1784,9 +1866,7 @@ function applyFilters() {
       card.querySelector('.title')?.textContent,
       card.querySelector('.message')?.textContent,
       card.querySelector('.meta')?.textContent,
-      card.dataset.status,
-      card.dataset.sev,
-      card.dataset.cat
+      card.dataset.status, card.dataset.sev, card.dataset.cat
     ].join(' ').toLowerCase();
     const matchSearch = !q || searchable.includes(q);
     const shouldShow = matchStatus && matchSev && matchCat && matchSearch;
@@ -1811,10 +1891,8 @@ function updateStats() {
   }
   const highOpen = allIncidents.filter(i => i.severity === 'high' && !['resolved','ignored'].includes(i.status)).length;
   const inReview = allIncidents.filter(i => i.status === 'review').length;
-  const activeOpen = allIncidents.filter(i => !['resolved','ignored'].includes(i.status)).length;
   document.getElementById('stat-high').textContent = highOpen;
   document.getElementById('stat-review').textContent = inReview;
-  document.getElementById('stat-open').textContent = activeOpen;
   document.getElementById('stat-total').textContent = allIncidents.length;
 }
 
@@ -1834,16 +1912,8 @@ function updateCounts() {
 }
 
 function categoryIcon(category) {
-  return {
-    plumbing: '🔧',
-    electrical: '⚡',
-    lift: '🛗',
-    security: '🔒',
-    structural: '🏗',
-    cleaning: '🧹',
-    access: '🚪',
-    other: '📋'
-  }[category] || '📋';
+  return { plumbing:'🔧', electrical:'⚡', lift:'🛗', security:'🔒',
+    structural:'🏗', cleaning:'🧹', access:'🚪', other:'📋' }[category] || '📋';
 }
 
 function formatTime(value) {
@@ -1862,12 +1932,10 @@ function showToast(message) {
 
 function esc(s) {
   return String(s || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
+
 function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
 
 init();
