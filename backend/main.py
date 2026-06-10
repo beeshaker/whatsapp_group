@@ -808,12 +808,13 @@ async def logout(request: Request):
 
 @app.get("/users")
 async def list_users(
+    request: Request,
     username: str = Depends(require_login),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(User).order_by(User.created_at.asc()))
     users = result.scalars().all()
-    return [
+    user_list = [
         {
             "id": u.id,
             "username": u.username,
@@ -822,6 +823,13 @@ async def list_users(
         }
         for u in users
     ]
+    if "text/html" in request.headers.get("accept", ""):
+        return templates.TemplateResponse("users.html", {
+            "request": request,
+            "username": username,
+            "users": user_list,
+        })
+    return user_list
 
 
 @app.post("/users", status_code=201)
