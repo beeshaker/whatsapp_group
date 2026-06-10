@@ -847,9 +847,13 @@ async def create_user(
         created_at=now,
         created_by=actor,
     )
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
+    try:
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="username already exists")
     return {"id": user.id, "username": user.username, "created_by": user.created_by}
 
 

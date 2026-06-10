@@ -94,6 +94,11 @@ async def test_create_user_empty_username_returns_422(users_client):
     assert resp.status_code == 422
 
 
+async def test_create_user_username_too_long_returns_422(users_client):
+    resp = await users_client.post("/users", json={"username": "a" * 65, "password": "goodpassword"})
+    assert resp.status_code == 422
+
+
 async def test_delete_user_returns_ok(users_client):
     create_resp = await users_client.post("/users", json={"username": "todelete", "password": "goodpassword"})
     user_id = create_resp.json()["id"]
@@ -121,7 +126,9 @@ async def test_list_users_requires_login():
 
     app.dependency_overrides[get_db] = _override_get_db
     # No require_login override — this should trigger auth redirect
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        resp = await ac.get("/users", follow_redirects=False)
-    app.dependency_overrides.clear()
-    assert resp.status_code == 302
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            resp = await ac.get("/users", follow_redirects=False)
+        assert resp.status_code == 302
+    finally:
+        app.dependency_overrides.clear()
