@@ -60,7 +60,6 @@ async def _seed_user(username="alice", password="secret"):
         await session.commit()
 
 
-@pytest.mark.skip(reason="login.html created in Task 10")
 async def test_login_get_returns_200(login_client):
     r = await login_client.get("/login")
     assert r.status_code == 200
