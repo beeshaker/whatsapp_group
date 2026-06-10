@@ -1,5 +1,3 @@
-import pytest
-from sqlalchemy import inspect
 from database import Base
 
 
