@@ -18,6 +18,9 @@ from main import app
 from models import User
 from auth import hash_password
 
+# Pre-hash once at module load — avoids per-test bcrypt cost
+_HASHED_TESTPASS = hash_password("testpass")
+
 _test_engine = create_async_engine(
     "sqlite+aiosqlite:///:memory:",
     connect_args={"check_same_thread": False},
@@ -52,7 +55,7 @@ async def client():
         async with _TestSession() as session:
             session.add(User(
                 username="testadmin",
-                hashed_password=hash_password("testpass"),
+                hashed_password=_HASHED_TESTPASS,
                 created_at=datetime.now(timezone.utc),
                 created_by=None,
             ))

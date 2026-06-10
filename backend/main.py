@@ -9,7 +9,7 @@ from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -712,7 +712,6 @@ async def reply_to_incident(
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     if request.session.get("username"):
-        from fastapi.responses import RedirectResponse
         return RedirectResponse(url="/", status_code=302)
     error = request.session.pop("login_error", None)
     return templates.TemplateResponse("login.html", {"request": request, "error": error})
@@ -723,7 +722,6 @@ async def login_submit(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    from fastapi.responses import RedirectResponse
     form = await request.form()
     username = (form.get("username") or "").strip()
     password = form.get("password") or ""
@@ -737,7 +735,6 @@ async def login_submit(
 
 @app.post("/logout")
 async def logout(request: Request):
-    from fastapi.responses import RedirectResponse
     request.session.clear()
     return RedirectResponse(url="/login", status_code=302)
 
