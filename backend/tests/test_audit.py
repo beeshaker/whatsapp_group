@@ -9,8 +9,14 @@ from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from datetime import datetime, timezone
+
 from database import Base, get_db
 from main import app
+from models import User
+from auth import hash_password
+
+_HASHED_AUDITPASS = hash_password("testpass")
 
 _audit_engine = create_async_engine(
     "sqlite+aiosqlite:///:memory:",
@@ -93,6 +99,51 @@ async def test_api_key_auth_does_not_create_audit_entry(audit_client):
     detail = (await audit_client.get(f"/incidents/{incident_id}")).json()
     # No audit log entry when using X-API-Key (actor=None)
     assert len(detail["audit_log"]) == 0
+
+
+@pytest_asyncio.fixture
+async def auth_audit_client():
+    async def _override_get_db():
+        async with _AuditSession() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _override_get_db
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        # Seed a user so login can succeed
+        async with _AuditSession() as session:
+            user = User(
+                username="audituser",
+                hashed_password=_HASHED_AUDITPASS,
+                created_at=datetime.now(timezone.utc),
+            )
+            session.add(user)
+            await session.commit()
+
+        # Log in to establish a session cookie
+        await ac.post("/login", data={"username": "audituser", "password": "testpass"})
+
+        yield ac
+
+    app.dependency_overrides.clear()
+
+
+async def test_session_auth_creates_audit_entry(auth_audit_client):
+    # Create an incident via ingest (X-API-Key is fine for creation)
+    incident_id = await _make_incident(auth_audit_client)
+
+    # Update status using the session-authenticated client (no X-API-Key)
+    await auth_audit_client.patch(
+        f"/incidents/{incident_id}/status",
+        json={"status": "acknowledged"},
+    )
+
+    detail = (await auth_audit_client.get(f"/incidents/{incident_id}")).json()
+
+    assert len(detail["audit_log"]) == 1
+    assert detail["audit_log"][0]["username"] == "audituser"
+    assert detail["audit_log"][0]["action"] == "status_change"
+    assert detail["status_history"][-1]["changed_by"] == "audituser"
 
 
 async def test_reply_with_api_key_uses_dashboard_as_reporter(audit_client):
