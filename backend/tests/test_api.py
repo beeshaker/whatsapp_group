@@ -182,8 +182,12 @@ async def test_relink_update_to_different_incident(client):
     assert len(detail_b2["updates"]) == 1
 
 
-async def test_relink_requires_auth(client):
-    r = await client.patch("/incidents/1/relink", json={"incident_id": 2}, headers={"X-API-Key": "wrong"})
+async def test_relink_requires_auth():
+    """No valid API key and no session cookie → 401."""
+    from httpx import AsyncClient, ASGITransport
+    from main import app as _app
+    async with AsyncClient(transport=ASGITransport(app=_app), base_url="http://test") as ac:
+        r = await ac.patch("/incidents/1/relink", json={"incident_id": 2}, headers={"X-API-Key": "wrong"})
     assert r.status_code == 401
 
 

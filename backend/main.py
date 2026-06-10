@@ -49,6 +49,21 @@ SECRET_KEY = os.getenv("SECRET_KEY", "")
 if not SECRET_KEY or SECRET_KEY == "change-me":
     logger.error("SECRET_KEY env var is not set or is the default value. Refusing to start.")
     sys.exit(1)
+
+
+async def require_write_auth(
+    request: Request,
+    x_api_key: str = Header(None, alias="X-API-Key"),
+) -> Optional[str]:
+    """Returns session username (str) or None (X-API-Key auth). Raises 401 if neither."""
+    if hmac.compare_digest(x_api_key or "", GATEWAY_SECRET_TOKEN):
+        return None
+    username = request.session.get("username")
+    if username:
+        return username
+    raise HTTPException(status_code=401, detail="Unauthorized")
+
+
 try:
     MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.65"))
 except ValueError:
@@ -514,8 +529,24 @@ async def get_incident_detail(
             "from_status": h.from_status,
             "to_status": h.to_status,
             "changed_at": h.changed_at.isoformat(),
+            "changed_by": h.changed_by,
         }
         for h in history_result.scalars().all()
+    ]
+
+    audit_result = await db.execute(
+        select(AuditLog)
+        .where(AuditLog.incident_id == incident_id)
+        .order_by(AuditLog.created_at.asc())
+    )
+    audit_rows = [
+        {
+            "username": a.username,
+            "action": a.action,
+            "detail": a.detail,
+            "created_at": a.created_at.isoformat(),
+        }
+        for a in audit_result.scalars().all()
     ]
 
     return {
@@ -533,6 +564,7 @@ async def get_incident_detail(
         "updates": update_rows,
         "media": media_rows,
         "status_history": history_rows,
+        "audit_log": audit_rows,
     }
 
 
@@ -561,16 +593,15 @@ async def serve_media(
 async def relink_update(
     update_id: int,
     body: RelinkBody,
-    x_api_key: str = Header(None, alias="X-API-Key"),
+    actor: Optional[str] = Depends(require_write_auth),
     db: AsyncSession = Depends(get_db),
 ):
-    if not hmac.compare_digest(x_api_key or "", GATEWAY_SECRET_TOKEN):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
     result = await db.execute(select(IncidentUpdate).where(IncidentUpdate.id == update_id))
     update = result.scalar_one_or_none()
     if not update:
         raise HTTPException(status_code=404, detail="Update not found")
+
+    now = datetime.now(timezone.utc)
 
     if body.incident_id is None:
         old_parent = await db.get(Incident, update.incident_id)
@@ -602,6 +633,14 @@ async def relink_update(
             m.incident_id = new_incident.id
             m.update_id = None
         await db.delete(update)
+        if actor:
+            db.add(AuditLog(
+                username=actor,
+                action="relink",
+                incident_id=new_incident.id,
+                detail="promoted to standalone incident",
+                created_at=now,
+            ))
         await db.commit()
         return {"update_id": update_id, "incident_id": new_incident.id, "promoted": True}
 
@@ -609,6 +648,7 @@ async def relink_update(
     if not target:
         raise HTTPException(status_code=404, detail="Target incident not found")
 
+    original_incident_id = update.incident_id
     update.incident_id = body.incident_id
     update.ai_linked = False
     update.relinked = True
@@ -617,7 +657,15 @@ async def relink_update(
     )
     for m in media_res.scalars().all():
         m.incident_id = body.incident_id
-    target.updated_at = datetime.now(timezone.utc)
+    target.updated_at = now
+    if actor:
+        db.add(AuditLog(
+            username=actor,
+            action="relink",
+            incident_id=body.incident_id,
+            detail=f"update {update_id} moved from incident {original_incident_id}",
+            created_at=now,
+        ))
     await db.commit()
     return {"update_id": update_id, "incident_id": body.incident_id}
 
@@ -626,11 +674,9 @@ async def relink_update(
 async def update_incident_status(
     incident_id: int,
     body: StatusUpdate,
-    x_api_key: str = Header(None, alias="X-API-Key"),
+    actor: Optional[str] = Depends(require_write_auth),
     db: AsyncSession = Depends(get_db),
 ):
-    if not hmac.compare_digest(x_api_key or "", GATEWAY_SECRET_TOKEN):
-        raise HTTPException(status_code=401, detail="Unauthorized")
     if body.status not in _VALID_STATUSES:
         raise HTTPException(status_code=422, detail=f"status must be one of {sorted(_VALID_STATUSES)}")
     result = await db.execute(select(Incident).where(Incident.id == incident_id))
@@ -639,13 +685,23 @@ async def update_incident_status(
         raise HTTPException(status_code=404, detail="Incident not found")
     old_status = incident.status
     incident.status = body.status
+    now = datetime.now(timezone.utc)
     db.add(incident)
     db.add(IncidentStatusHistory(
         incident_id=incident_id,
         from_status=old_status,
         to_status=body.status,
-        changed_at=datetime.now(timezone.utc),
+        changed_at=now,
+        changed_by=actor,
     ))
+    if actor:
+        db.add(AuditLog(
+            username=actor,
+            action="status_change",
+            incident_id=incident_id,
+            detail=f"{old_status} → {body.status}",
+            created_at=now,
+        ))
     await db.commit()
     return {"id": incident.id, "status": incident.status}
 
@@ -654,12 +710,9 @@ async def update_incident_status(
 async def reply_to_incident(
     incident_id: int,
     body: ReplyBody,
-    x_api_key: str = Header(None, alias="X-API-Key"),
+    actor: Optional[str] = Depends(require_write_auth),
     db: AsyncSession = Depends(get_db),
 ):
-    if not hmac.compare_digest(x_api_key or "", GATEWAY_SECRET_TOKEN):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
     text = body.text.strip()
     if not text:
         raise HTTPException(status_code=422, detail="text must not be empty")
@@ -680,10 +733,11 @@ async def reply_to_incident(
         raise HTTPException(status_code=502, detail="Failed to send message to WhatsApp")
 
     now = datetime.now(timezone.utc)
+    reporter = actor or "Dashboard"
     update = IncidentUpdate(
         incident_id=incident_id,
         message_id=wa_message_id,
-        reporter_name="Dashboard",
+        reporter_name=reporter,
         reporter_phone=None,
         message_body=text,
         received_at=now,
@@ -691,6 +745,14 @@ async def reply_to_incident(
     )
     db.add(update)
     incident.updated_at = now
+    if actor:
+        db.add(AuditLog(
+            username=actor,
+            action="reply",
+            incident_id=incident_id,
+            detail=text[:120],
+            created_at=now,
+        ))
     try:
         await db.commit()
         await db.refresh(update)
