@@ -59,3 +59,25 @@ class IncidentStatusHistory(Base):
     from_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     to_status: Mapped[str] = mapped_column(String(20), nullable=False)
     changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    changed_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    hashed_password: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(Text, nullable=False)
+    action: Mapped[str] = mapped_column(String(30), nullable=False)
+    incident_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
