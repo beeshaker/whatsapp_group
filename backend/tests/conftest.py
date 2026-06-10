@@ -8,12 +8,15 @@ os.environ["SECRET_KEY"] = "test-secret-key-for-testing-only1"
 
 import pytest
 import pytest_asyncio
+from datetime import datetime, timezone
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from database import Base, get_db
 from main import app
+from models import User
+from auth import hash_password
 
 _test_engine = create_async_engine(
     "sqlite+aiosqlite:///:memory:",
@@ -45,6 +48,16 @@ async def client():
 
     app.dependency_overrides[get_db] = _override_get_db
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        # Seed a test user and log in so dashboard/archive routes pass auth
+        async with _TestSession() as session:
+            session.add(User(
+                username="testadmin",
+                hashed_password=hash_password("testpass"),
+                created_at=datetime.now(timezone.utc),
+                created_by=None,
+            ))
+            await session.commit()
+        await ac.post("/login", data={"username": "testadmin", "password": "testpass"})
         yield ac
     app.dependency_overrides.clear()
 

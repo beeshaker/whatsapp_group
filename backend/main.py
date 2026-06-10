@@ -709,8 +709,45 @@ async def reply_to_incident(
     }
 
 
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    if request.session.get("username"):
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="/", status_code=302)
+    error = request.session.pop("login_error", None)
+    return templates.TemplateResponse("login.html", {"request": request, "error": error})
+
+
+@app.post("/login")
+async def login_submit(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    from fastapi.responses import RedirectResponse
+    form = await request.form()
+    username = (form.get("username") or "").strip()
+    password = form.get("password") or ""
+    result = await db.execute(select(User).where(User.username == username))
+    user = result.scalar_one_or_none()
+    if not user or not verify_password(password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    request.session["username"] = user.username
+    return RedirectResponse(url="/", status_code=302)
+
+
+@app.post("/logout")
+async def logout(request: Request):
+    from fastapi.responses import RedirectResponse
+    request.session.clear()
+    return RedirectResponse(url="/login", status_code=302)
+
+
 @app.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
+async def dashboard(
+    request: Request,
+    username: str = Depends(require_login),
+    db: AsyncSession = Depends(get_db),
+):
     update_count_sq = (
         select(func.count(IncidentUpdate.id))
         .where(IncidentUpdate.incident_id == Incident.id)
@@ -743,14 +780,18 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
             "incidents": incidents,
             "incidents_with_counts": incidents_with_counts,
             "title": os.getenv("DASHBOARD_TITLE", "Ops Incident Monitor"),
-            "api_key": GATEWAY_SECRET_TOKEN,
+            "username": username,
             "mode": "live",
         },
     )
 
 
 @app.get("/archive", response_class=HTMLResponse)
-async def archive_dashboard(request: Request, db: AsyncSession = Depends(get_db)):
+async def archive_dashboard(
+    request: Request,
+    username: str = Depends(require_login),
+    db: AsyncSession = Depends(get_db),
+):
     update_count_sq = (
         select(func.count(IncidentUpdate.id))
         .where(IncidentUpdate.incident_id == Incident.id)
@@ -781,7 +822,7 @@ async def archive_dashboard(request: Request, db: AsyncSession = Depends(get_db)
             "incidents": incidents,
             "incidents_with_counts": incidents_with_counts,
             "title": os.getenv("DASHBOARD_TITLE", "Ops Incident Monitor"),
-            "api_key": GATEWAY_SECRET_TOKEN,
+            "username": username,
             "mode": "archive",
         },
     )
