@@ -75,3 +75,40 @@ async def init_db():
             ))
     except Exception:
         pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    hashed_password TEXT NOT NULL,
+                    created_at TIMESTAMP NOT NULL,
+                    created_by TEXT
+                )
+            """))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL,
+                    action VARCHAR(30) NOT NULL,
+                    incident_id INTEGER NOT NULL,
+                    detail TEXT,
+                    created_at TIMESTAMP NOT NULL
+                )
+            """))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE incident_status_history ADD COLUMN changed_by TEXT"
+            ))
+    except Exception:
+        pass
