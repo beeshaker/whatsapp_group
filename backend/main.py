@@ -41,6 +41,11 @@ class ReplyBody(BaseModel):
     text: str
 
 
+class CreateUserBody(BaseModel):
+    username: str
+    password: str
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -799,6 +804,69 @@ async def login_submit(
 async def logout(request: Request):
     request.session.clear()
     return RedirectResponse(url="/login", status_code=302)
+
+
+@app.get("/users")
+async def list_users(
+    username: str = Depends(require_login),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).order_by(User.created_at.asc()))
+    users = result.scalars().all()
+    return [
+        {
+            "id": u.id,
+            "username": u.username,
+            "created_at": u.created_at.isoformat(),
+            "created_by": u.created_by,
+        }
+        for u in users
+    ]
+
+
+@app.post("/users", status_code=201)
+async def create_user(
+    body: CreateUserBody,
+    actor: str = Depends(require_login),
+    db: AsyncSession = Depends(get_db),
+):
+    username = body.username.strip()
+    if not username:
+        raise HTTPException(status_code=422, detail="username must not be empty")
+    if len(username) > 64:
+        raise HTTPException(status_code=422, detail="username too long (max 64 chars)")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=422, detail="password must be at least 8 characters")
+    existing = await db.execute(select(User).where(User.username == username))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="username already exists")
+    now = datetime.now(timezone.utc)
+    user = User(
+        username=username,
+        hashed_password=hash_password(body.password),
+        created_at=now,
+        created_by=actor,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return {"id": user.id, "username": user.username, "created_by": user.created_by}
+
+
+@app.post("/users/{user_id}/delete")
+async def delete_user(
+    user_id: int,
+    actor: str = Depends(require_login),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.username == actor:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    await db.delete(user)
+    await db.commit()
+    return {"deleted": user_id}
 
 
 @app.get("/", response_class=HTMLResponse)
