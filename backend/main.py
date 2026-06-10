@@ -2,6 +2,7 @@ import hmac
 import logging
 import os
 import socket
+import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
@@ -14,11 +15,13 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.middleware.sessions import SessionMiddleware
 
+from auth import require_login, hash_password, verify_password
 from classifier import classify_message, classify_update_or_new
-from database import get_db, init_db
+from database import get_db, init_db, AsyncSessionLocal
 from media import MEDIA_DIR, download_media
-from models import Incident, IncidentMedia, IncidentStatusHistory, IncidentUpdate
+from models import Incident, IncidentMedia, IncidentStatusHistory, IncidentUpdate, User, AuditLog
 from odoo_stub import push_incident
 from whatsapp import reply_to_message, send_group_message
 
@@ -42,6 +45,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 GATEWAY_SECRET_TOKEN = os.getenv("GATEWAY_SECRET_TOKEN", "change-me")
+SECRET_KEY = os.getenv("SECRET_KEY", "")
+if not SECRET_KEY or SECRET_KEY == "change-me":
+    logger.error("SECRET_KEY env var is not set or is the default value. Refusing to start.")
+    sys.exit(1)
 try:
     MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.65"))
 except ValueError:
@@ -56,6 +63,24 @@ templates = Jinja2Templates(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(User))
+        if not result.scalars().first():
+            admin_user = os.getenv("ADMIN_USERNAME", "admin")
+            admin_pass = os.getenv("ADMIN_PASSWORD", "changeme")
+            if admin_user == "admin" and admin_pass == "changeme":
+                logger.warning(
+                    "Using default admin credentials (admin/changeme). "
+                    "Set ADMIN_USERNAME and ADMIN_PASSWORD env vars."
+                )
+            session.add(User(
+                username=admin_user,
+                hashed_password=hash_password(admin_pass),
+                created_at=datetime.now(timezone.utc),
+                created_by=None,
+            ))
+            await session.commit()
+            logger.info("Bootstrap admin user '%s' created.", admin_user)
     yield
 
 
@@ -70,6 +95,13 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SECRET_KEY,
+    https_only=False,
+    same_site="lax",
 )
 
 
