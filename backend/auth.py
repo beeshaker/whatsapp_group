@@ -1,4 +1,3 @@
-import os
 from passlib.context import CryptContext
 from fastapi import HTTPException, Request
 
