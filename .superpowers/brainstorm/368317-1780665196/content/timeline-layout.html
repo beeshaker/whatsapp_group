@@ -1,0 +1,145 @@
+<h2>How should the timeline be laid out?</h2>
+<p class="subtitle">Both show the same events — the difference is how they're organised</p>
+
+<div class="split">
+
+  <div class="mockup">
+    <div class="mockup-header">A — Flat chronological thread</div>
+    <div class="mockup-body" style="background:#07111f;padding:14px;font-family:inherit;font-size:12px;color:#94a3b8">
+      <div style="display:flex;flex-direction:column;gap:8px">
+
+        <!-- original -->
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:0">
+            <div style="width:9px;height:9px;background:#38bdf8;border-radius:50%;flex-shrink:0;margin-top:3px"></div>
+            <div style="width:1px;flex:1;background:rgba(148,163,184,0.15);min-height:30px"></div>
+          </div>
+          <div style="background:#101f34;border:1px solid rgba(56,189,248,0.15);border-radius:8px;padding:9px 11px;flex:1">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+              <span style="color:#38bdf8;font-size:11px;font-weight:700">John Mwangi · 09:45</span>
+              <span style="font-size:10px;background:rgba(56,189,248,0.1);color:#7dd3fc;padding:1px 6px;border-radius:99px">original</span>
+            </div>
+            <div style="color:#dbeafe;font-size:12px">Leak in block A mens washroom, water is dripping from ceiling</div>
+          </div>
+        </div>
+
+        <!-- status event -->
+        <div style="display:flex;gap:10px;align-items:center">
+          <div style="display:flex;flex-direction:column;align-items:center">
+            <div style="width:9px;height:9px;background:#a855f7;border-radius:50%;flex-shrink:0"></div>
+            <div style="width:1px;flex:1;background:rgba(148,163,184,0.15);min-height:18px"></div>
+          </div>
+          <div style="color:#a855f7;font-size:11px;font-style:italic">Status changed → Review · 09:52 by Admin</div>
+        </div>
+
+        <!-- outbound reply -->
+        <div style="display:flex;gap:10px;align-items:flex-start;flex-direction:row-reverse">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:0">
+            <div style="width:9px;height:9px;background:#0ea5e9;border-radius:50%;flex-shrink:0;margin-top:3px"></div>
+            <div style="width:1px;flex:1;background:rgba(148,163,184,0.15);min-height:30px"></div>
+          </div>
+          <div style="background:rgba(7,89,133,0.3);border:1px solid rgba(56,189,248,0.2);border-radius:8px;padding:9px 11px;flex:1">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+              <span style="color:#0ea5e9;font-size:11px;font-weight:700">Dashboard · 10:12</span>
+              <span style="font-size:10px;background:rgba(14,165,233,0.1);color:#7dd3fc;padding:1px 6px;border-radius:99px">sent ↑</span>
+            </div>
+            <div style="color:#bae6fd;font-size:12px">Maintenance team dispatched, ETA 30 minutes</div>
+          </div>
+        </div>
+
+        <!-- re-linked update -->
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:0">
+            <div style="width:9px;height:9px;background:#f59e0b;border-radius:50%;flex-shrink:0;margin-top:3px"></div>
+            <div style="width:1px;flex:1;background:rgba(148,163,184,0.15);min-height:30px"></div>
+          </div>
+          <div style="background:#101f34;border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:9px 11px;flex:1">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+              <span style="color:#f59e0b;font-size:11px;font-weight:700">Maria · 10:28</span>
+              <span style="font-size:10px;background:rgba(245,158,11,0.1);color:#fde68a;padding:1px 6px;border-radius:99px">moved in</span>
+            </div>
+            <div style="color:#dbeafe;font-size:12px">Pipe has now burst, flooding stairwell</div>
+          </div>
+        </div>
+
+        <!-- status resolved -->
+        <div style="display:flex;gap:10px;align-items:center">
+          <div style="display:flex;flex-direction:column;align-items:center">
+            <div style="width:9px;height:9px;background:#22c55e;border-radius:50%;flex-shrink:0"></div>
+          </div>
+          <div style="color:#22c55e;font-size:11px;font-style:italic">Status changed → Resolved · 11:05 by Admin</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">B — Sections (current style, improved)</div>
+    <div class="mockup-body" style="background:#07111f;padding:14px;font-family:inherit;font-size:12px;color:#94a3b8">
+      <div style="display:flex;flex-direction:column;gap:12px">
+
+        <!-- original report section -->
+        <div>
+          <div style="font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin-bottom:6px">Original Report</div>
+          <div style="background:#101f34;border:1px solid rgba(148,163,184,0.12);border-radius:8px;padding:9px 11px">
+            <div style="color:#64748b;font-size:11px;margin-bottom:3px">John Mwangi · 09:45</div>
+            <div style="color:#dbeafe;font-size:12px">Leak in block A mens washroom, water is dripping from ceiling</div>
+          </div>
+        </div>
+
+        <!-- updates section -->
+        <div>
+          <div style="font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin-bottom:6px">Updates (3)</div>
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <div style="background:rgba(7,89,133,0.3);border:1px solid rgba(56,189,248,0.2);border-radius:8px;padding:8px 10px">
+              <div style="color:#0ea5e9;font-size:11px;margin-bottom:3px">Dashboard · 10:12</div>
+              <div style="color:#bae6fd;font-size:12px">Maintenance team dispatched, ETA 30 minutes</div>
+            </div>
+            <div style="background:#101f34;border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:8px 10px">
+              <div style="color:#f59e0b;font-size:11px;margin-bottom:3px">Maria · 10:28 · <em style="opacity:.7">moved in</em></div>
+              <div style="color:#dbeafe;font-size:12px">Pipe has now burst, flooding stairwell</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- status history section -->
+        <div>
+          <div style="font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin-bottom:6px">Status History</div>
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <div style="font-size:11px;color:#a855f7">→ Review at 09:52</div>
+            <div style="font-size:11px;color:#22c55e">→ Resolved at 11:05</div>
+          </div>
+        </div>
+
+        <!-- attachments -->
+        <div>
+          <div style="font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin-bottom:6px">Attachments (2)</div>
+          <div style="display:flex;gap:6px">
+            <div style="width:44px;height:44px;background:#101f34;border:1px solid rgba(148,163,184,0.12);border-radius:6px"></div>
+            <div style="width:44px;height:44px;background:#101f34;border:1px solid rgba(148,163,184,0.12);border-radius:6px"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="options" style="margin-top:20px">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Flat chronological thread</h3>
+      <p>Everything in one scrollable stream sorted by time. WhatsApp-style: inbound on left, outbound on right. Status changes appear inline as small event markers.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Sections (improved current style)</h3>
+      <p>Keeps Original Report, Updates, Status History, and Attachments in named sections. Easier to jump to a specific section. Less "chat-like" feel.</p>
+    </div>
+  </div>
+</div>

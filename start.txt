@@ -1,7 +1,11 @@
 # ============================================================
 # WHATSAPP OPS GATEWAY — STARTUP RUNBOOK
 # ============================================================
-#
+# docker compose build backend && docker compose up -d backend 
+
+docker compose up -d --build
+
+
 # NORMAL RESTART (after first-time setup is done):
 #   1. docker compose up -d
 #   2. Open http://localhost:8000/   ← dashboard, done

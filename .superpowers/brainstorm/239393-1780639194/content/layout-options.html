@@ -1,0 +1,98 @@
+<h2>Which dashboard layout fits your ops workflow?</h2>
+<p class="subtitle">All three show the same incident data — the difference is how you navigate and triage.</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#1a1a2e;border-radius:6px;padding:10px;font-size:11px;color:#eee;line-height:1.6">
+        <div style="background:#16213e;padding:6px 10px;border-radius:4px;margin-bottom:8px;display:flex;gap:12px;align-items:center">
+          <span style="color:#e94560;font-weight:bold">● 2 HIGH</span>
+          <span style="color:#f9a825">● 5 MEDIUM</span>
+          <span style="color:#43a047">● 3 LOW</span>
+          <span style="margin-left:auto;color:#888">↻ live</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px">
+          <div style="background:#e94560;border-radius:4px;padding:6px;text-align:center"><div style="font-size:18px;font-weight:bold">2</div><div style="font-size:9px">URGENT</div></div>
+          <div style="background:#f9a825;border-radius:4px;padding:6px;text-align:center"><div style="font-size:18px;font-weight:bold">5</div><div style="font-size:9px">REVIEW</div></div>
+          <div style="background:#1565c0;border-radius:4px;padding:6px;text-align:center"><div style="font-size:18px;font-weight:bold">3</div><div style="font-size:9px">NEW</div></div>
+        </div>
+        <div style="background:#16213e;border-radius:4px;padding:5px 8px;margin-bottom:4px;border-left:3px solid #e94560">
+          <div style="font-size:10px;font-weight:bold">Block B — Lift stuck floor 2–3</div>
+          <div style="font-size:9px;color:#aaa">John · 2 min ago · <span style="color:#f9a825">REVIEW</span></div>
+        </div>
+        <div style="background:#16213e;border-radius:4px;padding:5px 8px;border-left:3px solid #f9a825">
+          <div style="font-size:10px;font-weight:bold">Block A — Water pipe burst floor 3</div>
+          <div style="font-size:9px;color:#aaa">Mary · 8 min ago · <span style="color:#1565c0">NEW</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Operations Command Centre</h3>
+      <p>Summary stats at top, live incident feed below. Designed for real-time monitoring — one glance tells you what's on fire. Auto-refreshes every 30 seconds.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#1a1a2e;border-radius:6px;padding:10px;font-size:11px;color:#eee;line-height:1.6;display:flex;gap:8px">
+        <div style="width:110px;flex-shrink:0;background:#16213e;border-radius:4px;padding:8px">
+          <div style="font-size:10px;font-weight:bold;color:#888;margin-bottom:6px">FILTERS</div>
+          <div style="margin-bottom:4px"><div style="font-size:9px;color:#aaa">Status</div><div style="background:#0f3460;border-radius:3px;padding:3px 5px;font-size:9px">● review (5)</div><div style="padding:3px 5px;font-size:9px;color:#888">○ new (3)</div></div>
+          <div style="margin-bottom:4px"><div style="font-size:9px;color:#aaa">Severity</div><div style="background:#0f3460;border-radius:3px;padding:3px 5px;font-size:9px">● high (2)</div></div>
+          <div><div style="font-size:9px;color:#aaa">Category</div><div style="padding:3px 5px;font-size:9px;color:#888">○ plumbing</div><div style="padding:3px 5px;font-size:9px;color:#888">○ lift</div></div>
+        </div>
+        <div style="flex:1">
+          <div style="background:#16213e;border-radius:4px;padding:5px 8px;margin-bottom:4px;border-left:3px solid #e94560">
+            <div style="font-size:10px;font-weight:bold">Lift stuck floor 2–3</div>
+            <div style="font-size:9px;color:#aaa">Block B · John · <span style="color:#e94560">HIGH</span></div>
+            <div style="display:flex;gap:4px;margin-top:3px"><span style="background:#6a1b9a;border-radius:2px;padding:1px 4px;font-size:8px">review</span><span style="background:#333;border-radius:2px;padding:1px 4px;font-size:8px">→ ack</span></div>
+          </div>
+          <div style="background:#16213e;border-radius:4px;padding:5px 8px;border-left:3px solid #f9a825">
+            <div style="font-size:10px;font-weight:bold">Water pipe burst floor 3</div>
+            <div style="font-size:9px;color:#aaa">Block A · Mary · <span style="color:#f9a825">MED</span></div>
+            <div style="display:flex;gap:4px;margin-top:3px"><span style="background:#1565c0;border-radius:2px;padding:1px 4px;font-size:8px">new</span><span style="background:#333;border-radius:2px;padding:1px 4px;font-size:8px">→ ack</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Triage Board</h3>
+      <p>Persistent sidebar filters, card-per-incident view with quick action buttons. Built for triaging a backlog — scroll, filter, act. Similar to a Jira/Kanban feel.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#1a1a2e;border-radius:6px;padding:10px;font-size:11px;color:#eee;line-height:1.6">
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <div style="flex:1;background:#e94560;border-radius:4px;padding:6px;text-align:center"><div style="font-size:16px;font-weight:bold">2</div><div style="font-size:8px">HIGH · OPEN</div></div>
+          <div style="flex:1;background:#16213e;border-radius:4px;padding:6px;text-align:center"><div style="font-size:16px;font-weight:bold">10</div><div style="font-size:8px">TOTAL TODAY</div></div>
+          <div style="flex:1;background:#16213e;border-radius:4px;padding:6px;text-align:center"><div style="font-size:16px;font-weight:bold">5</div><div style="font-size:8px">RESOLVED</div></div>
+        </div>
+        <div style="background:#16213e;border-radius:4px;overflow:hidden">
+          <div style="display:grid;grid-template-columns:1fr 60px 60px 70px;padding:4px 8px;font-size:8px;color:#888;border-bottom:1px solid #333">
+            <span>INCIDENT</span><span>SEV</span><span>STATUS</span><span>ACTION</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 60px 60px 70px;padding:5px 8px;border-bottom:1px solid #222;background:#1e1e3e">
+            <span style="font-size:9px">Lift stuck B floor 2<br><span style="color:#888">John · 2m</span></span>
+            <span style="color:#e94560;font-size:9px;align-self:center">HIGH</span>
+            <span style="align-self:center"><span style="background:#6a1b9a;border-radius:2px;padding:1px 4px;font-size:8px">review</span></span>
+            <span style="align-self:center;display:flex;gap:3px"><span style="background:#00695c;border-radius:2px;padding:1px 4px;font-size:8px">✓ ack</span><span style="background:#37474f;border-radius:2px;padding:1px 4px;font-size:8px">✗ ign</span></span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 60px 60px 70px;padding:5px 8px">
+            <span style="font-size:9px">Pipe burst A floor 3<br><span style="color:#888">Mary · 8m</span></span>
+            <span style="color:#f9a825;font-size:9px;align-self:center">MED</span>
+            <span style="align-self:center"><span style="background:#1565c0;border-radius:2px;padding:1px 4px;font-size:8px">new</span></span>
+            <span style="align-self:center;display:flex;gap:3px"><span style="background:#00695c;border-radius:2px;padding:1px 4px;font-size:8px">✓ ack</span><span style="background:#37474f;border-radius:2px;padding:1px 4px;font-size:8px">✗ ign</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Enhanced Table (upgrade of current)</h3>
+      <p>Keep the familiar table but add summary stats, quick action buttons (✓ Acknowledge / ✗ Ignore) per row, and auto-refresh. Lowest learning curve — everything in one place.</p>
+    </div>
+  </div>
+
+</div>

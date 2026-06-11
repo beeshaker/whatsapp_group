@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ticketing UI Approaches</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Inter, system-ui, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; padding: 28px 24px; }
+
+  h2 { font-size: 22px; font-weight: 800; letter-spacing: -0.03em; color: #f1f5f9; margin-bottom: 6px; }
+  .subtitle { font-size: 14px; color: #64748b; margin-bottom: 28px; }
+
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+
+  .card {
+    border: 2px solid rgba(148,163,184,0.12);
+    border-radius: 16px;
+    background: #1e293b;
+    cursor: pointer;
+    transition: border-color 0.18s, box-shadow 0.18s;
+    overflow: hidden;
+  }
+  .card:hover { border-color: rgba(56,189,248,0.4); box-shadow: 0 0 0 4px rgba(56,189,248,0.08); }
+  .card.selected { border-color: #38bdf8; box-shadow: 0 0 0 4px rgba(56,189,248,0.15); }
+
+  .card-image { padding: 16px 16px 0; }
+  .card-body { padding: 14px 16px 16px; }
+  .card-body h3 { font-size: 14px; font-weight: 800; color: #f1f5f9; margin-bottom: 5px; }
+  .card-body p { font-size: 12px; color: #64748b; line-height: 1.5; }
+
+  .letter {
+    display: inline-block;
+    width: 26px; height: 26px;
+    border-radius: 8px;
+    background: rgba(56,189,248,0.12);
+    color: #38bdf8;
+    font-size: 13px; font-weight: 900;
+    text-align: center; line-height: 26px;
+    margin-bottom: 10px;
+  }
+
+  /* --- MOCKUP A: Table / Queue view --- */
+  .mock-a { background: #0f172a; border-radius: 10px; overflow: hidden; font-size: 10px; }
+  .mock-a-topbar { background: #1e293b; padding: 7px 10px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid rgba(148,163,184,0.1); }
+  .mock-a-logo { width: 18px; height: 18px; border-radius: 5px; background: linear-gradient(135deg,#0ea5e9,#1e3a8a); flex-shrink: 0; }
+  .mock-a-nav { display: flex; gap: 10px; margin-left: 6px; }
+  .mock-a-nav span { color: #64748b; font-size: 9px; font-weight: 700; }
+  .mock-a-nav span.active { color: #38bdf8; border-bottom: 1.5px solid #38bdf8; padding-bottom: 1px; }
+  .mock-a-user { margin-left: auto; background: #334155; border-radius: 99px; padding: 2px 7px; font-size: 9px; color: #94a3b8; }
+  .mock-a-body { padding: 8px 10px; }
+  .mock-a-toolbar { display: flex; gap: 6px; margin-bottom: 7px; align-items: center; }
+  .mock-a-toolbar .pill { background: rgba(56,189,248,0.1); border: 1px solid rgba(56,189,248,0.2); color: #38bdf8; border-radius: 99px; padding: 2px 7px; font-size: 8px; font-weight: 700; }
+  .mock-a-toolbar .pill.grey { background: rgba(255,255,255,0.04); border-color: rgba(148,163,184,0.12); color: #64748b; }
+  .mock-a-table { width: 100%; border-collapse: collapse; }
+  .mock-a-table th { text-align: left; font-size: 8px; color: #475569; font-weight: 700; text-transform: uppercase; padding: 4px 6px; border-bottom: 1px solid rgba(148,163,184,0.08); }
+  .mock-a-table td { padding: 5px 6px; font-size: 9px; border-bottom: 1px solid rgba(148,163,184,0.05); }
+  .mock-a-table tr:hover td { background: rgba(255,255,255,0.03); }
+  .sev { display: inline-block; width: 5px; height: 5px; border-radius: 50%; margin-right: 3px; vertical-align: middle; }
+  .sev.h { background: #ef4444; } .sev.m { background: #f59e0b; } .sev.l { background: #22c55e; }
+  .status-pill { display: inline-block; padding: 1px 5px; border-radius: 99px; font-size: 7.5px; font-weight: 700; }
+  .sp-review { background: rgba(168,85,247,0.15); color: #c084fc; }
+  .sp-ack { background: rgba(20,184,166,0.15); color: #2dd4bf; }
+  .sp-new { background: rgba(56,189,248,0.15); color: #38bdf8; }
+  .id-cell { color: #475569; }
+  .assign { background: #1e3a8a; border-radius: 99px; padding: 1px 5px; font-size: 7px; color: #93c5fd; }
+
+  /* --- MOCKUP B: Split Panel --- */
+  .mock-b { background: #0f172a; border-radius: 10px; overflow: hidden; display: flex; height: 160px; }
+  .mock-b-sidebar { width: 42px; background: #1e293b; border-right: 1px solid rgba(148,163,184,0.08); display: flex; flex-direction: column; align-items: center; padding: 8px 0; gap: 8px; flex-shrink: 0; }
+  .mock-b-icon { width: 22px; height: 22px; border-radius: 8px; background: rgba(56,189,248,0.1); display: grid; place-items: center; font-size: 10px; }
+  .mock-b-icon.active { background: rgba(56,189,248,0.2); }
+  .mock-b-icon.logo { background: linear-gradient(135deg,#0ea5e9,#1e3a8a); }
+  .mock-b-list { width: 110px; border-right: 1px solid rgba(148,163,184,0.08); overflow: hidden; flex-shrink: 0; }
+  .mock-b-list-header { padding: 6px 8px; font-size: 8px; font-weight: 800; color: #64748b; text-transform: uppercase; border-bottom: 1px solid rgba(148,163,184,0.06); }
+  .mock-b-item { padding: 6px 8px; border-bottom: 1px solid rgba(148,163,184,0.05); cursor: pointer; }
+  .mock-b-item.sel { background: rgba(56,189,248,0.08); border-left: 2px solid #38bdf8; }
+  .mock-b-item .t { font-size: 9px; font-weight: 700; color: #cbd5e1; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mock-b-item .s { font-size: 7.5px; color: #475569; }
+  .mock-b-detail { flex: 1; overflow: hidden; padding: 8px 10px; }
+  .mock-b-detail .dh { font-size: 10px; font-weight: 800; color: #f1f5f9; margin-bottom: 4px; }
+  .mock-b-detail .dm { font-size: 8.5px; color: #64748b; margin-bottom: 6px; }
+  .mock-b-detail .msg { background: rgba(255,255,255,0.04); border-radius: 6px; padding: 5px 7px; font-size: 8px; color: #94a3b8; line-height: 1.4; margin-bottom: 6px; }
+  .mock-b-detail .btns { display: flex; gap: 4px; }
+  .mock-b-detail .btn { padding: 2px 7px; border-radius: 5px; font-size: 7.5px; font-weight: 700; }
+  .btn-g { background: rgba(34,197,94,0.15); color: #4ade80; }
+  .btn-sl { background: rgba(148,163,184,0.1); color: #94a3b8; }
+  .btn-b { background: rgba(14,165,233,0.15); color: #38bdf8; }
+
+  /* --- MOCKUP C: Kanban / Column view --- */
+  .mock-c { background: #0f172a; border-radius: 10px; overflow: hidden; }
+  .mock-c-topbar { background: #1e293b; padding: 6px 10px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid rgba(148,163,184,0.1); }
+  .mock-c-logo { width: 16px; height: 16px; border-radius: 5px; background: linear-gradient(135deg,#0ea5e9,#1e3a8a); flex-shrink: 0; }
+  .mock-c-title { font-size: 10px; font-weight: 800; color: #f1f5f9; }
+  .mock-c-user { margin-left: auto; background: #334155; border-radius: 99px; padding: 2px 7px; font-size: 8px; color: #94a3b8; }
+  .mock-c-body { padding: 8px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .mock-c-col { background: rgba(255,255,255,0.03); border-radius: 8px; padding: 6px; }
+  .mock-c-col-head { font-size: 8px; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; }
+  .mock-c-col-head .n { background: rgba(255,255,255,0.08); border-radius: 99px; padding: 1px 5px; font-size: 7px; color: #94a3b8; }
+  .mock-c-ticket { background: #1e293b; border-radius: 6px; padding: 5px 6px; margin-bottom: 4px; border-left: 2px solid; }
+  .mock-c-ticket.h { border-color: #ef4444; }
+  .mock-c-ticket.m { border-color: #f59e0b; }
+  .mock-c-ticket.l { border-color: #22c55e; }
+  .mock-c-ticket .tid { font-size: 7px; color: #475569; margin-bottom: 2px; }
+  .mock-c-ticket .ttitle { font-size: 8.5px; font-weight: 700; color: #cbd5e1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mock-c-ticket .tmeta { font-size: 7px; color: #475569; margin-top: 2px; }
+
+  .selected-indicator { display: none; text-align: center; margin-top: 20px; padding: 12px; background: rgba(56,189,248,0.08); border: 1px solid rgba(56,189,248,0.2); border-radius: 10px; color: #38bdf8; font-size: 13px; font-weight: 700; }
+  .selected-indicator.show { display: block; }
+</style>
+</head>
+<body>
+  <h2>Which layout style feels like a ticketing system?</h2>
+  <p class="subtitle">Pick the one that matches how your team thinks about incident queues</p>
+
+  <div class="cards">
+
+    <!-- Option A: Table Queue -->
+    <div class="card" data-choice="table" onclick="select(this)">
+      <div class="card-image">
+        <div class="letter">A</div>
+        <div class="mock-a">
+          <div class="mock-a-topbar">
+            <div class="mock-a-logo"></div>
+            <div class="mock-a-nav">
+              <span class="active">Live Queue</span>
+              <span>Archive</span>
+              <span>Users</span>
+            </div>
+            <div class="mock-a-user">👤 abhishek</div>
+          </div>
+          <div class="mock-a-body">
+            <div class="mock-a-toolbar">
+              <span class="pill">All statuses ▾</span>
+              <span class="pill grey">Severity ▾</span>
+              <span class="pill grey">Category ▾</span>
+            </div>
+            <table class="mock-a-table">
+              <thead>
+                <tr>
+                  <th>ID</th><th>Property</th><th>Category</th><th>Severity</th><th>Status</th><th>Assigned</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="id-cell">#041</td>
+                  <td>Sunrise Apt</td>
+                  <td>⚡ Electrical</td>
+                  <td><span class="sev h"></span>High</td>
+                  <td><span class="status-pill sp-review">Review</span></td>
+                  <td><span class="assign">sarah</span></td>
+                </tr>
+                <tr>
+                  <td class="id-cell">#040</td>
+                  <td>Palm Residency</td>
+                  <td>🔧 Plumbing</td>
+                  <td><span class="sev m"></span>Med</td>
+                  <td><span class="status-pill sp-ack">Acknowledged</span></td>
+                  <td><span class="assign">tom</span></td>
+                </tr>
+                <tr>
+                  <td class="id-cell">#039</td>
+                  <td>Ocean View</td>
+                  <td>🔒 Security</td>
+                  <td><span class="sev h"></span>High</td>
+                  <td><span class="status-pill sp-new">New</span></td>
+                  <td>—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="card-body">
+        <h3>Table / Queue View</h3>
+        <p>Rows with columns — looks like Jira or Linear. Dense, scannable, great for large volumes. Click a row to open the ticket detail.</p>
+      </div>
+    </div>
+
+    <!-- Option B: Split Panel -->
+    <div class="card" data-choice="split" onclick="select(this)">
+      <div class="card-image">
+        <div class="letter">B</div>
+        <div class="mock-b">
+          <div class="mock-b-sidebar">
+            <div class="mock-b-icon logo" style="font-size:8px">🏢</div>
+            <div class="mock-b-icon active">📋</div>
+            <div class="mock-b-icon">📁</div>
+            <div class="mock-b-icon">👥</div>
+            <div class="mock-b-icon" style="margin-top:auto">👤</div>
+          </div>
+          <div class="mock-b-list">
+            <div class="mock-b-list-header">Live Queue · 12</div>
+            <div class="mock-b-item sel">
+              <div class="t">#041 Sunrise Apt</div>
+              <div class="s">⚡ Electrical · High</div>
+            </div>
+            <div class="mock-b-item">
+              <div class="t">#040 Palm Residency</div>
+              <div class="s">🔧 Plumbing · Medium</div>
+            </div>
+            <div class="mock-b-item">
+              <div class="t">#039 Ocean View</div>
+              <div class="s">🔒 Security · High</div>
+            </div>
+          </div>
+          <div class="mock-b-detail">
+            <div class="dh">#041 — Sunrise Apt · Electrical</div>
+            <div class="dm">Reported by John · 09:14 · <span style="color:#c084fc">review</span></div>
+            <div class="msg">Power outage in block B, floors 3-6. Generator not kicking in.</div>
+            <div class="btns">
+              <span class="btn btn-g">✓ Acknowledge</span>
+              <span class="btn btn-sl">Resolve</span>
+              <span class="btn btn-b">↩ Reply</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card-body">
+        <h3>Split Panel</h3>
+        <p>Icon sidebar + ticket list + detail panel side by side. Like Zendesk or Outlook. Select a ticket on the left to see it on the right.</p>
+      </div>
+    </div>
+
+    <!-- Option C: Kanban columns -->
+    <div class="card" data-choice="kanban" onclick="select(this)">
+      <div class="card-image">
+        <div class="letter">C</div>
+        <div class="mock-c">
+          <div class="mock-c-topbar">
+            <div class="mock-c-logo"></div>
+            <div class="mock-c-title">Ops Incident Tracker</div>
+            <div class="mock-c-user">👤 abhishek</div>
+          </div>
+          <div class="mock-c-body">
+            <div class="mock-c-col">
+              <div class="mock-c-col-head">New <span class="n">2</span></div>
+              <div class="mock-c-ticket h"><div class="tid">#041</div><div class="ttitle">Sunrise Electrical</div><div class="tmeta">High · 09:14</div></div>
+              <div class="mock-c-ticket m"><div class="tid">#038</div><div class="ttitle">Palm Plumbing</div><div class="tmeta">Med · 08:50</div></div>
+            </div>
+            <div class="mock-c-col">
+              <div class="mock-c-col-head">Review <span class="n">1</span></div>
+              <div class="mock-c-ticket h"><div class="tid">#040</div><div class="ttitle">Ocean Security</div><div class="tmeta">High · 07:22</div></div>
+            </div>
+            <div class="mock-c-col">
+              <div class="mock-c-col-head">Acknowledged <span class="n">1</span></div>
+              <div class="mock-c-ticket l"><div class="tid">#037</div><div class="ttitle">Bay View Lift</div><div class="tmeta">Low · 06:45</div></div>
+            </div>
+            <div class="mock-c-col">
+              <div class="mock-c-col-head">Ignored <span class="n">0</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card-body">
+        <h3>Kanban Board</h3>
+        <p>Status columns — tickets move left to right. Visual workflow like Trello. Good for seeing the whole pipeline at a glance.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="selected-indicator" id="sel-indicator"></div>
+
+<script>
+  let selected = null;
+  function select(card) {
+    document.querySelectorAll('.card').forEach(c => c.classList.remove('selected'));
+    card.classList.add('selected');
+    selected = card.dataset.choice;
+    const ind = document.getElementById('sel-indicator');
+    const labels = { table: 'A — Table / Queue View', split: 'B — Split Panel', kanban: 'C — Kanban Board' };
+    ind.textContent = '✓ Selected: ' + labels[selected] + ' — tell me in the terminal!';
+    ind.classList.add('show');
+    if (window.recordChoice) window.recordChoice(selected, card.querySelector('h3').textContent);
+  }
+</script>
+</body>
+</html>

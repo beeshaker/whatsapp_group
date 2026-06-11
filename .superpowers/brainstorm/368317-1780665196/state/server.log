@@ -1,0 +1,7 @@
+{"type":"server-started","port":60421,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:60421","screen_dir":"/home/abhishek/projects/whatsappgroup/whatsapp-ticketing/.superpowers/brainstorm/368317-1780665196/content","state_dir":"/home/abhishek/projects/whatsappgroup/whatsapp-ticketing/.superpowers/brainstorm/368317-1780665196/state"}
+{"type":"screen-added","file":"/home/abhishek/projects/whatsappgroup/whatsapp-ticketing/.superpowers/brainstorm/368317-1780665196/content/container-style.html"}
+{"type":"screen-added","file":"/home/abhishek/projects/whatsappgroup/whatsapp-ticketing/.superpowers/brainstorm/368317-1780665196/content/waiting-1.html"}
+{"type":"screen-added","file":"/home/abhishek/projects/whatsappgroup/whatsapp-ticketing/.superpowers/brainstorm/368317-1780665196/content/timeline-layout.html"}
+{"type":"screen-added","file":"/home/abhishek/projects/whatsappgroup/whatsapp-ticketing/.superpowers/brainstorm/368317-1780665196/content/waiting-2.html"}
+{"type":"screen-added","file":"/home/abhishek/projects/whatsappgroup/whatsapp-ticketing/.superpowers/brainstorm/368317-1780665196/content/modal-design.html"}
+{"type":"server-stopped","reason":"idle timeout"}

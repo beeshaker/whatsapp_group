@@ -1,0 +1,159 @@
+<h2>How should the ticket trail be shown?</h2>
+<p class="subtitle">Each option changes how you access and view the full ticket history</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:14px;background:#07111f;border-radius:8px;font-family:monospace;font-size:11px;color:#94a3b8">
+      <div style="background:#0b1728;border:1px solid rgba(148,163,184,0.15);border-radius:10px;overflow:hidden">
+        <!-- dimmed background -->
+        <div style="padding:8px 10px;opacity:0.25;font-size:10px;color:#64748b">
+          <div style="height:6px;background:#1e3a5f;border-radius:3px;width:60%;margin-bottom:4px"></div>
+          <div style="height:6px;background:#1e3a5f;border-radius:3px;width:40%"></div>
+        </div>
+        <!-- modal on top -->
+        <div style="margin:8px;background:#101f34;border:1px solid rgba(56,189,248,0.3);border-radius:8px;padding:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span style="color:#38bdf8;font-size:11px;font-weight:900">#7 — Block A Leak · Plumbing</span>
+            <span style="color:#64748b;font-size:14px">✕</span>
+          </div>
+          <div style="display:flex;gap:6px;margin-bottom:6px">
+            <div style="background:#0ea5e9;border-radius:3px;padding:2px 6px;font-size:9px;color:white">MEDIUM</div>
+            <div style="background:rgba(168,85,247,0.2);border-radius:3px;padding:2px 6px;font-size:9px;color:#c4b5fd">REVIEW</div>
+          </div>
+          <div style="height:5px;background:#1e3a5f;border-radius:2px;width:90%;margin-bottom:4px"></div>
+          <div style="height:5px;background:#1e3a5f;border-radius:2px;width:70%;margin-bottom:8px"></div>
+          <div style="font-size:9px;color:#64748b;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em">Timeline</div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <div style="background:#0b1728;border-left:2px solid #38bdf8;padding:4px 6px;border-radius:0 4px 4px 0">
+              <div style="font-size:8px;color:#64748b">09:45 · John</div>
+              <div style="height:4px;background:#1e3a5f;border-radius:2px;width:80%"></div>
+            </div>
+            <div style="background:#071a2e;border-left:2px solid #0ea5e9;padding:4px 6px;border-radius:0 4px 4px 0;margin-left:8px">
+              <div style="font-size:8px;color:#64748b">10:12 · Dashboard</div>
+              <div style="height:4px;background:#1e3a5f;border-radius:2px;width:60%"></div>
+            </div>
+            <div style="background:#0b1728;border-left:2px solid #38bdf8;padding:4px 6px;border-radius:0 4px 4px 0">
+              <div style="font-size:8px;color:#64748b">10:30 · Maria</div>
+              <div style="height:4px;background:#1e3a5f;border-radius:2px;width:75%"></div>
+            </div>
+          </div>
+          <div style="margin-top:8px;background:#132840;border-radius:4px;padding:5px;display:flex;gap:4px;align-items:center">
+            <div style="flex:1;height:14px;background:#0b1728;border-radius:3px"></div>
+            <div style="background:#0ea5e9;padding:2px 8px;border-radius:3px;font-size:8px;color:white">↑ Send</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Wide Modal</h3>
+      <p>Expanded overlay, same page. Wider than the current modal, with a proper timeline layout and scrollable body. Quick to open, no navigation needed.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:14px;background:#07111f;border-radius:8px;font-family:monospace;font-size:11px;color:#94a3b8">
+      <div style="background:#0b1728;border:1px solid rgba(148,163,184,0.15);border-radius:10px;overflow:hidden;display:flex;height:140px">
+        <!-- main board (shrunk) -->
+        <div style="flex:1;padding:8px;opacity:0.4">
+          <div style="height:5px;background:#1e3a5f;border-radius:2px;width:70%;margin-bottom:6px"></div>
+          <div style="height:36px;background:#101f34;border-radius:5px;margin-bottom:4px;border:1px solid rgba(148,163,184,0.1)"></div>
+          <div style="height:36px;background:#101f34;border-radius:5px;margin-bottom:4px;border:1px solid rgba(148,163,184,0.1)"></div>
+          <div style="height:36px;background:#101f34;border-radius:5px;border:1px solid rgba(148,163,184,0.1)"></div>
+        </div>
+        <!-- slide-in drawer -->
+        <div style="width:52%;background:#101f34;border-left:1px solid rgba(56,189,248,0.25);padding:8px;flex-shrink:0">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span style="color:#38bdf8;font-size:10px;font-weight:900">#7 Ticket Trail</span>
+            <span style="color:#64748b;font-size:12px">✕</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <div style="background:#0b1728;border-left:2px solid #38bdf8;padding:3px 5px;border-radius:0 3px 3px 0;font-size:8px">
+              <span style="color:#64748b">09:45</span>
+              <div style="height:4px;background:#1e3a5f;border-radius:2px;width:80%;margin-top:2px"></div>
+            </div>
+            <div style="background:#071a2e;border-left:2px solid #0ea5e9;padding:3px 5px;border-radius:0 3px 3px 0;font-size:8px;margin-left:6px">
+              <span style="color:#64748b">10:12 · Dashboard</span>
+              <div style="height:4px;background:#1e3a5f;border-radius:2px;width:55%;margin-top:2px"></div>
+            </div>
+            <div style="background:#0b1728;border-left:2px solid #38bdf8;padding:3px 5px;border-radius:0 3px 3px 0;font-size:8px">
+              <span style="color:#64748b">10:30</span>
+              <div style="height:4px;background:#1e3a5f;border-radius:2px;width:70%;margin-top:2px"></div>
+            </div>
+          </div>
+          <div style="margin-top:6px;background:#132840;border-radius:3px;padding:4px;display:flex;gap:3px;align-items:center">
+            <div style="flex:1;height:12px;background:#0b1728;border-radius:2px"></div>
+            <div style="background:#0ea5e9;padding:1px 6px;border-radius:2px;font-size:7px;color:white">↑</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Side Drawer</h3>
+      <p>Slides in from the right edge, keeping the incident list visible. You can cross-reference other tickets while reading the trail.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:14px;background:#07111f;border-radius:8px;font-family:monospace;font-size:11px;color:#94a3b8">
+      <div style="background:#0b1728;border:1px solid rgba(148,163,184,0.15);border-radius:10px;overflow:hidden">
+        <!-- full page header -->
+        <div style="padding:8px 10px;background:#0b1728;border-bottom:1px solid rgba(148,163,184,0.12);display:flex;align-items:center;gap:6px">
+          <span style="color:#38bdf8;font-size:10px">← Back</span>
+          <span style="color:#64748b;font-size:10px">/</span>
+          <span style="color:#e2e8f0;font-size:10px;font-weight:900">#7 — Block A Leak</span>
+          <div style="margin-left:auto;display:flex;gap:4px">
+            <div style="background:rgba(239,68,68,0.15);border-radius:3px;padding:1px 5px;font-size:8px;color:#fca5a5">MEDIUM</div>
+            <div style="background:rgba(168,85,247,0.15);border-radius:3px;padding:1px 5px;font-size:8px;color:#c4b5fd">REVIEW</div>
+          </div>
+        </div>
+        <!-- two-column layout -->
+        <div style="display:flex;gap:0;height:110px">
+          <!-- timeline -->
+          <div style="flex:1;padding:8px;overflow:hidden">
+            <div style="font-size:8px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Full Trail</div>
+            <div style="display:flex;flex-direction:column;gap:3px">
+              <div style="display:flex;gap:5px;align-items:flex-start">
+                <div style="width:6px;height:6px;background:#38bdf8;border-radius:50%;margin-top:2px;flex-shrink:0"></div>
+                <div style="flex:1">
+                  <div style="font-size:8px;color:#64748b">09:45 · John Mwangi</div>
+                  <div style="height:3px;background:#1e3a5f;border-radius:2px;width:85%;margin-top:2px"></div>
+                </div>
+              </div>
+              <div style="display:flex;gap:5px;align-items:flex-start;margin-left:10px">
+                <div style="width:6px;height:6px;background:#0ea5e9;border-radius:50%;margin-top:2px;flex-shrink:0"></div>
+                <div style="flex:1">
+                  <div style="font-size:8px;color:#64748b">10:12 · Dashboard ↑</div>
+                  <div style="height:3px;background:#1e3a5f;border-radius:2px;width:60%;margin-top:2px"></div>
+                </div>
+              </div>
+              <div style="display:flex;gap:5px;align-items:flex-start">
+                <div style="width:6px;height:6px;background:#22c55e;border-radius:50%;margin-top:2px;flex-shrink:0"></div>
+                <div style="flex:1">
+                  <div style="font-size:8px;color:#64748b">11:00 · Status → Resolved</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- side info -->
+          <div style="width:90px;border-left:1px solid rgba(148,163,184,0.1);padding:8px">
+            <div style="font-size:8px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Details</div>
+            <div style="font-size:8px;color:#94a3b8;margin-bottom:4px">Property<br><span style="color:#e2e8f0">Block A</span></div>
+            <div style="font-size:8px;color:#94a3b8;margin-bottom:4px">Reporter<br><span style="color:#e2e8f0">John M.</span></div>
+            <div style="font-size:8px;color:#94a3b8">Opened<br><span style="color:#e2e8f0">09:45</span></div>
+          </div>
+        </div>
+        <!-- reply bar at bottom -->
+        <div style="border-top:1px solid rgba(148,163,184,0.1);padding:6px 10px;background:#07111f;display:flex;gap:4px;align-items:center">
+          <div style="flex:1;height:16px;background:#0b1728;border-radius:4px"></div>
+          <div style="background:#0ea5e9;padding:2px 8px;border-radius:4px;font-size:8px;color:white">↑ Send</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Full Page</h3>
+      <p>Navigates to a dedicated <code>/incidents/7</code> page. Most room for the timeline, metadata panel, and attachments. Back button returns to the board.</p>
+    </div>
+  </div>
+
+</div>

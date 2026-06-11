@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Dashboard Design Options</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: sans-serif; background: #0d0d0d; color: #eee; padding: 1.5rem; }
+h2 { font-size: 1.1rem; color: #fff; margin-bottom: 0.4rem; }
+p { font-size: 0.82rem; color: #888; margin-bottom: 1.5rem; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
+.option { border: 2px solid #333; border-radius: 10px; overflow: hidden; cursor: pointer; transition: border-color 0.2s, transform 0.15s; }
+.option:hover { border-color: #555; transform: translateY(-2px); }
+.option.selected { border-color: #60a5fa; }
+.option-label { padding: 10px 14px; background: #1a1a1a; display: flex; align-items: center; gap: 8px; }
+.option-label h3 { font-size: 0.85rem; color: #fff; flex: 1; }
+.option-label p { font-size: 0.75rem; color: #888; margin: 0; }
+.letter { width: 24px; height: 24px; border-radius: 50%; background: #333; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: bold; flex-shrink: 0; }
+.option.selected .letter { background: #1d4ed8; }
+.preview { font-size: 10px; }
+
+/* ── Option A: Light professional ── */
+.a-shell { background: #f8fafc; color: #1e293b; height: 180px; display: flex; flex-direction: column; }
+.a-top { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 8px 12px; display: flex; align-items: center; gap: 8px; }
+.a-top .logo { font-weight: 700; font-size: 11px; color: #1e293b; flex: 1; }
+.a-chip { background: #f1f5f9; border-radius: 4px; padding: 2px 8px; font-size: 9px; color: #64748b; border: 1px solid #e2e8f0; }
+.a-chip.red { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
+.a-body { display: flex; flex: 1; overflow: hidden; }
+.a-side { width: 90px; background: #f1f5f9; border-right: 1px solid #e2e8f0; padding: 8px; }
+.a-shead { font-size: 8px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+.a-sitem { font-size: 9px; color: #475569; padding: 3px 4px; border-radius: 3px; margin-bottom: 2px; display: flex; justify-content: space-between; }
+.a-sitem:hover, .a-sitem.act { background: #e2e8f0; }
+.a-sitem .n { background: #cbd5e1; border-radius: 8px; padding: 0px 4px; font-size: 8px; }
+.a-sitem.act .n { background: #3b82f6; color: #fff; }
+.a-main { flex: 1; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+.a-card { background: #fff; border-radius: 4px; border-left: 3px solid #ccc; padding: 5px 8px; border: 1px solid #e2e8f0; border-left-width: 3px; }
+.a-card.hi { border-left-color: #dc2626; }
+.a-card.me { border-left-color: #f59e0b; }
+.a-card .ct { font-size: 9px; font-weight: 600; color: #1e293b; }
+.a-card .cm { font-size: 8px; color: #94a3b8; }
+.a-badge { display: inline-block; padding: 1px 4px; border-radius: 2px; font-size: 7px; font-weight: 600; margin-left: 3px; }
+.a-badge.hi { background: #fee2e2; color: #dc2626; }
+.a-badge.me { background: #fef3c7; color: #d97706; }
+.a-badge.rv { background: #ede9fe; color: #7c3aed; }
+.a-badge.nw { background: #dbeafe; color: #2563eb; }
+
+/* ── Option B: Minimal mono ── */
+.b-shell { background: #0a0a0a; color: #e5e5e5; height: 180px; display: flex; flex-direction: column; font-family: 'Courier New', monospace; }
+.b-top { background: #111; border-bottom: 1px solid #222; padding: 6px 12px; display: flex; align-items: center; gap: 12px; }
+.b-top .logo { font-size: 10px; color: #a3a3a3; flex: 1; }
+.b-top .logo span { color: #ef4444; font-weight: bold; }
+.b-stat { font-size: 9px; color: #525252; }
+.b-stat b { color: #ef4444; }
+.b-body { display: flex; flex: 1; overflow: hidden; }
+.b-side { width: 80px; border-right: 1px solid #1a1a1a; padding: 8px; }
+.b-sh { font-size: 8px; color: #404040; margin-bottom: 4px; letter-spacing: 0.1em; }
+.b-si { font-size: 9px; color: #737373; padding: 2px 4px; cursor: pointer; }
+.b-si:hover { color: #e5e5e5; }
+.b-si.on { color: #e5e5e5; }
+.b-si.on::before { content: '› '; color: #ef4444; }
+.b-main { flex: 1; padding: 8px; }
+.b-row { border-bottom: 1px solid #1a1a1a; padding: 4px 0; display: grid; grid-template-columns: 1fr 40px 50px 30px; gap: 4px; align-items: center; }
+.b-row .tt { font-size: 9px; color: #d4d4d4; }
+.b-row .mt { font-size: 8px; color: #525252; }
+.b-sev { font-size: 8px; }
+.b-sev.h { color: #ef4444; }
+.b-sev.m { color: #f59e0b; }
+.b-sta { font-size: 8px; color: #525252; }
+.b-sta.rv { color: #a78bfa; }
+.b-sta.nw { color: #60a5fa; }
+.b-ack { font-size: 8px; color: #22c55e; cursor: pointer; }
+
+/* ── Option C: Kanban columns ── */
+.c-shell { background: #1e1b4b; color: #e0e7ff; height: 180px; display: flex; flex-direction: column; }
+.c-top { background: #312e81; padding: 6px 10px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #4338ca; }
+.c-top .logo { font-size: 10px; font-weight: 700; color: #e0e7ff; flex: 1; }
+.c-body { display: flex; flex: 1; overflow: hidden; padding: 6px; gap: 6px; }
+.c-col { flex: 1; background: rgba(0,0,0,0.2); border-radius: 6px; padding: 5px; }
+.c-col-head { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; padding: 2px 4px; border-radius: 3px; }
+.c-col-head.rv { background: #4c1d95; color: #c4b5fd; }
+.c-col-head.nw { background: #1e3a8a; color: #93c5fd; }
+.c-col-head.ak { background: #064e3b; color: #6ee7b7; }
+.c-card { background: rgba(255,255,255,0.05); border-radius: 4px; padding: 4px 6px; margin-bottom: 3px; border-left: 2px solid #4338ca; }
+.c-card.hi { border-left-color: #ef4444; }
+.c-card.me { border-left-color: #f59e0b; }
+.c-ct { font-size: 8px; font-weight: 600; color: #e0e7ff; }
+.c-cm { font-size: 7px; color: #818cf8; }
+.c-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 3px; }
+
+/* ── Option D: High contrast ops ── */
+.d-shell { background: #000; color: #fff; height: 180px; display: flex; flex-direction: column; }
+.d-top { background: #0f172a; border-bottom: 2px solid #ef4444; padding: 6px 12px; display: flex; align-items: center; gap: 10px; }
+.d-top .logo { font-size: 11px; font-weight: 900; color: #fff; flex: 1; letter-spacing: 0.05em; }
+.d-alert { background: #ef4444; color: #fff; font-size: 8px; font-weight: bold; padding: 2px 6px; border-radius: 2px; animation: blink 1s infinite; }
+@keyframes blink { 0%,100%{opacity:1}50%{opacity:0.5} }
+.d-stat { font-size: 8px; color: #64748b; }
+.d-stat b { color: #fff; font-size: 11px; }
+.d-body { display: flex; flex: 1; overflow: hidden; }
+.d-side { width: 85px; background: #0f172a; border-right: 1px solid #1e293b; padding: 6px; }
+.d-sh { font-size: 7px; color: #475569; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 4px; margin-top: 6px; }
+.d-si { font-size: 9px; padding: 3px 5px; border-radius: 2px; cursor: pointer; display: flex; justify-content: space-between; }
+.d-si.on { background: #ef4444; color: #fff; font-weight: bold; }
+.d-si .n { font-size: 8px; opacity: 0.7; }
+.d-main { flex: 1; padding: 6px; display: flex; flex-direction: column; gap: 3px; }
+.d-card { background: #0f172a; border-left: 3px solid #1e293b; padding: 5px 8px; display: flex; align-items: center; gap: 6px; }
+.d-card.hi { border-left-color: #ef4444; }
+.d-card.me { border-left-color: #f59e0b; }
+.d-card .ti { flex: 1; }
+.d-card .t { font-size: 9px; font-weight: 600; }
+.d-card .m { font-size: 7px; color: #475569; }
+.d-tag { font-size: 7px; font-weight: bold; padding: 1px 4px; border-radius: 2px; }
+.d-tag.hi { background: #7f1d1d; color: #fca5a5; }
+.d-tag.me { background: #78350f; color: #fcd34d; }
+.d-tag.rv { background: #2e1065; color: #c4b5fd; }
+.d-act { font-size: 8px; color: #22c55e; cursor: pointer; font-weight: bold; }
+</style>
+<script>
+function pick(el) {
+  document.querySelectorAll('.option').forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+  if (window.recordChoice) window.recordChoice(el.dataset.choice, el.querySelector('h3').textContent);
+}
+</script>
+</head>
+<body>
+<h2>Which visual style fits best?</h2>
+<p>All four show the same incident data — pick the look and feel that works for your ops team.</p>
+
+<div class="grid">
+
+  <!-- A: Light Professional -->
+  <div class="option" data-choice="a" onclick="pick(this)">
+    <div class="preview a-shell">
+      <div class="a-top">
+        <div class="logo">🏢 Ops Incident Monitor</div>
+        <div class="a-chip red">2 HIGH</div>
+        <div class="a-chip">5 Review</div>
+      </div>
+      <div class="a-body">
+        <div class="a-side">
+          <div class="a-shead">Status</div>
+          <div class="a-sitem act"><span>Review</span><span class="n">5</span></div>
+          <div class="a-sitem"><span>New</span><span class="n">3</span></div>
+          <div class="a-sitem"><span>Resolved</span><span class="n">8</span></div>
+          <div class="a-shead" style="margin-top:6px">Severity</div>
+          <div class="a-sitem"><span>High</span><span class="n">2</span></div>
+          <div class="a-sitem"><span>Medium</span><span class="n">5</span></div>
+        </div>
+        <div class="a-main">
+          <div class="a-card hi">
+            <div class="ct">Block B — Lift <span class="a-badge hi">HIGH</span><span class="a-badge rv">review</span></div>
+            <div class="cm">John · 2 min ago</div>
+          </div>
+          <div class="a-card me">
+            <div class="ct">Block A — Plumbing <span class="a-badge me">MED</span><span class="a-badge nw">new</span></div>
+            <div class="cm">Mary · 8 min ago</div>
+          </div>
+          <div class="a-card">
+            <div class="ct">Block C — Electrical <span class="a-badge nw">new</span></div>
+            <div class="cm">Unknown · 20 min ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="option-label">
+      <div class="letter">A</div>
+      <div style="flex:1">
+        <h3>Light & Professional</h3>
+        <p>Clean white UI, works well on bright screens</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- B: Minimal Monospace -->
+  <div class="option" data-choice="b" onclick="pick(this)">
+    <div class="preview b-shell">
+      <div class="b-top">
+        <div class="logo">OPS/<span>MONITOR</span></div>
+        <div class="b-stat">HIGH <b>2</b></div>
+        <div class="b-stat">REVIEW <b>5</b></div>
+        <div class="b-stat">TODAY <b>10</b></div>
+      </div>
+      <div class="b-body">
+        <div class="b-side">
+          <div class="b-sh">STATUS</div>
+          <div class="b-si on">review</div>
+          <div class="b-si">new</div>
+          <div class="b-si">ack'd</div>
+          <div class="b-sh">SEV</div>
+          <div class="b-si">high</div>
+          <div class="b-si">medium</div>
+        </div>
+        <div class="b-main">
+          <div class="b-row">
+            <div><div class="tt">Block B — Lift</div><div class="mt">John · 2m</div></div>
+            <div class="b-sev h">HIGH</div>
+            <div class="b-sta rv">review</div>
+            <div class="b-ack">ACK</div>
+          </div>
+          <div class="b-row">
+            <div><div class="tt">Block A — Plumbing</div><div class="mt">Mary · 8m</div></div>
+            <div class="b-sev m">MED</div>
+            <div class="b-sta nw">new</div>
+            <div class="b-ack">ACK</div>
+          </div>
+          <div class="b-row">
+            <div><div class="tt">Block C — Electrical</div><div class="mt">20m</div></div>
+            <div class="b-sev m">MED</div>
+            <div class="b-sta nw">new</div>
+            <div class="b-ack">ACK</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="option-label">
+      <div class="letter">B</div>
+      <div style="flex:1">
+        <h3>Minimal Monospace</h3>
+        <p>Terminal-style, maximum density, no fluff</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- C: Kanban -->
+  <div class="option" data-choice="c" onclick="pick(this)">
+    <div class="preview c-shell">
+      <div class="c-top">
+        <div class="logo">🏢 Ops Monitor</div>
+        <div style="font-size:8px;color:#818cf8">2 HIGH OPEN</div>
+      </div>
+      <div class="c-body">
+        <div class="c-col">
+          <div class="c-col-head rv">● Review (5)</div>
+          <div class="c-card hi"><div class="c-ct"><span class="c-dot" style="background:#ef4444"></span>Lift — Block B</div><div class="c-cm">John · 2m</div></div>
+          <div class="c-card me"><div class="c-ct"><span class="c-dot" style="background:#f59e0b"></span>Plumbing — A</div><div class="c-cm">Mary · 8m</div></div>
+        </div>
+        <div class="c-col">
+          <div class="c-col-head nw">● New (3)</div>
+          <div class="c-card me"><div class="c-ct"><span class="c-dot" style="background:#f59e0b"></span>Electrical — C</div><div class="c-cm">20m</div></div>
+          <div class="c-card"><div class="c-ct"><span class="c-dot" style="background:#43a047"></span>Cleaning — D</div><div class="c-cm">35m</div></div>
+        </div>
+        <div class="c-col">
+          <div class="c-col-head ak">● Done (8)</div>
+          <div class="c-card" style="opacity:0.5"><div class="c-ct">Security — E</div><div class="c-cm">2h ago</div></div>
+          <div class="c-card" style="opacity:0.5"><div class="c-ct">Access — F</div><div class="c-cm">3h ago</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="option-label">
+      <div class="letter">C</div>
+      <div style="flex:1">
+        <h3>Kanban Columns</h3>
+        <p>Drag-free columns by status — Jira-style overview</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- D: High Contrast Ops -->
+  <div class="option" data-choice="d" onclick="pick(this)">
+    <div class="preview d-shell">
+      <div class="d-top">
+        <div class="logo">OPS INCIDENT MONITOR</div>
+        <div class="d-alert">⚠ 2 URGENT</div>
+        <div class="d-stat"><b>10</b> today</div>
+      </div>
+      <div class="d-body">
+        <div class="d-side">
+          <div class="d-sh">STATUS</div>
+          <div class="d-si on"><span>REVIEW</span><span class="n">5</span></div>
+          <div class="d-si"><span>NEW</span><span class="n">3</span></div>
+          <div class="d-si"><span>ACK</span><span class="n">2</span></div>
+          <div class="d-sh">SEV</div>
+          <div class="d-si"><span>HIGH</span><span class="n">2</span></div>
+          <div class="d-si"><span>MED</span><span class="n">5</span></div>
+        </div>
+        <div class="d-main">
+          <div class="d-card hi">
+            <div class="d-ti"><div class="t">Block B — Lift</div><div class="m">John · 2m</div></div>
+            <span class="d-tag hi">HIGH</span>
+            <span class="d-tag rv">review</span>
+            <span class="d-act">✓ ACK</span>
+          </div>
+          <div class="d-card me">
+            <div class="d-ti"><div class="t">Block A — Plumbing</div><div class="m">Mary · 8m</div></div>
+            <span class="d-tag me">MED</span>
+            <span class="d-tag" style="background:#1e3a5f;color:#93c5fd">new</span>
+            <span class="d-act">✓ ACK</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="option-label">
+      <div class="letter">D</div>
+      <div style="flex:1">
+        <h3>High Contrast Ops</h3>
+        <p>Bold, alarming, built for control rooms</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
