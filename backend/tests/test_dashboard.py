@@ -42,13 +42,13 @@ async def test_incidents_returns_staged_record(client):
     assert records[0]["status"] == "review"
 
 
-async def test_dashboard_returns_html(client):
-    response = await client.get("/")
+async def test_dashboard_returns_html(authenticated_client):
+    response = await authenticated_client.get("/")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
 
 
-async def test_dashboard_contains_incident_card_markup(client):
+async def test_dashboard_contains_incident_card_markup(authenticated_client):
     classification = {
         "is_incident": True, "category": "plumbing",
         "severity": "high", "confidence": 0.90,
@@ -64,27 +64,27 @@ async def test_dashboard_contains_incident_card_markup(client):
     }
     with patch("main.classify_message", new=AsyncMock(return_value=classification)):
         with patch("main.push_incident", new=AsyncMock()):
-            await client.post("/api/v1/ops/ingest", json=payload,
+            await authenticated_client.post("/api/v1/ops/ingest", json=payload,
                               headers={"X-API-Key": "test-secret"})
-    response = await client.get("/")
+    response = await authenticated_client.get("/")
     assert response.status_code == 200
     assert b'class="card' in response.content
     assert b"Test Property" in response.content
 
 
-async def test_dashboard_has_filter_controls(client):
-    response = await client.get("/")
+async def test_dashboard_has_filter_controls(authenticated_client):
+    response = await authenticated_client.get("/")
     assert response.status_code == 200
     assert b'id="search-input"' in response.content
     assert b'id="sidebar"' in response.content
 
 
-async def test_dashboard_shows_review_badge(client):
+async def test_dashboard_shows_review_badge(authenticated_client):
     from tests.test_ingest import _VALID_PAYLOAD, _INCIDENT_CLASSIFICATION
     with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASSIFICATION)):
         with patch("main.push_incident", new=AsyncMock()):
-            await client.post("/api/v1/ops/ingest", json=_VALID_PAYLOAD, headers={"X-API-Key": "test-secret"})
-    response = await client.get("/")
+            await authenticated_client.post("/api/v1/ops/ingest", json=_VALID_PAYLOAD, headers={"X-API-Key": "test-secret"})
+    response = await authenticated_client.get("/")
     assert b"badge-review" in response.content
     assert b"data-id=" in response.content
 
@@ -180,13 +180,13 @@ async def test_list_incidents_statuses_filter_multiple(client):
     assert len(both) == 2
 
 
-async def test_archive_route_returns_html(client):
-    r = await client.get("/archive")
+async def test_archive_route_returns_html(authenticated_client):
+    r = await authenticated_client.get("/archive")
     assert r.status_code == 200
     assert "text/html" in r.headers["content-type"]
 
 
-async def test_archive_route_shows_only_resolved_incidents(client):
+async def test_archive_route_shows_only_resolved_incidents(authenticated_client):
     from unittest.mock import AsyncMock, patch
     classification = {"is_incident": True, "category": "plumbing", "severity": "high", "confidence": 0.92}
     payload_live = {
@@ -203,20 +203,20 @@ async def test_archive_route_shows_only_resolved_incidents(client):
     }
     with patch("main.classify_message", new=AsyncMock(return_value=classification)):
         with patch("main.push_incident", new=AsyncMock()):
-            await client.post("/api/v1/ops/ingest", json=payload_live, headers={"X-API-Key": "test-secret"})
-            await client.post("/api/v1/ops/ingest", json=payload_resolved, headers={"X-API-Key": "test-secret"})
+            await authenticated_client.post("/api/v1/ops/ingest", json=payload_live, headers={"X-API-Key": "test-secret"})
+            await authenticated_client.post("/api/v1/ops/ingest", json=payload_resolved, headers={"X-API-Key": "test-secret"})
 
-    all_ids = sorted([i["id"] for i in (await client.get("/incidents")).json()])
-    await client.patch(f"/incidents/{all_ids[-1]}/status",
+    all_ids = sorted([i["id"] for i in (await authenticated_client.get("/incidents")).json()])
+    await authenticated_client.patch(f"/incidents/{all_ids[-1]}/status",
                        json={"status": "resolved"}, headers={"X-API-Key": "test-secret"})
 
-    r = await client.get("/archive")
+    r = await authenticated_client.get("/archive")
     assert r.status_code == 200
     assert b"Resolved Property" in r.content
     assert b"Live Property" not in r.content
 
 
-async def test_live_dashboard_excludes_resolved_incidents(client):
+async def test_live_dashboard_excludes_resolved_incidents(authenticated_client):
     from unittest.mock import AsyncMock, patch
     classification = {"is_incident": True, "category": "plumbing", "severity": "high", "confidence": 0.92}
     payload = {
@@ -227,12 +227,12 @@ async def test_live_dashboard_excludes_resolved_incidents(client):
     }
     with patch("main.classify_message", new=AsyncMock(return_value=classification)):
         with patch("main.push_incident", new=AsyncMock()):
-            await client.post("/api/v1/ops/ingest", json=payload, headers={"X-API-Key": "test-secret"})
+            await authenticated_client.post("/api/v1/ops/ingest", json=payload, headers={"X-API-Key": "test-secret"})
 
-    incident_id = (await client.get("/incidents")).json()[0]["id"]
-    await client.patch(f"/incidents/{incident_id}/status",
+    incident_id = (await authenticated_client.get("/incidents")).json()[0]["id"]
+    await authenticated_client.patch(f"/incidents/{incident_id}/status",
                        json={"status": "resolved"}, headers={"X-API-Key": "test-secret"})
 
-    r = await client.get("/")
+    r = await authenticated_client.get("/")
     assert r.status_code == 200
     assert b"Exclude Me" not in r.content
