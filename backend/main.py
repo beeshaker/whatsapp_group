@@ -46,6 +46,10 @@ class CreateUserBody(BaseModel):
     password: str
 
 
+class GroupAssignBody(BaseModel):
+    group_ids: list[str]
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -889,6 +893,53 @@ async def delete_user(
     await db.delete(user)
     await db.commit()
     return {"deleted": user_id}
+
+
+@app.get("/api/groups")
+async def list_groups(
+    _: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Incident.group_id, Incident.property_name)
+        .distinct()
+        .order_by(Incident.property_name)
+    )
+    return [{"group_id": gid, "property_name": pname} for gid, pname in result.all()]
+
+
+@app.get("/users/{user_id}/groups")
+async def get_user_groups(
+    user_id: int,
+    _: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    result = await db.execute(
+        select(UserGroup.group_id).where(UserGroup.user_id == user_id)
+    )
+    return [row[0] for row in result.all()]
+
+
+@app.post("/users/{user_id}/groups")
+async def set_user_groups(
+    user_id: int,
+    body: GroupAssignBody,
+    _: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    existing = await db.execute(select(UserGroup).where(UserGroup.user_id == user_id))
+    for ug in existing.scalars().all():
+        await db.delete(ug)
+    for gid in body.group_ids:
+        db.add(UserGroup(user_id=user_id, group_id=gid))
+    await db.commit()
+    return {"user_id": user_id, "group_ids": body.group_ids}
 
 
 @app.get("/", response_class=HTMLResponse)
