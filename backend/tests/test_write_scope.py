@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 from database import Base, get_db
 from main import app
-from models import User, Incident, UserGroup
+from models import User, Incident, IncidentUpdate, UserGroup
 from auth import hash_password
 
 _ws_engine = create_async_engine(
@@ -72,6 +72,21 @@ async def _seed_user(username: str, role: str, group_id: str | None = None) -> N
         await session.commit()
 
 
+async def _seed_incident_update(incident_id: int) -> int:
+    async with _WSSession() as session:
+        upd = IncidentUpdate(
+            incident_id=incident_id,
+            message_body="update msg",
+            reporter_name="R",
+            received_at=datetime.now(timezone.utc),
+            ai_linked=True,
+        )
+        session.add(upd)
+        await session.commit()
+        await session.refresh(upd)
+        return upd.id
+
+
 async def test_status_change_blocked_for_out_of_scope_group(ws_client):
     inc_id = await _seed_incident("allowed@g.us")
     await _seed_user("limited", "user", "other@g.us")
@@ -104,3 +119,20 @@ async def test_status_change_allowed_for_api_key(ws_client):
         headers={"X-API-Key": "test-secret"},
     )
     assert resp.status_code == 200
+
+
+async def test_reply_blocked_for_out_of_scope_group(ws_client):
+    inc_id = await _seed_incident("replygroup@g.us")
+    await _seed_user("replyuser", "user", "other@g.us")
+    await ws_client.post("/login", data={"username": "replyuser", "password": "pass1234"})
+    resp = await ws_client.post(f"/incidents/{inc_id}/reply", json={"text": "hello"})
+    assert resp.status_code == 403
+
+
+async def test_relink_blocked_for_out_of_scope_group(ws_client):
+    inc_id = await _seed_incident("relinkgroup@g.us")
+    upd_id = await _seed_incident_update(inc_id)
+    await _seed_user("relinkuser", "user", "other@g.us")
+    await ws_client.post("/login", data={"username": "relinkuser", "password": "pass1234"})
+    resp = await ws_client.patch(f"/incidents/{upd_id}/relink", json={"incident_id": inc_id})
+    assert resp.status_code == 403
