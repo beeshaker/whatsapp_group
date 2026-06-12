@@ -44,6 +44,8 @@ class ReplyBody(BaseModel):
 class CreateUserBody(BaseModel):
     username: str
     password: str
+    role: str = "user"
+    group_ids: list[str] = []
 
 
 class GroupAssignBody(BaseModel):
@@ -828,12 +830,18 @@ async def list_users(
 ):
     result = await db.execute(select(User).order_by(User.created_at.asc()))
     users = result.scalars().all()
+    all_groups_result = await db.execute(select(UserGroup))
+    groups_by_user: dict[int, list[str]] = {}
+    for ug in all_groups_result.scalars().all():
+        groups_by_user.setdefault(ug.user_id, []).append(ug.group_id)
     user_list = [
         {
             "id": u.id,
             "username": u.username,
+            "role": u.role,
             "created_at": u.created_at.isoformat(),
             "created_by": u.created_by,
+            "group_ids": groups_by_user.get(u.id, []),
         }
         for u in users
     ]
@@ -841,6 +849,7 @@ async def list_users(
         return templates.TemplateResponse("users.html", {
             "request": request,
             "username": username,
+            "role": "admin",
             "users": user_list,
         })
     return user_list
@@ -849,9 +858,11 @@ async def list_users(
 @app.post("/users", status_code=201)
 async def create_user(
     body: CreateUserBody,
-    actor: str = Depends(require_login),
+    actor: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    if body.role not in ("admin", "user"):
+        raise HTTPException(status_code=422, detail="role must be 'admin' or 'user'")
     username = body.username.strip()
     if not username:
         raise HTTPException(status_code=422, detail="username must not be empty")
@@ -866,6 +877,7 @@ async def create_user(
     user = User(
         username=username,
         hashed_password=hash_password(body.password),
+        role=body.role,
         created_at=now,
         created_by=actor,
     )
@@ -876,7 +888,11 @@ async def create_user(
     except IntegrityError:
         await db.rollback()
         raise HTTPException(status_code=409, detail="username already exists")
-    return {"id": user.id, "username": user.username, "created_by": user.created_by}
+    if body.role == "user" and body.group_ids:
+        for gid in dict.fromkeys(body.group_ids):
+            db.add(UserGroup(user_id=user.id, group_id=gid))
+        await db.commit()
+    return {"id": user.id, "username": user.username, "role": user.role, "created_by": user.created_by}
 
 
 @app.post("/users/{user_id}/delete")

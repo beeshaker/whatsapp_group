@@ -10,9 +10,9 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from database import Base, get_db
-from main import app, require_login
-from models import User
-from auth import hash_password
+from main import app
+from models import User, UserGroup
+from auth import hash_password, require_admin
 
 _users_engine = create_async_engine(
     "sqlite+aiosqlite:///:memory:",
@@ -44,11 +44,11 @@ async def users_client():
         async with _UsersSession() as session:
             yield session
 
-    async def _override_require_login():
+    async def _override_require_admin():
         return "testadmin"
 
     app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[require_login] = _override_require_login
+    app.dependency_overrides[require_admin] = _override_require_admin
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         async with _UsersSession() as session:
             session.add(User(
@@ -120,16 +120,47 @@ async def test_delete_nonexistent_user_returns_404(users_client):
     assert resp.status_code == 404
 
 
-async def test_list_users_requires_login():
+async def test_list_users_requires_admin():
     async def _override_get_db():
         async with _UsersSession() as session:
             yield session
 
     app.dependency_overrides[get_db] = _override_get_db
-    # No require_login override — this should trigger auth redirect
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             resp = await ac.get("/users", follow_redirects=False)
         assert resp.status_code == 302
     finally:
         app.dependency_overrides.clear()
+
+
+async def test_create_user_with_role_admin(users_client):
+    resp = await users_client.post("/users", json={"username": "newadmin", "password": "securepass", "role": "admin"})
+    assert resp.status_code == 201
+    assert resp.json()["role"] == "admin"
+
+
+async def test_create_user_with_invalid_role_returns_422(users_client):
+    resp = await users_client.post("/users", json={"username": "baduser", "password": "securepass", "role": "superuser"})
+    assert resp.status_code == 422
+
+
+async def test_create_user_with_group_ids_assigns_groups(users_client):
+    resp = await users_client.post("/users", json={
+        "username": "groupmember",
+        "password": "securepass",
+        "role": "user",
+        "group_ids": ["aaa@g.us", "bbb@g.us"],
+    })
+    assert resp.status_code == 201
+    uid = resp.json()["id"]
+    groups_resp = await users_client.get(f"/users/{uid}/groups")
+    assert set(groups_resp.json()) == {"aaa@g.us", "bbb@g.us"}
+
+
+async def test_list_users_includes_role(users_client):
+    resp = await users_client.get("/users")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert all("role" in u for u in data)
+    assert data[0]["role"] == "admin"
