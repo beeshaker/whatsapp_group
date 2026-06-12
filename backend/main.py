@@ -169,8 +169,10 @@ async def _get_allowed_groups(username: str, db: AsyncSession) -> Optional[list[
     """Returns list of allowed group_ids for a user-role user, or None for admins (no filter)."""
     result = await db.execute(select(User).where(User.username == username))
     user = result.scalar_one_or_none()
-    if not user or user.role == "admin":
-        return None
+    if not user:
+        return []  # fail-closed: unknown user sees nothing
+    if user.role == "admin":
+        return None  # None means no filter (see all)
     groups_result = await db.execute(
         select(UserGroup.group_id).where(UserGroup.user_id == user.id)
     )
@@ -509,12 +511,14 @@ async def list_incidents(
 @app.get("/incidents/{incident_id}")
 async def get_incident_detail(
     incident_id: int,
+    username: str = Depends(require_login),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Incident).where(Incident.id == incident_id))
     incident = result.scalar_one_or_none()
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
+    await check_incident_group_access(username, incident_id, db)
 
     updates_result = await db.execute(
         select(IncidentUpdate)
@@ -684,6 +688,8 @@ async def relink_update(
     target = await db.get(Incident, body.incident_id)
     if not target:
         raise HTTPException(status_code=404, detail="Target incident not found")
+
+    await check_incident_group_access(actor, body.incident_id, db)
 
     original_incident_id = update.incident_id
     update.incident_id = body.incident_id
