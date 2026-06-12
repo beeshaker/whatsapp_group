@@ -47,3 +47,56 @@ async def test_incident_status_history_has_changed_by_column(migrated_engine):
         result = await conn.execute(text("PRAGMA table_info(incident_status_history)"))
         columns = [row[1] for row in result.all()]
         assert "changed_by" in columns
+
+
+from datetime import datetime, timezone
+from sqlalchemy import select
+from models import User, UserGroup
+
+
+async def test_user_role_defaults_to_user(db_session):
+    user = User(
+        username="roletest",
+        hashed_password="x",
+        created_at=datetime.now(timezone.utc),
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    assert user.role == "user"
+
+
+async def test_user_group_stores_group_id(db_session):
+    user = User(
+        username="grouptest",
+        hashed_password="x",
+        created_at=datetime.now(timezone.utc),
+        role="user",
+    )
+    db_session.add(user)
+    await db_session.flush()
+    ug = UserGroup(user_id=user.id, group_id="111@g.us")
+    db_session.add(ug)
+    await db_session.commit()
+    result = await db_session.execute(
+        select(UserGroup).where(UserGroup.user_id == user.id)
+    )
+    assert result.scalar_one().group_id == "111@g.us"
+
+
+async def test_user_group_unique_constraint(db_session):
+    import pytest
+    user = User(
+        username="dupgroup",
+        hashed_password="x",
+        created_at=datetime.now(timezone.utc),
+        role="user",
+    )
+    db_session.add(user)
+    await db_session.flush()
+    db_session.add(UserGroup(user_id=user.id, group_id="dup@g.us"))
+    await db_session.commit()
+    db_session.add(UserGroup(user_id=user.id, group_id="dup@g.us"))
+    with pytest.raises(Exception):
+        await db_session.commit()
+    await db_session.rollback()

@@ -3,7 +3,7 @@ from database import Base
 
 def test_user_model_columns():
     cols = {c.name for c in Base.metadata.tables["users"].columns}
-    assert cols == {"id", "username", "hashed_password", "created_at", "created_by"}
+    assert cols == {"id", "username", "hashed_password", "role", "created_at", "created_by"}
 
 
 def test_audit_log_model_columns():

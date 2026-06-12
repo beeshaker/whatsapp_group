@@ -68,6 +68,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(String(10), nullable=False, default="user", server_default="user")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
@@ -81,3 +82,12 @@ class AuditLog(Base):
     incident_id: Mapped[int] = mapped_column(Integer, nullable=False)
     detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class UserGroup(Base):
+    __tablename__ = "user_groups"
+    __table_args__ = (UniqueConstraint("user_id", "group_id", name="uq_user_groups"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    group_id: Mapped[str] = mapped_column(Text, nullable=False)

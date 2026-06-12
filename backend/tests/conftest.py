@@ -15,7 +15,7 @@ from sqlalchemy.pool import StaticPool
 
 from database import Base, get_db
 from main import app
-from models import User
+from models import User, UserGroup
 from auth import hash_password, require_login
 
 # Pre-hash once at module load — avoids per-test bcrypt cost
@@ -58,6 +58,7 @@ async def client():
                 hashed_password=_HASHED_TESTPASS,
                 created_at=datetime.now(timezone.utc),
                 created_by=None,
+                role="admin",
             ))
             await session.commit()
         await ac.post("/login", data={"username": "testadmin", "password": "testpass"})
@@ -81,6 +82,14 @@ async def authenticated_client():
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[require_login] = _override_require_login
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        async with _TestSession() as session:
+            session.add(User(
+                username="testadmin",
+                hashed_password=_HASHED_TESTPASS,
+                created_at=datetime.now(timezone.utc),
+                role="admin",
+            ))
+            await session.commit()
         yield ac
     app.dependency_overrides.clear()
 
