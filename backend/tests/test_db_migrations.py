@@ -1,12 +1,16 @@
 import os
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
+from datetime import datetime, timezone
+
+import pytest
 import pytest_asyncio
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from database import init_db, Base
+from models import User, UserGroup
 
 
 @pytest_asyncio.fixture(scope="module")
@@ -49,11 +53,6 @@ async def test_incident_status_history_has_changed_by_column(migrated_engine):
         assert "changed_by" in columns
 
 
-from datetime import datetime, timezone
-from sqlalchemy import select
-from models import User, UserGroup
-
-
 async def test_user_role_defaults_to_user(db_session):
     user = User(
         username="roletest",
@@ -85,7 +84,6 @@ async def test_user_group_stores_group_id(db_session):
 
 
 async def test_user_group_unique_constraint(db_session):
-    import pytest
     user = User(
         username="dupgroup",
         hashed_password="x",

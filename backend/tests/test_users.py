@@ -54,6 +54,7 @@ async def users_client():
             session.add(User(
                 username="testadmin",
                 hashed_password=_HASHED,
+                role="admin",
                 created_at=datetime.now(timezone.utc),
                 created_by=None,
             ))
