@@ -641,7 +641,12 @@
       const roleBadgeClass = u.role === 'admin' ? 'role-badge-admin' : 'role-badge-user';
       const groupsDisplay = u.role === 'admin'
         ? '<em style="color:var(--muted-2)">All groups</em>'
-        : (u.group_ids && u.group_ids.length > 0 ? escHtml(u.group_ids.join(', ')) : '<span style="color:var(--muted-2)">—</span>');
+        : (u.group_ids && u.group_ids.length > 0
+            ? u.group_ids.map(gid => {
+                const g = _allGroups.find(ag => ag.group_id === gid);
+                return escHtml(g ? g.property_name : gid);
+              }).join(', ')
+            : '<span style="color:var(--muted-2)">—</span>');
       return `
         <tr>
           <td>
@@ -655,11 +660,11 @@
           <td class="muted">${fmtDate(u.created_at)}</td>
           <td class="muted">${u.created_by ? escHtml(u.created_by) : "—"}</td>
           <td style="display:flex;gap:0.4rem;align-items:center">
-            ${u.role === 'user' ? `<button class="btn-edit-groups" onclick="openGroupsModal(${u.id}, '${escHtml(u.username)}')">Edit Groups</button>` : ''}
+            ${u.role === 'user' ? `<button class="btn-edit-groups" onclick="openGroupsModal(${u.id}, ${JSON.stringify(u.username)})">Edit Groups</button>` : ''}
             <button
               class="btn-remove"
               ${isSelf ? "disabled title=\"Cannot remove your own account\"" : ""}
-              onclick="removeUser(${u.id}, '${escHtml(u.username)}')"
+              onclick="removeUser(${u.id}, ${JSON.stringify(u.username)})"
             >Remove</button>
           </td>
         </tr>`;
@@ -831,8 +836,7 @@
     }
   });
 
-  loadUsers();
-  loadAllGroups();
+  loadAllGroups().then(() => loadUsers());
 </script>
 </body>
 </html>
