@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from database import Base, get_db
 from main import app
 from models import User
-from auth import hash_password
+from auth import hash_password, require_login
 
 _HASHED_AUDITPASS = hash_password("testpass")
 
@@ -56,8 +56,21 @@ async def audit_client():
     async def _override_get_db():
         async with _AuditSession() as session:
             yield session
+
+    async def _override_require_login():
+        return "auditadmin"
+
     app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[require_login] = _override_require_login
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        async with _AuditSession() as session:
+            session.add(User(
+                username="auditadmin",
+                hashed_password=_HASHED_AUDITPASS,
+                created_at=datetime.now(timezone.utc),
+                role="admin",
+            ))
+            await session.commit()
         yield ac
     app.dependency_overrides.clear()
 
@@ -116,6 +129,7 @@ async def auth_audit_client():
                 username="audituser",
                 hashed_password=_HASHED_AUDITPASS,
                 created_at=datetime.now(timezone.utc),
+                role="admin",
             )
             session.add(user)
             await session.commit()

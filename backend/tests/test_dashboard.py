@@ -236,3 +236,48 @@ async def test_live_dashboard_excludes_resolved_incidents(authenticated_client):
     r = await authenticated_client.get("/")
     assert r.status_code == 200
     assert b"Exclude Me" not in r.content
+
+
+from datetime import datetime, timezone
+from models import User, UserGroup
+from auth import hash_password as _hash_pw
+
+_HASHED_TESTPASS_VISIBLE = _hash_pw("testpass")  # computed once at module load
+
+
+async def test_incidents_filtered_by_group_for_user_role(client, db_session):
+    """A user with role='user' only sees incidents from their assigned groups."""
+    from unittest.mock import AsyncMock, patch
+
+    classification = {"is_incident": True, "category": "maintenance", "severity": "low", "confidence": 0.9}
+    for chatId, chatName, msg_id, body_text in [
+        ("visible@g.us", "Visible Property", "msg-vis1", "Visible incident"),
+        ("hidden@g.us",  "Hidden Property",  "msg-hid1", "Hidden incident"),
+    ]:
+        payload = {
+            "event": "message.received",
+            "data": {"id": msg_id, "type": "chat", "isGroup": True,
+                     "chatId": chatId, "chat": {"name": chatName},
+                     "author": "254700000001@c.us", "body": body_text, "timestamp": 1782293340},
+        }
+        with patch("main.classify_message", new=AsyncMock(return_value=classification)):
+            with patch("main.push_incident", new=AsyncMock()):
+                await client.post("/api/v1/ops/ingest", json=payload, headers={"X-API-Key": "test-secret"})
+
+    limited = User(
+        username="limiteduser",
+        hashed_password=_HASHED_TESTPASS_VISIBLE,
+        created_at=datetime.now(timezone.utc),
+        role="user",
+    )
+    db_session.add(limited)
+    await db_session.flush()
+    db_session.add(UserGroup(user_id=limited.id, group_id="visible@g.us"))
+    await db_session.commit()
+
+    await client.post("/login", data={"username": "limiteduser", "password": "testpass"})
+    resp = await client.get("/incidents")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["property_name"] == "Visible Property"

@@ -165,6 +165,18 @@ async def _get_open_tickets(db: AsyncSession, group_id: str) -> list[dict]:
     ]
 
 
+async def _get_allowed_groups(username: str, db: AsyncSession) -> Optional[list[str]]:
+    """Returns list of allowed group_ids for a user-role user, or None for admins (no filter)."""
+    result = await db.execute(select(User).where(User.username == username))
+    user = result.scalar_one_or_none()
+    if not user or user.role == "admin":
+        return None
+    groups_result = await db.execute(
+        select(UserGroup.group_id).where(UserGroup.user_id == user.id)
+    )
+    return [row[0] for row in groups_result.all()]
+
+
 async def _handle_text_ingest(
     db: AsyncSession,
     group_id: str,
@@ -446,6 +458,7 @@ async def ingest(
 
 @app.get("/incidents")
 async def list_incidents(
+    username: str = Depends(require_login),
     since_id: Optional[int] = None,
     statuses: Optional[list[str]] = Query(default=None),
     db: AsyncSession = Depends(get_db),
@@ -470,6 +483,9 @@ async def list_incidents(
         query = query.where(Incident.id > since_id)
     if statuses is not None:
         query = query.where(Incident.status.in_(statuses))
+    allowed = await _get_allowed_groups(username, db)
+    if allowed is not None:
+        query = query.where(Incident.group_id.in_(allowed))
     result = await db.execute(query)
     return [
         {
@@ -976,11 +992,15 @@ async def dashboard(
         .correlate(Incident)
         .scalar_subquery()
     )
-    result = await db.execute(
+    query = (
         select(Incident, update_count_sq.label("uc"), media_count_sq.label("mc"))
         .where(~Incident.status.in_(["resolved"]))
         .order_by(Incident.received_at.desc())
     )
+    allowed = await _get_allowed_groups(username, db)
+    if allowed is not None:
+        query = query.where(Incident.group_id.in_(allowed))
+    result = await db.execute(query)
     rows = result.all()
     incidents_with_counts = [
         {"incident": i, "update_count": uc, "media_count": mc}
@@ -989,6 +1009,9 @@ async def dashboard(
     # Pass both variables: incidents_with_counts for future template use,
     # and incidents (list of Incident objects) for backward compat with current template.
     incidents = [row["incident"] for row in incidents_with_counts]
+    user_result = await db.execute(select(User).where(User.username == username))
+    user_obj = user_result.scalar_one_or_none()
+    role = user_obj.role if user_obj else "user"
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -997,6 +1020,7 @@ async def dashboard(
             "incidents_with_counts": incidents_with_counts,
             "title": os.getenv("DASHBOARD_TITLE", "Ops Incident Monitor"),
             "username": username,
+            "role": role,
             "mode": "live",
         },
     )
@@ -1020,17 +1044,24 @@ async def archive_dashboard(
         .correlate(Incident)
         .scalar_subquery()
     )
-    result = await db.execute(
+    query = (
         select(Incident, update_count_sq.label("uc"), media_count_sq.label("mc"))
         .where(Incident.status == "resolved")
         .order_by(Incident.received_at.desc())
     )
+    allowed = await _get_allowed_groups(username, db)
+    if allowed is not None:
+        query = query.where(Incident.group_id.in_(allowed))
+    result = await db.execute(query)
     rows = result.all()
     incidents_with_counts = [
         {"incident": i, "update_count": uc, "media_count": mc}
         for i, uc, mc in rows
     ]
     incidents = [row["incident"] for row in incidents_with_counts]
+    user_result = await db.execute(select(User).where(User.username == username))
+    user_obj = user_result.scalar_one_or_none()
+    role = user_obj.role if user_obj else "user"
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -1039,6 +1070,7 @@ async def archive_dashboard(
             "incidents_with_counts": incidents_with_counts,
             "title": os.getenv("DASHBOARD_TITLE", "Ops Incident Monitor"),
             "username": username,
+            "role": role,
             "mode": "archive",
         },
     )
