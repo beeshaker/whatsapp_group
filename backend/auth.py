@@ -43,7 +43,9 @@ async def check_incident_group_access(
     from models import User, UserGroup, Incident
     result = await db.execute(select(User).where(User.username == actor))
     user = result.scalar_one_or_none()
-    if not user or user.role == "admin":
+    if not user:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if user.role == "admin":
         return
     incident = await db.get(Incident, incident_id)
     if not incident:
