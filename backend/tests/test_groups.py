@@ -135,3 +135,15 @@ async def test_get_user_groups_404(groups_client):
 async def test_set_user_groups_404(groups_client):
     resp = await groups_client.post("/users/99999/groups", json={"group_ids": []})
     assert resp.status_code == 404
+
+
+async def test_set_user_groups_deduplicates_input(groups_client):
+    async with _GroupsSession() as session:
+        user = User(username="dedup", hashed_password=_HASHED, created_at=datetime.now(timezone.utc), role="user")
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        uid = user.id
+    resp = await groups_client.post(f"/users/{uid}/groups", json={"group_ids": ["aaa@g.us", "aaa@g.us"]})
+    assert resp.status_code == 200
+    assert resp.json()["group_ids"].count("aaa@g.us") == 1

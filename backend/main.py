@@ -936,10 +936,10 @@ async def set_user_groups(
     existing = await db.execute(select(UserGroup).where(UserGroup.user_id == user_id))
     for ug in existing.scalars().all():
         await db.delete(ug)
-    for gid in body.group_ids:
+    for gid in dict.fromkeys(body.group_ids):  # deduplicate preserving order
         db.add(UserGroup(user_id=user_id, group_id=gid))
     await db.commit()
-    return {"user_id": user_id, "group_ids": body.group_ids}
+    return {"user_id": user_id, "group_ids": list(dict.fromkeys(body.group_ids))}
 
 
 @app.get("/", response_class=HTMLResponse)
