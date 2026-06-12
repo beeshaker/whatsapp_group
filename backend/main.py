@@ -637,6 +637,7 @@ async def relink_update(
     if not update:
         raise HTTPException(status_code=404, detail="Update not found")
 
+    await check_incident_group_access(actor, update.incident_id, db)
     now = datetime.now(timezone.utc)
 
     if body.incident_id is None:
@@ -713,6 +714,7 @@ async def update_incident_status(
     actor: Optional[str] = Depends(require_write_auth),
     db: AsyncSession = Depends(get_db),
 ):
+    await check_incident_group_access(actor, incident_id, db)
     if body.status not in _VALID_STATUSES:
         raise HTTPException(status_code=422, detail=f"status must be one of {sorted(_VALID_STATUSES)}")
     result = await db.execute(select(Incident).where(Incident.id == incident_id))
@@ -754,6 +756,7 @@ async def reply_to_incident(
         raise HTTPException(status_code=422, detail="text must not be empty")
     text = text[:4000]
 
+    await check_incident_group_access(actor, incident_id, db)
     result = await db.execute(select(Incident).where(Incident.id == incident_id))
     incident = result.scalar_one_or_none()
     if not incident:
