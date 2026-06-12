@@ -133,3 +133,11 @@ async def init_db():
             """))
     except Exception:
         pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_user_groups_user_id ON user_groups (user_id)"
+            ))
+    except Exception:
+        pass
