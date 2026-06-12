@@ -400,6 +400,101 @@
 
     #toast.show { opacity: 1; transform: translateY(0); }
     #toast.error { border-color: rgba(239, 68, 68, 0.5); color: #fca5a5; }
+
+    /* Role badge */
+    .role-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.15rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .role-badge-admin { background: rgba(56, 189, 248, 0.14); color: #38bdf8; }
+    .role-badge-user  { background: rgba(148, 163, 184, 0.12); color: #91a3b8; }
+
+    /* Edit Groups button */
+    .btn-edit-groups {
+      padding: 0.3rem 0.65rem;
+      background: transparent;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: var(--radius-sm);
+      color: #7dd3fc;
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+      margin-right: 0.4rem;
+    }
+    .btn-edit-groups:hover { background: rgba(56, 189, 248, 0.1); }
+
+    /* Groups modal */
+    .groups-modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(4px);
+      align-items: center;
+      justify-content: center;
+    }
+    .groups-modal-overlay.open { display: flex; }
+    .groups-modal {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+      width: 100%;
+      max-width: 440px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    .groups-modal h3 { font-size: 1rem; font-weight: 700; margin-bottom: 1rem; }
+    .group-check-list { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1.25rem; }
+    .group-check-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; cursor: pointer; }
+    .groups-modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+    .btn-save-groups {
+      padding: 0.45rem 1rem;
+      background: var(--blue);
+      color: #0a1628;
+      font-weight: 700;
+      font-size: 0.875rem;
+      border: none;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+    }
+    .btn-cancel-groups {
+      padding: 0.45rem 1rem;
+      background: transparent;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.875rem;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+    }
+
+    /* Role selector in create form */
+    select.field-select {
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      color: var(--text);
+      padding: 0.55rem 0.75rem;
+      font-size: 0.9rem;
+      outline: none;
+      width: 100%;
+    }
+    /* Group checklist in create form */
+    #create-group-section { margin-top: 1rem; }
+    #create-group-section label.section-label {
+      font-size: 0.75rem; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.05em;
+      display: block; margin-bottom: 0.5rem;
+    }
+    #create-group-list { display: flex; flex-direction: column; gap: 0.4rem; }
   </style>
 </head>
 <body>
@@ -448,7 +543,18 @@
         <label for="new-password">Password</label>
         <input id="new-password" type="password" placeholder="Min. 8 characters">
       </div>
+      <div class="field" style="min-width:120px;max-width:140px">
+        <label for="new-role">Role</label>
+        <select id="new-role" class="field-select" onchange="onRoleChange()">
+          <option value="user">user</option>
+          <option value="admin">admin</option>
+        </select>
+      </div>
       <button class="btn-create" onclick="createUser()">Create user</button>
+    </div>
+    <div id="create-group-section">
+      <label class="section-label">Assign Groups</label>
+      <div id="create-group-list"><span style="color:var(--muted-2);font-size:0.8rem">Loading groups…</span></div>
     </div>
     <div class="form-error" id="form-error"></div>
   </div>
@@ -459,17 +565,31 @@
       <thead>
         <tr>
           <th>Member</th>
+          <th>Role</th>
+          <th>Groups</th>
           <th>Joined</th>
           <th>Added by</th>
           <th></th>
         </tr>
       </thead>
       <tbody id="user-tbody">
-        <tr><td colspan="4" class="empty-state">Loading…</td></tr>
+        <tr><td colspan="6" class="empty-state">Loading…</td></tr>
       </tbody>
     </table>
   </div>
 </main>
+
+<!-- Groups modal -->
+<div class="groups-modal-overlay" id="groups-modal-overlay" onclick="if(event.target===this)closeGroupsModal()">
+  <div class="groups-modal">
+    <h3 id="groups-modal-title">Edit Groups</h3>
+    <div class="group-check-list" id="groups-modal-list"></div>
+    <div class="groups-modal-actions">
+      <button class="btn-cancel-groups" onclick="closeGroupsModal()">Cancel</button>
+      <button class="btn-save-groups" onclick="saveGroups()">Save</button>
+    </div>
+  </div>
+</div>
 
 <div id="toast"></div>
 
@@ -512,12 +632,16 @@
   function renderTable() {
     const tbody = document.getElementById("user-tbody");
     if (_users.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="4" class="empty-state">No team members yet.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-state">No team members yet.</td></tr>`;
       return;
     }
     tbody.innerHTML = _users.map(u => {
       const isSelf = u.username === CURRENT_USER;
       const color = avatarColor(u.username);
+      const roleBadgeClass = u.role === 'admin' ? 'role-badge-admin' : 'role-badge-user';
+      const groupsDisplay = u.role === 'admin'
+        ? '<em style="color:var(--muted-2)">All groups</em>'
+        : (u.group_ids && u.group_ids.length > 0 ? escHtml(u.group_ids.join(', ')) : '<span style="color:var(--muted-2)">—</span>');
       return `
         <tr>
           <td>
@@ -526,9 +650,12 @@
               <span class="username">${escHtml(u.username)}${isSelf ? '<span class="you-badge">you</span>' : ""}</span>
             </div>
           </td>
+          <td><span class="role-badge ${roleBadgeClass}">${escHtml(u.role)}</span></td>
+          <td style="font-size:0.8125rem;color:var(--muted)">${groupsDisplay}</td>
           <td class="muted">${fmtDate(u.created_at)}</td>
           <td class="muted">${u.created_by ? escHtml(u.created_by) : "—"}</td>
-          <td>
+          <td style="display:flex;gap:0.4rem;align-items:center">
+            ${u.role === 'user' ? `<button class="btn-edit-groups" onclick="openGroupsModal(${u.id}, '${escHtml(u.username)}')">Edit Groups</button>` : ''}
             <button
               class="btn-remove"
               ${isSelf ? "disabled title=\"Cannot remove your own account\"" : ""}
@@ -553,21 +680,28 @@
   async function createUser() {
     const username = document.getElementById("new-username").value.trim();
     const password = document.getElementById("new-password").value;
+    const role = document.getElementById("new-role").value;
     const errEl = document.getElementById("form-error");
     errEl.classList.remove("visible");
 
     if (!username) { showFormError("Username is required."); return; }
     if (password.length < 8) { showFormError("Password must be at least 8 characters."); return; }
 
+    const groupIds = role === "user"
+      ? [...document.querySelectorAll('#create-group-list input[type="checkbox"]:checked')].map(cb => cb.value)
+      : [];
+
     const res = await fetch("/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, role, group_ids: groupIds }),
     });
 
     if (res.ok) {
       document.getElementById("new-username").value = "";
       document.getElementById("new-password").value = "";
+      document.getElementById("new-role").value = "user";
+      onRoleChange();
       toggleAddForm();
       await loadUsers();
       showToast(`User "${username}" created.`);
@@ -595,6 +729,90 @@
     }
   }
 
+  function onRoleChange() {
+    const role = document.getElementById("new-role").value;
+    document.getElementById("create-group-section").style.display = role === "user" ? "block" : "none";
+  }
+
+  let _allGroups = [];
+
+  async function loadAllGroups() {
+    try {
+      const res = await fetch("/api/groups");
+      if (!res.ok) return;
+      _allGroups = await res.json();
+    } catch(e) {}
+    renderCreateGroupChecklist();
+  }
+
+  function renderCreateGroupChecklist() {
+    const container = document.getElementById("create-group-list");
+    if (!container) return;
+    if (_allGroups.length === 0) {
+      container.innerHTML = '<span style="color:var(--muted-2);font-size:0.8rem">No groups discovered yet.</span>';
+      return;
+    }
+    container.innerHTML = _allGroups.map(g => `
+      <label class="group-check-item">
+        <input type="checkbox" value="${escHtml(g.group_id)}">
+        ${escHtml(g.property_name)}
+      </label>
+    `).join("");
+  }
+
+  let _editGroupsUserId = null;
+
+  async function openGroupsModal(userId, username) {
+    _editGroupsUserId = userId;
+    document.getElementById("groups-modal-title").textContent = `Edit Groups — ${username}`;
+    document.getElementById("groups-modal-list").innerHTML = '<span style="color:var(--muted-2);font-size:0.8rem">Loading…</span>';
+    document.getElementById("groups-modal-overlay").classList.add("open");
+
+    try {
+      const [allGroups, userGroupIds] = await Promise.all([
+        _allGroups.length > 0 ? Promise.resolve(_allGroups) : fetch("/api/groups").then(r => r.json()),
+        fetch(`/users/${userId}/groups`).then(r => r.json()),
+      ]);
+      if (_allGroups.length === 0) _allGroups = allGroups;
+      const assigned = new Set(userGroupIds);
+      if (allGroups.length === 0) {
+        document.getElementById("groups-modal-list").innerHTML = '<span style="color:var(--muted-2);font-size:0.8rem">No groups discovered yet.</span>';
+        return;
+      }
+      document.getElementById("groups-modal-list").innerHTML = allGroups.map(g => `
+        <label class="group-check-item">
+          <input type="checkbox" value="${escHtml(g.group_id)}" ${assigned.has(g.group_id) ? "checked" : ""}>
+          ${escHtml(g.property_name)}
+        </label>
+      `).join("");
+    } catch(e) {
+      document.getElementById("groups-modal-list").innerHTML = '<span style="color:var(--red)">Failed to load groups.</span>';
+    }
+  }
+
+  function closeGroupsModal() {
+    document.getElementById("groups-modal-overlay").classList.remove("open");
+    _editGroupsUserId = null;
+  }
+
+  async function saveGroups() {
+    if (!_editGroupsUserId) return;
+    const checked = [...document.querySelectorAll("#groups-modal-list input:checked")].map(cb => cb.value);
+    try {
+      const res = await fetch(`/users/${_editGroupsUserId}/groups`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_ids: checked }),
+      });
+      if (!res.ok) throw new Error();
+      closeGroupsModal();
+      await loadUsers();
+      showToast("Groups updated.");
+    } catch(e) {
+      showToast("Failed to save groups.", true);
+    }
+  }
+
   let _toastTimer;
   function showToast(msg, isError = false) {
     const t = document.getElementById("toast");
@@ -614,6 +832,7 @@
   });
 
   loadUsers();
+  loadAllGroups();
 </script>
 </body>
 </html>
