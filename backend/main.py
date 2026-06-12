@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 
-from auth import require_login, hash_password, verify_password
+from auth import require_login, require_admin, hash_password, verify_password, check_incident_group_access
 from classifier import classify_message, classify_update_or_new
 from database import get_db, init_db, AsyncSessionLocal
 from media import MEDIA_DIR, download_media
@@ -806,6 +806,7 @@ async def login_submit(
     if not user or not verify_password(password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid username or password")
     request.session["username"] = user.username
+    request.session["role"] = user.role
     return RedirectResponse(url="/", status_code=302)
 
 
@@ -818,7 +819,7 @@ async def logout(request: Request):
 @app.get("/users")
 async def list_users(
     request: Request,
-    username: str = Depends(require_login),
+    username: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(User).order_by(User.created_at.asc()))
@@ -877,7 +878,7 @@ async def create_user(
 @app.post("/users/{user_id}/delete")
 async def delete_user(
     user_id: int,
-    actor: str = Depends(require_login),
+    actor: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     user = await db.get(User, user_id)
