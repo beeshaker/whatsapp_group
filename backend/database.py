@@ -112,3 +112,24 @@ async def init_db():
             ))
     except Exception:
         pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
+            )
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_groups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(id),
+                    group_id TEXT NOT NULL,
+                    UNIQUE (user_id, group_id)
+                )
+            """))
+    except Exception:
+        pass

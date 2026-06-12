@@ -98,3 +98,18 @@ async def test_user_group_unique_constraint(db_session):
     with pytest.raises(Exception):
         await db_session.commit()
     await db_session.rollback()
+
+
+async def test_user_groups_table_created(migrated_engine):
+    async with migrated_engine.connect() as conn:
+        result = await conn.execute(text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_groups'"
+        ))
+        assert result.scalar_one_or_none() == "user_groups"
+
+
+async def test_users_table_has_role_column(migrated_engine):
+    async with migrated_engine.connect() as conn:
+        result = await conn.execute(text("PRAGMA table_info(users)"))
+        columns = [row[1] for row in result.all()]
+        assert "role" in columns

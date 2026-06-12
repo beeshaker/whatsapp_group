@@ -21,7 +21,7 @@ from auth import require_login, hash_password, verify_password
 from classifier import classify_message, classify_update_or_new
 from database import get_db, init_db, AsyncSessionLocal
 from media import MEDIA_DIR, download_media
-from models import Incident, IncidentMedia, IncidentStatusHistory, IncidentUpdate, User, AuditLog
+from models import Incident, IncidentMedia, IncidentStatusHistory, IncidentUpdate, User, UserGroup, AuditLog
 from odoo_stub import push_incident
 from whatsapp import reply_to_message, send_group_message
 
@@ -98,9 +98,18 @@ async def lifespan(app: FastAPI):
                 hashed_password=hash_password(admin_pass),
                 created_at=datetime.now(timezone.utc),
                 created_by=None,
+                role="admin",
             ))
             await session.commit()
             logger.info("Bootstrap admin user '%s' created.", admin_user)
+
+        # Upgrade existing admin account to role='admin' if migrating an existing DB
+        admin_user = os.getenv("ADMIN_USERNAME", "admin")
+        result2 = await session.execute(select(User).where(User.username == admin_user))
+        existing_admin = result2.scalar_one_or_none()
+        if existing_admin and existing_admin.role != "admin":
+            existing_admin.role = "admin"
+            await session.commit()
     yield
 
 
