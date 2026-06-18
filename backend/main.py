@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 
 from auth import require_login, require_admin, hash_password, verify_password, check_incident_group_access
+from chat import answer_query
 from classifier import classify_message, classify_update_or_new
 from database import get_db, init_db, AsyncSessionLocal
 from media import MEDIA_DIR, download_media
@@ -59,6 +60,10 @@ class AdminProfileBody(BaseModel):
 
 class AdminSubscriptionsBody(BaseModel):
     group_ids: list[str]
+
+
+class ChatBody(BaseModel):
+    message: str
 
 
 logging.basicConfig(level=logging.INFO)
@@ -1077,6 +1082,23 @@ async def update_admin_subscriptions(
 
     await db.commit()
     return {"group_ids": body.group_ids}
+
+
+@app.post("/api/chat")
+async def chat(
+    body: ChatBody,
+    username: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    text = body.message.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="message must not be empty")
+    result = await db.execute(select(User).where(User.username == username))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    reply = await answer_query(text, f"web:{user.id}", db)
+    return {"reply": reply}
 
 
 @app.get("/users/{user_id}/groups")
