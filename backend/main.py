@@ -83,7 +83,11 @@ logger = logging.getLogger(__name__)
 
 GATEWAY_SECRET_TOKEN = os.getenv("GATEWAY_SECRET_TOKEN", "change-me")
 SUMMARY_TIMEZONE = os.getenv("SUMMARY_TIMEZONE", "Africa/Nairobi")
-SUMMARY_SCHEDULE_HOUR = int(os.getenv("SUMMARY_SCHEDULE_HOUR", "8"))
+try:
+    SUMMARY_SCHEDULE_HOUR = int(os.getenv("SUMMARY_SCHEDULE_HOUR", "8"))
+except ValueError:
+    logger.warning("Invalid SUMMARY_SCHEDULE_HOUR env var, using default of 8")
+    SUMMARY_SCHEDULE_HOUR = 8
 DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://localhost:8000")
 SECRET_KEY = os.getenv("SECRET_KEY", "")
 if not SECRET_KEY or SECRET_KEY == "change-me":
