@@ -163,7 +163,34 @@ async def test_build_summary_title_truncated_to_80_chars(db):
     assert len(result["new_incidents"][0]["title"]) == 80
 
 
+from unittest.mock import patch, AsyncMock
+
 from summaries import format_whatsapp_summary
+
+
+async def test_get_summaries_admin_only(client):
+    # client fixture uses a logged-in admin — should succeed
+    with patch("main.build_summary", new=AsyncMock(return_value={
+        "group_id": "g@g.us", "period_label": "Wednesday 18 Jun",
+        "new_count": 1, "resolved_count": 0, "still_open_count": 1,
+        "new_incidents": [{"id": 1, "title": "x", "severity": "high", "status": "review"}],
+        "open_backlog": {"high": 1, "medium": 0, "low": 0},
+    })):
+        with patch("main._distinct_group_ids", new=AsyncMock(return_value=["g@g.us"])):
+            resp = await client.get("/api/summaries")
+    assert resp.status_code == 200
+
+
+async def test_get_summaries_returns_list(client):
+    with patch("main.build_summary", new=AsyncMock(return_value={
+        "group_id": "g@g.us", "period_label": "Wednesday 18 Jun",
+        "new_count": 0, "resolved_count": 0, "still_open_count": 0,
+        "new_incidents": [],
+        "open_backlog": {"high": 0, "medium": 0, "low": 0},
+    })):
+        with patch("main._distinct_group_ids", new=AsyncMock(return_value=["g@g.us"])):
+            resp = await client.get("/api/summaries")
+    assert isinstance(resp.json(), list)
 
 
 def test_format_whatsapp_summary_contains_key_fields():

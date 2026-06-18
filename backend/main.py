@@ -1,10 +1,10 @@
 import hmac
 import logging
 import os
-import socket
 import sys
+import zoneinfo
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import date as _date, datetime, timezone
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
@@ -23,6 +23,7 @@ from database import get_db, init_db, AsyncSessionLocal
 from media import MEDIA_DIR, download_media
 from models import Incident, IncidentMedia, IncidentStatusHistory, IncidentUpdate, User, UserGroup, AuditLog
 from odoo_stub import push_incident
+from summaries import build_summary, format_whatsapp_summary, window_for_date
 from whatsapp import reply_to_message, send_group_message
 
 _VALID_STATUSES = {"new", "review", "acknowledged", "resolved", "ignored"}
@@ -56,6 +57,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 GATEWAY_SECRET_TOKEN = os.getenv("GATEWAY_SECRET_TOKEN", "change-me")
+SUMMARY_TIMEZONE = os.getenv("SUMMARY_TIMEZONE", "Africa/Nairobi")
+SUMMARY_SCHEDULE_HOUR = int(os.getenv("SUMMARY_SCHEDULE_HOUR", "8"))
+DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://localhost:8000")
 SECRET_KEY = os.getenv("SECRET_KEY", "")
 if not SECRET_KEY or SECRET_KEY == "change-me":
     logger.error("SECRET_KEY env var is not set or is the default value. Refusing to start.")
@@ -147,8 +151,14 @@ async def health():
 
 @app.get("/api/webhook-url")
 async def webhook_url():
-    ip = socket.gethostbyname(socket.gethostname())
-    return {"url": f"http://{ip}:8000/api/v1/ops/ingest"}
+    # Use the stable "backend.internal" network alias (see docker-compose.yml)
+    # rather than this container's own IP: the IP changes every time the
+    # backend container is recreated, which silently breaks the
+    # already-registered webhook on openwa. openwa's webhook URL validator
+    # also rejects bare, non-dotted hostnames like "backend", which is why
+    # this alias has a dot in it.
+    host = os.getenv("BACKEND_HOSTNAME", "backend.internal")
+    return {"url": f"http://{host}:8000/api/v1/ops/ingest"}
 
 
 async def _get_open_tickets(db: AsyncSession, group_id: str) -> list[dict]:
@@ -163,6 +173,11 @@ async def _get_open_tickets(db: AsyncSession, group_id: str) -> list[dict]:
         {"id": i.id, "category": i.category, "message_body": i.message_body}
         for i in result.scalars().all()
     ]
+
+
+async def _distinct_group_ids(db: AsyncSession) -> list[str]:
+    result = await db.execute(select(Incident.group_id).distinct())
+    return [row[0] for row in result.all()]
 
 
 async def _get_allowed_groups(username: str, db: AsyncSession) -> Optional[list[str]]:
@@ -947,6 +962,36 @@ async def list_groups(
         .order_by(Incident.property_name)
     )
     return [{"group_id": gid, "property_name": pname} for gid, pname in result.all()]
+
+
+@app.get("/api/summaries")
+async def get_summaries(
+    group_id: Optional[str] = None,
+    date: Optional[str] = None,
+    username: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    kenya_tz = zoneinfo.ZoneInfo(SUMMARY_TIMEZONE)
+    if date:
+        try:
+            d = _date.fromisoformat(date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="date must be YYYY-MM-DD")
+    else:
+        d = datetime.now(kenya_tz).date()
+
+    date_from, date_to, period_label = window_for_date(d)
+
+    if group_id:
+        groups = [group_id]
+    else:
+        groups = await _distinct_group_ids(db)
+
+    results = []
+    for gid in groups:
+        summary = await build_summary(gid, date_from, date_to, period_label, db)
+        results.append(summary)
+    return results
 
 
 @app.get("/users/{user_id}/groups")
