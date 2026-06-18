@@ -22,6 +22,11 @@ _Session = async_sessionmaker(_engine, expire_on_commit=False)
 
 _MOCK_REPLY = "There are 2 open incidents."
 
+# _chat returns an Ollama /api/chat response dict with no tool calls
+_MOCK_CHAT_RESPONSE = {
+    "message": {"role": "assistant", "content": _MOCK_REPLY, "tool_calls": []}
+}
+
 
 @pytest_asyncio.fixture(scope="module", autouse=True)
 async def _schema():
@@ -36,9 +41,8 @@ async def db():
 
 
 async def test_answer_query_creates_session(db):
-    with patch("chat._call_ollama", new=AsyncMock(return_value=_MOCK_REPLY)):
-        with patch("chat._build_context", new=AsyncMock(return_value="no incidents")):
-            reply = await answer_query("How many open?", "web:1", db)
+    with patch("chat._chat", new=AsyncMock(return_value=_MOCK_CHAT_RESPONSE)):
+        reply = await answer_query("How many open?", "web:1", db)
 
     assert reply == _MOCK_REPLY
     result = await db.execute(select(ChatSession).where(ChatSession.session_key == "web:1"))
@@ -50,10 +54,9 @@ async def test_answer_query_creates_session(db):
 
 
 async def test_answer_query_appends_history(db):
-    with patch("chat._call_ollama", new=AsyncMock(return_value=_MOCK_REPLY)):
-        with patch("chat._build_context", new=AsyncMock(return_value="no incidents")):
-            await answer_query("First question", "web:2", db)
-            await answer_query("Second question", "web:2", db)
+    with patch("chat._chat", new=AsyncMock(return_value=_MOCK_CHAT_RESPONSE)):
+        await answer_query("First question", "web:2", db)
+        await answer_query("Second question", "web:2", db)
 
     result = await db.execute(select(ChatSession).where(ChatSession.session_key == "web:2"))
     session = result.scalar_one_or_none()
@@ -61,10 +64,9 @@ async def test_answer_query_appends_history(db):
 
 
 async def test_answer_query_trims_to_20_messages(db):
-    with patch("chat._call_ollama", new=AsyncMock(return_value=_MOCK_REPLY)):
-        with patch("chat._build_context", new=AsyncMock(return_value="")):
-            for i in range(12):
-                await answer_query(f"Q{i}", "web:3", db)
+    with patch("chat._chat", new=AsyncMock(return_value=_MOCK_CHAT_RESPONSE)):
+        for i in range(12):
+            await answer_query(f"Q{i}", "web:3", db)
 
     result = await db.execute(select(ChatSession).where(ChatSession.session_key == "web:3"))
     session = result.scalar_one_or_none()
@@ -81,9 +83,8 @@ async def test_answer_query_resets_stale_session(db):
     db.add(old_session)
     await db.commit()
 
-    with patch("chat._call_ollama", new=AsyncMock(return_value=_MOCK_REPLY)):
-        with patch("chat._build_context", new=AsyncMock(return_value="")):
-            await answer_query("Fresh question", "web:4", db)
+    with patch("chat._chat", new=AsyncMock(return_value=_MOCK_CHAT_RESPONSE)):
+        await answer_query("Fresh question", "web:4", db)
 
     result = await db.execute(select(ChatSession).where(ChatSession.session_key == "web:4"))
     session = result.scalar_one_or_none()
