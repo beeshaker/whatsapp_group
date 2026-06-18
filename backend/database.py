@@ -168,6 +168,15 @@ async def init_db():
 
     try:
         async with engine.begin() as conn:
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_admin_group_subscriptions_user_id "
+                "ON admin_group_subscriptions (user_id)"
+            ))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS chat_sessions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
