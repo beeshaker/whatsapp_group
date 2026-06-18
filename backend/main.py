@@ -1340,3 +1340,22 @@ async def summaries_page(
             "today": today,
         },
     )
+
+
+@app.get("/admin/profile", response_class=HTMLResponse)
+async def admin_profile_page(
+    request: Request,
+    username: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    user_result = await db.execute(select(User).where(User.username == username))
+    user_obj = user_result.scalar_one_or_none()
+    role = user_obj.role if user_obj else "user"
+    return templates.TemplateResponse(
+        "profile.html",
+        {
+            "request": request,
+            "username": username,
+            "role": role,
+        },
+    )
