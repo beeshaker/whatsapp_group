@@ -141,3 +141,40 @@ async def init_db():
             ))
     except Exception:
         pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS admin_profiles (
+                    user_id INTEGER PRIMARY KEY REFERENCES users(id),
+                    whatsapp_phone TEXT
+                )
+            """))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS admin_group_subscriptions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(id),
+                    group_id TEXT NOT NULL,
+                    UNIQUE (user_id, group_id)
+                )
+            """))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS chat_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_key TEXT UNIQUE NOT NULL,
+                    messages JSON NOT NULL DEFAULT '[]',
+                    updated_at TIMESTAMP NOT NULL
+                )
+            """))
+    except Exception:
+        pass
