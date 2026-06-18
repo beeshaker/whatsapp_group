@@ -4,9 +4,11 @@ import os
 import sys
 import zoneinfo
 from contextlib import asynccontextmanager
-from datetime import date as _date, datetime, timezone
+from datetime import date as _date, datetime, timedelta, timezone
 from typing import Optional
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -133,7 +135,25 @@ async def lifespan(app: FastAPI):
         if existing_admin and existing_admin.role != "admin":
             existing_admin.role = "admin"
             await session.commit()
+
+    scheduler = None
+    if not os.getenv("TESTING"):
+        scheduler = AsyncIOScheduler()
+        scheduler.add_job(
+            _push_summaries,
+            CronTrigger(
+                hour=SUMMARY_SCHEDULE_HOUR,
+                day_of_week="mon-fri",
+                timezone=SUMMARY_TIMEZONE,
+            ),
+        )
+        scheduler.start()
+        logger.info("Summary scheduler started (hour=%s, tz=%s)", SUMMARY_SCHEDULE_HOUR, SUMMARY_TIMEZONE)
+
     yield
+
+    if scheduler:
+        scheduler.shutdown(wait=False)
 
 
 app = FastAPI(
@@ -191,6 +211,35 @@ async def _get_open_tickets(db: AsyncSession, group_id: str) -> list[dict]:
 async def _distinct_group_ids(db: AsyncSession) -> list[str]:
     result = await db.execute(select(Incident.group_id).distinct())
     return [row[0] for row in result.all()]
+
+
+async def _push_summaries():
+    kenya_tz = zoneinfo.ZoneInfo(SUMMARY_TIMEZONE)
+    today = datetime.now(kenya_tz).date()
+    window_date = today if today.weekday() == 0 else today - timedelta(days=1)
+    date_from, date_to, period_label = window_for_date(window_date)
+
+    async with AsyncSessionLocal() as db:
+        groups = await _distinct_group_ids(db)
+        profiles_result = await db.execute(
+            select(AdminProfile).where(AdminProfile.whatsapp_phone.isnot(None))
+        )
+        for profile in profiles_result.scalars().all():
+            subs_result = await db.execute(
+                select(AdminGroupSubscription.group_id).where(
+                    AdminGroupSubscription.user_id == profile.user_id
+                )
+            )
+            subscribed = [row[0] for row in subs_result.all()]
+            for gid in subscribed:
+                if gid not in groups:
+                    continue
+                summary = await build_summary(gid, date_from, date_to, period_label, db)
+                if summary["new_count"] == 0:
+                    continue
+                text = format_whatsapp_summary(summary, DASHBOARD_URL)
+                await send_group_message(f"{profile.whatsapp_phone}@c.us", text)
+                logger.info("Summary sent to %s for group %s", profile.whatsapp_phone, gid)
 
 
 async def _get_allowed_groups(username: str, db: AsyncSession) -> Optional[list[str]]:

@@ -32,8 +32,16 @@ services:
       OPENWA_URL: ${OPENWA_URL:-http://openwa:2785}
       OPENWA_SESSION: ${OPENWA_SESSION:-opsgateway}
       OPENWA_API_KEY: ${OPENWA_API_KEY:-}
+      SUMMARY_TIMEZONE: ${SUMMARY_TIMEZONE:-Africa/Nairobi}
+      SUMMARY_SCHEDULE_HOUR: ${SUMMARY_SCHEDULE_HOUR:-8}
+      DASHBOARD_URL: ${DASHBOARD_URL:-http://localhost:8000}
     networks:
-      - ops-net
+      ops-net:
+        # Dotted alias so the openwa webhook URL (which rejects bare,
+        # non-dotted hostnames as invalid) can target this container by a
+        # stable name instead of its IP, which changes on every recreate.
+        aliases:
+          - backend.internal
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
