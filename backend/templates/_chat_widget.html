@@ -262,15 +262,18 @@
 
   let isOpen = false;
   let isWaiting = false;
+  let historyRendered = false;
 
   // ── History (sessionStorage) ──────────────────────────────────────────
+  var HISTORY_MAX = 50;
   function loadHistory() {
     try {
       return JSON.parse(sessionStorage.getItem(SESSION_KEY) || '[]');
     } catch (_) { return []; }
   }
-  function saveHistory(history) {
-    try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(history)); } catch (_) {}
+  function saveHistory(hist) {
+    if (hist.length > HISTORY_MAX) hist = hist.slice(-HISTORY_MAX);
+    try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(hist)); } catch (_) {}
   }
 
   let history = loadHistory();
@@ -304,10 +307,12 @@
   }
 
   function renderHistory() {
+    if (historyRendered) return;
     messagesEl.innerHTML = '';
     history.forEach(function (m) {
       appendMessage(m.role, m.text);
     });
+    historyRendered = true;
   }
 
   // ── Panel open/close ──────────────────────────────────────────────────
@@ -319,6 +324,7 @@
       panel.classList.remove('cw-animating-in');
     }, { once: true });
     renderHistory();
+    scrollToBottom();
     input.focus();
     fab.setAttribute('aria-label', 'Close Ops Assistant chat');
   }
@@ -369,12 +375,19 @@
 
     showTyping();
 
+    var controller = new AbortController();
+    var timeoutId = setTimeout(function () { controller.abort(); }, 30000);
+
     fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text }),
+      signal: controller.signal,
     })
       .then(function (res) {
+        if (res.redirected || res.status === 302) {
+          throw new Error('Session expired — please reload the page.');
+        }
         if (!res.ok) {
           return res.json().catch(function () { return {}; }).then(function (data) {
             throw new Error(data.detail || ('Request failed: ' + res.status));
@@ -391,10 +404,13 @@
       })
       .catch(function (err) {
         removeTyping();
-        var msg = err && err.message ? err.message : 'Unknown error';
+        var msg = err && err.name === 'AbortError'
+          ? 'Request timed out — please try again.'
+          : (err && err.message ? err.message : 'Unknown error');
         appendMessage('error', 'Error: ' + msg);
       })
       .finally(function () {
+        clearTimeout(timeoutId);
         isWaiting = false;
         sendBtn.disabled = !input.value.trim();
       });
