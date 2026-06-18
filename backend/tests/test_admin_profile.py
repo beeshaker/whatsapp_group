@@ -28,7 +28,7 @@ async def test_put_profile_updates_phone(client):
     assert resp.json()["whatsapp_phone"] == "254799999999"
 
 
-async def test_post_subscriptions_replaces_all(client, db_session):
+async def test_post_subscriptions_replaces_all(client):
     resp = await client.post("/api/admin/subscriptions", json={"group_ids": ["g1@g.us", "g2@g.us"]})
     assert resp.status_code == 200
 
@@ -41,6 +41,13 @@ async def test_post_subscriptions_clears_when_empty(client):
     await client.post("/api/admin/subscriptions", json={"group_ids": []})
     resp = await client.get("/api/admin/profile")
     assert resp.json()["group_ids"] == []
+
+
+async def test_post_subscriptions_deduplicates_input(client):
+    resp = await client.post("/api/admin/subscriptions", json={"group_ids": ["g1@g.us", "g1@g.us"]})
+    assert resp.status_code == 200
+    resp2 = await client.get("/api/admin/profile")
+    assert resp2.json()["group_ids"].count("g1@g.us") == 1
 
 
 async def test_profile_endpoints_require_admin(authenticated_client):

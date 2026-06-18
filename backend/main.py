@@ -1072,7 +1072,7 @@ async def update_admin_subscriptions(
     for sub in existing.scalars().all():
         await db.delete(sub)
 
-    for gid in body.group_ids:
+    for gid in dict.fromkeys(body.group_ids):
         db.add(AdminGroupSubscription(user_id=user.id, group_id=gid))
 
     await db.commit()
