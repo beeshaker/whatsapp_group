@@ -21,7 +21,7 @@ from auth import require_login, require_admin, hash_password, verify_password, c
 from classifier import classify_message, classify_update_or_new
 from database import get_db, init_db, AsyncSessionLocal
 from media import MEDIA_DIR, download_media
-from models import Incident, IncidentMedia, IncidentStatusHistory, IncidentUpdate, User, UserGroup, AuditLog
+from models import Incident, IncidentMedia, IncidentStatusHistory, IncidentUpdate, User, UserGroup, AuditLog, AdminProfile, AdminGroupSubscription
 from odoo_stub import push_incident
 from summaries import build_summary, format_whatsapp_summary, window_for_date
 from whatsapp import reply_to_message, send_group_message
@@ -50,6 +50,14 @@ class CreateUserBody(BaseModel):
 
 
 class GroupAssignBody(BaseModel):
+    group_ids: list[str]
+
+
+class AdminProfileBody(BaseModel):
+    whatsapp_phone: Optional[str] = None
+
+
+class AdminSubscriptionsBody(BaseModel):
     group_ids: list[str]
 
 
@@ -992,6 +1000,83 @@ async def get_summaries(
         summary = await build_summary(gid, date_from, date_to, period_label, db)
         results.append(summary)
     return results
+
+
+@app.get("/api/admin/profile")
+async def get_admin_profile(
+    username: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).where(User.username == username))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    profile_result = await db.execute(
+        select(AdminProfile).where(AdminProfile.user_id == user.id)
+    )
+    profile = profile_result.scalar_one_or_none()
+
+    subs_result = await db.execute(
+        select(AdminGroupSubscription.group_id).where(
+            AdminGroupSubscription.user_id == user.id
+        )
+    )
+    group_ids = [row[0] for row in subs_result.all()]
+
+    return {
+        "whatsapp_phone": profile.whatsapp_phone if profile else None,
+        "group_ids": group_ids,
+    }
+
+
+@app.put("/api/admin/profile")
+async def update_admin_profile(
+    body: AdminProfileBody,
+    username: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).where(User.username == username))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    profile_result = await db.execute(
+        select(AdminProfile).where(AdminProfile.user_id == user.id)
+    )
+    profile = profile_result.scalar_one_or_none()
+
+    if profile:
+        profile.whatsapp_phone = body.whatsapp_phone
+    else:
+        db.add(AdminProfile(user_id=user.id, whatsapp_phone=body.whatsapp_phone))
+
+    await db.commit()
+    return {"whatsapp_phone": body.whatsapp_phone}
+
+
+@app.post("/api/admin/subscriptions")
+async def update_admin_subscriptions(
+    body: AdminSubscriptionsBody,
+    username: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).where(User.username == username))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    existing = await db.execute(
+        select(AdminGroupSubscription).where(AdminGroupSubscription.user_id == user.id)
+    )
+    for sub in existing.scalars().all():
+        await db.delete(sub)
+
+    for gid in body.group_ids:
+        db.add(AdminGroupSubscription(user_id=user.id, group_id=gid))
+
+    await db.commit()
+    return {"group_ids": body.group_ids}
 
 
 @app.get("/users/{user_id}/groups")

@@ -16,7 +16,7 @@ from sqlalchemy.pool import StaticPool
 from database import Base, get_db
 from main import app
 from models import User, UserGroup
-from auth import hash_password, require_login
+from auth import hash_password, require_login, require_admin
 
 # Pre-hash once at module load — avoids per-test bcrypt cost
 _HASHED_TESTPASS = hash_password("testpass")
@@ -68,7 +68,7 @@ async def client():
 
 @pytest_asyncio.fixture
 async def authenticated_client():
-    """Fast client with require_login bypassed via dependency override.
+    """Fast client with require_login and require_admin bypassed via dependency override.
 
     Use this for any test that needs auth but isn't testing the login flow itself.
     """
@@ -79,8 +79,12 @@ async def authenticated_client():
     async def _override_require_login():
         return "testadmin"
 
+    async def _override_require_admin():
+        return "testadmin"
+
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[require_login] = _override_require_login
+    app.dependency_overrides[require_admin] = _override_require_admin
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         async with _TestSession() as session:
             session.add(User(
