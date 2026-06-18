@@ -1,7 +1,7 @@
 import logging
 import os
 import zoneinfo
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import httpx
 from sqlalchemy import select
@@ -73,7 +73,7 @@ async def _build_context(db: AsyncSession) -> str:
     high_incidents = high_result.scalars().all()
     lines.append("\nHigh-severity open incidents (newest 5):")
     for inc in high_incidents:
-        age_days = (now - inc.received_at).days
+        age_days = (now - inc.received_at.replace(tzinfo=inc.received_at.tzinfo or timezone.utc)).days
         lines.append(f"- [#{inc.id}] {inc.message_body[:80]} ({inc.group_id}, {age_days}d old)")
 
     return "\n".join(lines)
