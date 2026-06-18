@@ -216,11 +216,11 @@ async def _distinct_group_ids(db: AsyncSession) -> list[str]:
 async def _push_summaries():
     kenya_tz = zoneinfo.ZoneInfo(SUMMARY_TIMEZONE)
     today = datetime.now(kenya_tz).date()
-    window_date = today if today.weekday() == 0 else today - timedelta(days=1)
-    date_from, date_to, period_label = window_for_date(window_date)
+    # window_for_date(today) handles Monday → weekend window automatically
+    date_from, date_to, period_label = window_for_date(today)
 
     async with AsyncSessionLocal() as db:
-        groups = await _distinct_group_ids(db)
+        groups = set(await _distinct_group_ids(db))
         profiles_result = await db.execute(
             select(AdminProfile).where(AdminProfile.whatsapp_phone.isnot(None))
         )
@@ -234,12 +234,15 @@ async def _push_summaries():
             for gid in subscribed:
                 if gid not in groups:
                     continue
-                summary = await build_summary(gid, date_from, date_to, period_label, db)
-                if summary["new_count"] == 0:
-                    continue
-                text = format_whatsapp_summary(summary, DASHBOARD_URL)
-                await send_group_message(f"{profile.whatsapp_phone}@c.us", text)
-                logger.info("Summary sent to %s for group %s", profile.whatsapp_phone, gid)
+                try:
+                    summary = await build_summary(gid, date_from, date_to, period_label, db)
+                    if summary["new_count"] == 0:
+                        continue
+                    text = format_whatsapp_summary(summary, DASHBOARD_URL)
+                    await send_group_message(f"{profile.whatsapp_phone}@c.us", text)
+                    logger.info("Summary sent to %s for group %s", profile.whatsapp_phone, gid)
+                except Exception as exc:
+                    logger.error("Summary push failed for %s group %s: %s", profile.whatsapp_phone, gid, exc)
 
 
 async def _get_allowed_groups(username: str, db: AsyncSession) -> Optional[list[str]]:
