@@ -455,8 +455,12 @@ async def ingest(
             if profile:
                 dm_body = data.get("body", "").strip()
                 if dm_body:
-                    reply = await answer_query(dm_body, f"wa:{phone}", db)
-                    await send_group_message(chat_id, reply)
+                    try:
+                        reply = await answer_query(dm_body, f"wa:{phone}", db)
+                        await send_group_message(chat_id, reply)
+                    except Exception as exc:
+                        logger.error("DM reply failed for %s: %s", phone, exc)
+                        return {"status": "dm_error", "message": "Failed to process DM"}
                 return {"status": "dm_handled"}
         return {"status": "dm_ignored", "message": "DM from unknown phone or non-chat type"}
 
