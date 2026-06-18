@@ -21,11 +21,7 @@ _engine = create_async_engine(
 _Session = async_sessionmaker(_engine, expire_on_commit=False)
 
 _MOCK_REPLY = "There are 2 open incidents."
-
-# _chat returns an Ollama /api/chat response dict with no tool calls
-_MOCK_CHAT_RESPONSE = {
-    "message": {"role": "assistant", "content": _MOCK_REPLY, "tool_calls": []}
-}
+_MOCK_SQL = "SELECT COUNT(*) FROM incidents"
 
 
 @pytest_asyncio.fixture(scope="module", autouse=True)
@@ -41,7 +37,8 @@ async def db():
 
 
 async def test_answer_query_creates_session(db):
-    with patch("chat._chat", new=AsyncMock(return_value=_MOCK_CHAT_RESPONSE)):
+    # _chat is called twice: once in _generate_sql, once for the answer
+    with patch("chat._chat", new=AsyncMock(side_effect=[_MOCK_SQL, _MOCK_REPLY])):
         reply = await answer_query("How many open?", "web:1", db)
 
     assert reply == _MOCK_REPLY
@@ -54,7 +51,7 @@ async def test_answer_query_creates_session(db):
 
 
 async def test_answer_query_appends_history(db):
-    with patch("chat._chat", new=AsyncMock(return_value=_MOCK_CHAT_RESPONSE)):
+    with patch("chat._chat", new=AsyncMock(side_effect=[_MOCK_SQL, _MOCK_REPLY, _MOCK_SQL, _MOCK_REPLY])):
         await answer_query("First question", "web:2", db)
         await answer_query("Second question", "web:2", db)
 
@@ -64,7 +61,8 @@ async def test_answer_query_appends_history(db):
 
 
 async def test_answer_query_trims_to_20_messages(db):
-    with patch("chat._chat", new=AsyncMock(return_value=_MOCK_CHAT_RESPONSE)):
+    # 12 questions × 2 _chat calls each = 24 side_effect values
+    with patch("chat._chat", new=AsyncMock(side_effect=[_MOCK_SQL, _MOCK_REPLY] * 12)):
         for i in range(12):
             await answer_query(f"Q{i}", "web:3", db)
 
@@ -83,7 +81,7 @@ async def test_answer_query_resets_stale_session(db):
     db.add(old_session)
     await db.commit()
 
-    with patch("chat._chat", new=AsyncMock(return_value=_MOCK_CHAT_RESPONSE)):
+    with patch("chat._chat", new=AsyncMock(side_effect=[_MOCK_SQL, _MOCK_REPLY])):
         await answer_query("Fresh question", "web:4", db)
 
     result = await db.execute(select(ChatSession).where(ChatSession.session_key == "web:4"))
