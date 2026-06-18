@@ -462,6 +462,10 @@ function renderGroups() {
 // ── Save WhatsApp phone ──
 async function savePhone() {
   const phone = document.getElementById('phone-input').value.trim();
+  if (phone && !/^\d{7,15}$/.test(phone)) {
+    showFeedback('phone-feedback', 'Phone must be 7–15 digits (e.g. 254712345678)', false);
+    return;
+  }
   const btn = document.getElementById('phone-save-btn');
   btn.disabled = true;
   try {
