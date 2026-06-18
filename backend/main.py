@@ -437,15 +437,36 @@ async def ingest(
 
     event_type = payload.get("event")
     data = payload.get("data", {})
+
+    if event_type != "message.received":
+        return {"status": "ignored", "message": "Non-group or non-chat event skipped"}
+
+    chat_id = data.get("chatId") or data.get("from", "")
     msg_type = data.get("type", "")
 
-    if event_type != "message.received" or not data.get("isGroup", False):
+    # DM routing — handle before the isGroup check so @c.us messages are caught
+    if chat_id.endswith("@c.us") and not data.get("isGroup", False):
+        if msg_type == "chat":
+            phone = chat_id[: -len("@c.us")]
+            profile_result = await db.execute(
+                select(AdminProfile).where(AdminProfile.whatsapp_phone == phone)
+            )
+            profile = profile_result.scalar_one_or_none()
+            if profile:
+                dm_body = data.get("body", "").strip()
+                if dm_body:
+                    reply = await answer_query(dm_body, f"wa:{phone}", db)
+                    await send_group_message(chat_id, reply)
+                return {"status": "dm_handled"}
+        return {"status": "dm_ignored", "message": "DM from unknown phone or non-chat type"}
+
+    if not data.get("isGroup", False):
         return {"status": "ignored", "message": "Non-group or non-chat event skipped"}
 
     if msg_type != "chat" and msg_type not in _MEDIA_TYPES:
         return {"status": "ignored", "message": "Non-group or non-chat event skipped"}
 
-    group_id = data.get("chatId") or data.get("from", "")
+    group_id = chat_id
     group_name = (
         data.get("chatName")
         or (data.get("chat") or {}).get("name")
