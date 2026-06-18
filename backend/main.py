@@ -1318,12 +1318,15 @@ async def archive_dashboard(
 async def summaries_page(
     request: Request,
     date: Optional[str] = None,
-    username: str = Depends(require_login),
+    username: str = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     kenya_tz = zoneinfo.ZoneInfo(SUMMARY_TIMEZONE)
     today = datetime.now(kenya_tz).date().isoformat()
-    selected_date = date if date else today
+    try:
+        selected_date = _date.fromisoformat(date).isoformat() if date else today
+    except ValueError:
+        selected_date = today
     user_result = await db.execute(select(User).where(User.username == username))
     user_obj = user_result.scalar_one_or_none()
     role = user_obj.role if user_obj else "user"

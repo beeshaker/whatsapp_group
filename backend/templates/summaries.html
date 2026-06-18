@@ -460,18 +460,18 @@ function renderSummaries(summaries) {
             <div class="summary-period">${esc(s.period_label || '')}</div>
           </div>
           <div class="summary-stats">
-            <span class="stat-pill new">+${s.new_count} new</span>
-            <span class="stat-pill resolved">✓ ${s.resolved_count} resolved</span>
-            <span class="stat-pill open">${s.still_open_count} still open</span>
+            <span class="stat-pill new">+${esc(s.new_count)} new</span>
+            <span class="stat-pill resolved">✓ ${esc(s.resolved_count)} resolved</span>
+            <span class="stat-pill open">${esc(s.still_open_count)} still open</span>
           </div>
         </div>
         <div class="summary-card-body">
           <div class="severity-section">
             <div class="severity-label">Open backlog by severity</div>
             <div class="severity-bars">
-              <span class="sev-chip high"><span class="dot" style="background:#ef4444"></span>High: ${high}</span>
-              <span class="sev-chip medium"><span class="dot" style="background:#f59e0b"></span>Medium: ${medium}</span>
-              <span class="sev-chip low"><span class="dot" style="background:#22c55e"></span>Low: ${low}</span>
+              <span class="sev-chip high"><span class="dot" style="background:#ef4444"></span>High: ${esc(high)}</span>
+              <span class="sev-chip medium"><span class="dot" style="background:#f59e0b"></span>Medium: ${esc(medium)}</span>
+              <span class="sev-chip low"><span class="dot" style="background:#22c55e"></span>Low: ${esc(low)}</span>
             </div>
           </div>
         </div>
