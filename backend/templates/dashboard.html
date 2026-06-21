@@ -1159,11 +1159,14 @@
   <div class="nav-links">
     <a class="nav-link {% if mode != 'archive' %}active{% endif %}" href="/">📋 Live Queue</a>
     <a class="nav-link {% if mode == 'archive' %}active{% endif %}" href="/archive">📁 Archive</a>
-    {% if role == 'admin' %}
+    {% if role in ('admin', 'super_admin') %}
     <a class="nav-link" href="/users">👥 Users</a>
     {% endif %}
     <a class="nav-link" href="/summaries">📊 Summaries</a>
     <a class="nav-link" href="/admin/profile">👤 Profile</a>
+    {% if role == 'super_admin' %}
+    <a class="nav-link" href="/super-admin/categories">⚙️ System Config</a>
+    {% endif %}
   </div>
   <div class="nav-right">
     <div class="user-pill">

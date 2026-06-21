@@ -979,6 +979,42 @@ async def reply_to_incident(
     }
 
 
+@app.get("/super-admin/categories", response_class=HTMLResponse)
+async def super_admin_categories_page(
+    request: Request,
+    username: str = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(
+            IncidentCategory,
+            func.count(Incident.id).label("incident_count"),
+        )
+        .outerjoin(Incident, Incident.category == IncidentCategory.slug)
+        .group_by(IncidentCategory.id)
+        .order_by(IncidentCategory.id)
+    )
+    categories = [
+        {
+            "id": cat.id,
+            "slug": cat.slug,
+            "label": cat.label,
+            "is_protected": cat.is_protected,
+            "incident_count": count,
+        }
+        for cat, count in result.all()
+    ]
+    return templates.TemplateResponse(
+        "super_admin_categories.html",
+        {
+            "request": request,
+            "username": username,
+            "role": "super_admin",
+            "categories": categories,
+        },
+    )
+
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     if request.session.get("username"):
