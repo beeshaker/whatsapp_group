@@ -131,3 +131,11 @@ async def test_classify_update_or_new_falls_back_on_llm_failure():
         )
         result = await classify_update_or_new("Still leaking, getting worse", open_tickets)
     assert result == {"routing": "new"}
+
+
+async def test_returns_fallback_on_db_error():
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(side_effect=Exception("DB connection lost"))
+    result = await classify_message("Pump leaking", mock_db)
+    assert result["is_incident"] is False
+    assert result["confidence"] == 0.0

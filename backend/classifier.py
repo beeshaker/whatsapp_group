@@ -46,14 +46,14 @@ def _build_prompt(message: str, categories: list[str]) -> str:
 
 
 async def classify_message(message: str, db: AsyncSession) -> dict:
-    from models import IncidentCategory
-    result = await db.execute(select(IncidentCategory))
-    slugs = [row.slug for row in result.scalars().all()]
-    if not slugs:
-        slugs = ["other"]
-    valid_set = set(slugs)
-    prompt = _build_prompt(message, slugs)
     try:
+        from models import IncidentCategory
+        result = await db.execute(select(IncidentCategory))
+        slugs = [row.slug for row in result.scalars().all()]
+        if not slugs:
+            slugs = ["other"]
+        valid_set = set(slugs)
+        prompt = _build_prompt(message, slugs)
         async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
             response = await client.post(
                 f"{OLLAMA_HOST}/api/generate",
