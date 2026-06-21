@@ -222,8 +222,9 @@ async def init_db():
                 ]
                 for slug, label, protected in seeds:
                     await conn.execute(text(
-                        "INSERT OR IGNORE INTO incident_categories (slug, label, is_protected, created_at) "
-                        "VALUES (:slug, :label, :protected, :now)"
+                        "INSERT INTO incident_categories (slug, label, is_protected, created_at) "
+                        "VALUES (:slug, :label, :protected, :now) "
+                        "ON CONFLICT (slug) DO NOTHING"
                     ), {"slug": slug, "label": label, "protected": protected, "now": now_iso})
     except Exception:
         pass
