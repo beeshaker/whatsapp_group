@@ -300,7 +300,7 @@ async def _handle_text_ingest(
     received_at: datetime,
     message_id: Optional[str],
 ) -> dict:
-    classification = await classify_message(message_body)
+    classification = await classify_message(message_body, db)
     if not classification["is_incident"] or classification["confidence"] < MIN_CONFIDENCE:
         return {"status": "noise", "message": "Message classified as non-incident"}
 
@@ -406,7 +406,7 @@ async def _handle_media_ingest(
     _created_incident: Optional[Incident] = None
 
     if caption:
-        classification = await classify_message(caption)
+        classification = await classify_message(caption, db)
         if classification["is_incident"] and classification["confidence"] >= MIN_CONFIDENCE:
             open_tickets = await _get_open_tickets(db, group_id)
             if open_tickets:

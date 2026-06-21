@@ -3,6 +3,8 @@ import logging
 import os
 
 import httpx
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -21,12 +23,12 @@ _FALLBACK: dict = {
     "confidence": 0.0,
 }
 
-_VALID_CATEGORIES = {"plumbing", "electrical", "lift", "security", "structural", "cleaning", "access", "other"}
 _VALID_SEVERITIES = {"low", "medium", "high"}
 
 
-def _build_prompt(message: str) -> str:
+def _build_prompt(message: str, categories: list[str]) -> str:
     safe_message = json.dumps(message)
+    pipe_cats = "|".join(categories)
     return (
         "You are classifying WhatsApp messages from a property management company.\n"
         "Properties include residential blocks, lifts, water systems, electrical infrastructure.\n"
@@ -35,7 +37,7 @@ def _build_prompt(message: str) -> str:
         "Return ONLY valid JSON, no explanation, no markdown:\n"
         "{\n"
         '  "is_incident": true or false,\n'
-        '  "category": "plumbing|electrical|lift|security|structural|cleaning|access|other",\n'
+        f'  "category": "{pipe_cats}",\n'
         '  "severity": "low|medium|high",\n'
         '  "confidence": 0.0 to 1.0\n'
         "}\n\n"
@@ -43,8 +45,14 @@ def _build_prompt(message: str) -> str:
     )
 
 
-async def classify_message(message: str) -> dict:
-    prompt = _build_prompt(message)  # no pre-escaping needed — _build_prompt handles it
+async def classify_message(message: str, db: AsyncSession) -> dict:
+    from models import IncidentCategory
+    result = await db.execute(select(IncidentCategory))
+    slugs = [row.slug for row in result.scalars().all()]
+    if not slugs:
+        slugs = ["other"]
+    valid_set = set(slugs)
+    prompt = _build_prompt(message, slugs)
     try:
         async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
             response = await client.post(
@@ -59,7 +67,7 @@ async def classify_message(message: str) -> dict:
             raw_confidence = float(parsed.get("confidence", 0.0))
             return {
                 "is_incident": bool(parsed.get("is_incident", False)),
-                "category": raw_category if raw_category in _VALID_CATEGORIES else "other",
+                "category": raw_category if raw_category in valid_set else "other",
                 "severity": raw_severity if raw_severity in _VALID_SEVERITIES else "low",
                 "confidence": max(0.0, min(1.0, raw_confidence)),
             }
