@@ -25,6 +25,11 @@ class PlanPrice(Base):
     set_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     set_by: Mapped[str] = mapped_column(Text, nullable=False)
 
+    def __init__(self, **kw):
+        if "currency" not in kw:
+            kw["currency"] = "KES"
+        super().__init__(**kw)
+
 
 class Client(Base):
     __tablename__ = "clients"
@@ -34,11 +39,6 @@ class Client(Base):
     subdomain: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     plan: Mapped[str] = mapped_column(String(10), nullable=False)  # "monthly" | "annual"
     status: Mapped[str] = mapped_column(String(15), nullable=False, default="active")
-
-    def __init__(self, **kw):
-        if "status" not in kw:
-            kw["status"] = "active"
-        super().__init__(**kw)
     renewal_date: Mapped[date] = mapped_column(Date, nullable=False)
     grace_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     warning_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -48,6 +48,11 @@ class Client(Base):
     openwa_api_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     docker_project: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    def __init__(self, **kw):
+        if "status" not in kw:
+            kw["status"] = "active"
+        super().__init__(**kw)
 
 
 class Payment(Base):
@@ -64,6 +69,11 @@ class Payment(Base):
     confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     period_start: Mapped[date] = mapped_column(Date, nullable=False)
     period_end: Mapped[date] = mapped_column(Date, nullable=False)
+
+    def __init__(self, **kw):
+        if "status" not in kw:
+            kw["status"] = "pending"
+        super().__init__(**kw)
 
 
 class PaymentSession(Base):
