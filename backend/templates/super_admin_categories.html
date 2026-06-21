@@ -427,7 +427,7 @@
             {% if cat.is_protected %}
               <span class="protected-badge" title="Protected — cannot be deleted">🔒</span>
             {% else %}
-              <button class="btn-delete" onclick="startDelete('{{ cat.slug }}', '{{ cat.label }}')">Delete</button>
+              <button class="btn-delete" data-slug="{{ cat.slug }}" data-label="{{ cat.label }}">Delete</button>
             {% endif %}
           </td>
         </tr>
@@ -458,6 +458,14 @@
 
   let _deleteSlug = null;
   let _allCategories = {{ categories | tojson }};
+
+  document.getElementById('cat-tbody').addEventListener('click', function(e) {
+    const btn = e.target.closest('.btn-delete');
+    if (!btn) return;
+    const slug = btn.dataset.slug;
+    const label = btn.dataset.label;
+    if (slug && label) startDelete(slug, label);
+  });
 
   async function addCategory() {
     const slugEl = document.getElementById('new-slug');
@@ -510,11 +518,17 @@
     const tr = document.createElement('tr');
     tr.id = `row-${cat.slug}`;
     tr.innerHTML = `
-      <td class="slug-cell">${escHtml(cat.slug)}</td>
-      <td>${escHtml(cat.label)}</td>
-      <td class="count-cell">0</td>
-      <td><button class="btn-delete" onclick="startDelete('${escHtml(cat.slug)}', '${escHtml(cat.label)}')">Delete</button></td>
-    `;
+    <td class="slug-cell">${escHtml(cat.slug)}</td>
+    <td>${escHtml(cat.label)}</td>
+    <td class="count-cell">0</td>
+    <td></td>
+  `;
+    const btn = document.createElement('button');
+    btn.className = 'btn-delete';
+    btn.dataset.slug = cat.slug;
+    btn.dataset.label = cat.label;
+    btn.textContent = 'Delete';
+    tr.querySelector('td:last-child').appendChild(btn);
     tbody.appendChild(tr);
   }
 
