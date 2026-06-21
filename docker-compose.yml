@@ -35,6 +35,10 @@ services:
       SUMMARY_TIMEZONE: ${SUMMARY_TIMEZONE:-Africa/Nairobi}
       SUMMARY_SCHEDULE_HOUR: ${SUMMARY_SCHEDULE_HOUR:-8}
       DASHBOARD_URL: ${DASHBOARD_URL:-http://localhost:8000}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
+      SUPER_ADMIN_USERNAME: ${SUPER_ADMIN_USERNAME:-}
+      SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD:-}
     networks:
       ops-net:
         # Dotted alias so the openwa webhook URL (which rejects bare,
