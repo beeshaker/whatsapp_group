@@ -12,6 +12,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from auth import hash_password, verify_password, require_login
 from database import get_db, init_db, AsyncSessionLocal
 from models import AdminUser, Client, Payment, PlanPrice
+from scheduler import start_scheduler
 
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 
@@ -36,7 +37,9 @@ async def _seed_admin():
 async def lifespan(app: FastAPI):
     await init_db()
     await _seed_admin()
+    scheduler = start_scheduler()
     yield
+    scheduler.shutdown(wait=False)
 
 
 app = FastAPI(lifespan=lifespan)
