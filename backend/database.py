@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
@@ -209,7 +209,7 @@ async def init_db():
             result = await conn.execute(text("SELECT COUNT(*) FROM incident_categories"))
             count = result.scalar()
             if count == 0:
-                now_iso = datetime.utcnow().isoformat()
+                now_iso = datetime.now(timezone.utc).isoformat()
                 seeds = [
                     ("plumbing",    "Plumbing",    0),
                     ("electrical",  "Electrical",  0),
