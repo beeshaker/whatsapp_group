@@ -20,7 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 
-from auth import require_login, require_admin, hash_password, verify_password, check_incident_group_access
+from auth import require_login, require_admin, require_super_admin, hash_password, verify_password, check_incident_group_access
 from chat import answer_query
 from classifier import classify_message, classify_update_or_new
 from database import get_db, init_db, AsyncSessionLocal
@@ -150,6 +150,23 @@ async def lifespan(app: FastAPI):
             existing_admin.role = "admin"
             await session.commit()
 
+        # Bootstrap super_admin user
+        super_admin_user = os.getenv("SUPER_ADMIN_USERNAME", "")
+        super_admin_pass = os.getenv("SUPER_ADMIN_PASSWORD", "")
+        if super_admin_user and super_admin_pass:
+            result3 = await session.execute(select(User).where(User.username == super_admin_user))
+            existing_super = result3.scalar_one_or_none()
+            if not existing_super:
+                session.add(User(
+                    username=super_admin_user,
+                    hashed_password=hash_password(super_admin_pass),
+                    created_at=datetime.now(timezone.utc),
+                    created_by=None,
+                    role="super_admin",
+                ))
+                await session.commit()
+                logger.info("Bootstrap super_admin user '%s' created.", super_admin_user)
+
     scheduler = None
     if not os.getenv("TESTING"):
         scheduler = AsyncIOScheduler()
@@ -265,7 +282,7 @@ async def _get_allowed_groups(username: str, db: AsyncSession) -> Optional[list[
     user = result.scalar_one_or_none()
     if not user:
         return []  # fail-closed: unknown user sees nothing
-    if user.role == "admin":
+    if user.role in ("admin", "super_admin"):
         return None  # None means no filter (see all)
     groups_result = await db.execute(
         select(UserGroup.group_id).where(UserGroup.user_id == user.id)
@@ -993,7 +1010,7 @@ async def list_users(
         return templates.TemplateResponse("users.html", {
             "request": request,
             "username": username,
-            "role": "admin",
+            "role": request.session.get("role", "admin"),
             "users": user_list,
         })
     return user_list
@@ -1373,3 +1390,16 @@ async def admin_profile_page(
             "role": role,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Super-admin category management  (Task 4 will expand these stubs)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/super-admin/categories")
+async def list_categories_stub(
+    _actor: str = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Stub — full implementation in Task 4."""
+    return []

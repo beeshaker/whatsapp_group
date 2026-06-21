@@ -17,7 +17,7 @@ from sqlalchemy.pool import StaticPool
 from database import Base, get_db
 from main import app
 from models import User, UserGroup
-from auth import hash_password, require_login, require_admin
+from auth import hash_password, require_login, require_admin, require_super_admin
 
 # Pre-hash once at module load — avoids per-test bcrypt cost
 _HASHED_TESTPASS = hash_password("testpass")
@@ -103,3 +103,36 @@ async def authenticated_client():
 async def db_session():
     async with _TestSession() as session:
         yield session
+
+
+@pytest_asyncio.fixture
+async def super_admin_client():
+    """Client authenticated as super_admin, with require_super_admin bypassed."""
+    async def _override_get_db():
+        async with _TestSession() as session:
+            yield session
+
+    async def _override_require_login():
+        return "testsuperadmin"
+
+    async def _override_require_admin():
+        return "testsuperadmin"
+
+    async def _override_require_super_admin():
+        return "testsuperadmin"
+
+    app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[require_login] = _override_require_login
+    app.dependency_overrides[require_admin] = _override_require_admin
+    app.dependency_overrides[require_super_admin] = _override_require_super_admin
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        async with _TestSession() as session:
+            session.add(User(
+                username="testsuperadmin",
+                hashed_password=_HASHED_TESTPASS,
+                created_at=datetime.now(timezone.utc),
+                role="super_admin",
+            ))
+            await session.commit()
+        yield ac
+    app.dependency_overrides.clear()

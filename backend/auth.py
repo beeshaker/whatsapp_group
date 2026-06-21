@@ -26,8 +26,17 @@ async def require_admin(request: Request) -> str:
     username = request.session.get("username")
     if not username:
         raise HTTPException(status_code=302, headers={"Location": "/login"})
-    if request.session.get("role", "user") != "admin":
+    if request.session.get("role", "user") not in ("admin", "super_admin"):
         raise HTTPException(status_code=403, detail="Admin access required")
+    return username
+
+
+async def require_super_admin(request: Request) -> str:
+    username = request.session.get("username")
+    if not username:
+        raise HTTPException(status_code=302, headers={"Location": "/login"})
+    if request.session.get("role", "user") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
     return username
 
 
@@ -45,7 +54,7 @@ async def check_incident_group_access(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=403, detail="Access denied")
-    if user.role == "admin":
+    if user.role in ("admin", "super_admin"):
         return
     incident = await db.get(Incident, incident_id)
     if not incident:
