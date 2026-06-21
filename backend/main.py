@@ -10,12 +10,12 @@ from typing import Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
@@ -25,7 +25,7 @@ from chat import answer_query
 from classifier import classify_message, classify_update_or_new
 from database import get_db, init_db, AsyncSessionLocal
 from media import MEDIA_DIR, download_media
-from models import Incident, IncidentMedia, IncidentStatusHistory, IncidentUpdate, User, UserGroup, AuditLog, AdminProfile, AdminGroupSubscription
+from models import Incident, IncidentCategory, IncidentMedia, IncidentStatusHistory, IncidentUpdate, User, UserGroup, AuditLog, AdminProfile, AdminGroupSubscription
 from odoo_stub import push_incident
 from summaries import build_summary, format_whatsapp_summary, window_for_date
 from whatsapp import reply_to_message, send_group_message
@@ -76,6 +76,33 @@ class AdminSubscriptionsBody(BaseModel):
 
 class ChatBody(BaseModel):
     message: str
+
+
+class CreateCategoryBody(BaseModel):
+    slug: str
+    label: str
+
+    @field_validator("slug")
+    @classmethod
+    def validate_slug(cls, v: str) -> str:
+        if not v or len(v) > 50:
+            raise ValueError("slug must be 1–50 characters")
+        if not re.fullmatch(r"[a-z0-9_]+", v):
+            raise ValueError("slug must match ^[a-z0-9_]+$")
+        return v
+
+    @field_validator("label")
+    @classmethod
+    def validate_label(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("label must not be empty")
+        if len(v) > 100:
+            raise ValueError("label must be max 100 characters")
+        return v
+
+
+class DeleteCategoryBody(BaseModel):
+    remap_to: Optional[str] = None
 
 
 logging.basicConfig(level=logging.INFO)
@@ -1393,13 +1420,120 @@ async def admin_profile_page(
 
 
 # ---------------------------------------------------------------------------
-# Super-admin category management  (Task 4 will expand these stubs)
+# Super-admin category management
 # ---------------------------------------------------------------------------
 
 @app.get("/api/super-admin/categories")
-async def list_categories_stub(
-    _actor: str = Depends(require_super_admin),
+async def list_categories(
+    _: str = Depends(require_super_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Stub — full implementation in Task 4."""
-    return []
+    result = await db.execute(
+        select(
+            IncidentCategory,
+            func.count(Incident.id).label("incident_count"),
+        )
+        .outerjoin(Incident, Incident.category == IncidentCategory.slug)
+        .group_by(IncidentCategory.id)
+        .order_by(IncidentCategory.id)
+    )
+    return [
+        {
+            "id": cat.id,
+            "slug": cat.slug,
+            "label": cat.label,
+            "is_protected": cat.is_protected,
+            "incident_count": count,
+        }
+        for cat, count in result.all()
+    ]
+
+
+@app.post("/api/super-admin/categories", status_code=201)
+async def create_category(
+    body: CreateCategoryBody,
+    _: str = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    existing = await db.execute(
+        select(IncidentCategory).where(IncidentCategory.slug == body.slug)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="slug already exists")
+    cat = IncidentCategory(
+        slug=body.slug,
+        label=body.label,
+        is_protected=False,
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(cat)
+    await db.commit()
+    await db.refresh(cat)
+    return {
+        "id": cat.id,
+        "slug": cat.slug,
+        "label": cat.label,
+        "is_protected": cat.is_protected,
+        "created_at": cat.created_at.isoformat(),
+    }
+
+
+@app.get("/api/super-admin/categories/{slug}/usage")
+async def category_usage(
+    slug: str,
+    _: str = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    cat = await db.execute(
+        select(IncidentCategory).where(IncidentCategory.slug == slug)
+    )
+    if not cat.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Category not found")
+    count_result = await db.execute(
+        select(func.count(Incident.id)).where(Incident.category == slug)
+    )
+    return {"slug": slug, "incident_count": count_result.scalar() or 0}
+
+
+@app.post("/api/super-admin/categories/{slug}/delete", status_code=204)
+async def delete_category(
+    slug: str,
+    body: Optional[DeleteCategoryBody] = Body(None),
+    _: str = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    cat_result = await db.execute(
+        select(IncidentCategory).where(IncidentCategory.slug == slug)
+    )
+    cat = cat_result.scalar_one_or_none()
+    if not cat:
+        raise HTTPException(status_code=404, detail="Category not found")
+    if cat.is_protected:
+        raise HTTPException(status_code=403, detail="Cannot delete a protected category")
+
+    count_result = await db.execute(
+        select(func.count(Incident.id)).where(Incident.category == slug)
+    )
+    incident_count = count_result.scalar() or 0
+    remap_to = body.remap_to if body else None
+
+    if incident_count > 0 and not remap_to:
+        raise HTTPException(
+            status_code=409,
+            detail={"incident_count": incident_count, "message": f"{incident_count} incidents use '{slug}'. Provide remap_to."},
+        )
+
+    if remap_to:
+        remap_cat = await db.execute(
+            select(IncidentCategory).where(IncidentCategory.slug == remap_to)
+        )
+        if not remap_cat.scalar_one_or_none():
+            raise HTTPException(status_code=422, detail="remap_to slug does not exist")
+        await db.execute(
+            sa_update(Incident)
+            .where(Incident.category == slug)
+            .values(category=remap_to)
+        )
+
+    await db.delete(cat)
+    await db.commit()
