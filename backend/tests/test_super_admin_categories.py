@@ -28,12 +28,10 @@ async def test_categories_api_requires_super_admin_role(client):
     assert resp.status_code == 403
 
 
-async def test_categories_api_rejects_admin_role(authenticated_client):
-    resp = await authenticated_client.get("/api/super-admin/categories")
-    # authenticated_client uses dependency overrides (not a real session), so
-    # require_super_admin sees no session username and returns 302 redirect.
-    # Both 302 and 403 mean access is denied to non-super-admin users.
-    assert resp.status_code in (302, 403)
+async def test_categories_api_rejects_admin_role(client):
+    """A properly-authenticated admin (role=admin) must get 403, not just any redirect."""
+    resp = await client.get("/api/super-admin/categories")
+    assert resp.status_code == 403
 
 
 # ── GET /api/super-admin/categories ─────────────────────────────────────────
@@ -204,9 +202,7 @@ async def test_delete_with_incidents_no_remap_returns_409(super_admin_client, db
     resp = await super_admin_client.post("/api/super-admin/categories/plumbing/delete")
     assert resp.status_code == 409
     data = resp.json()
-    # FastAPI wraps HTTPException detail under the "detail" key
-    detail = data.get("detail", data)
-    assert detail["incident_count"] == 1
+    assert data["incident_count"] == 1
 
 
 async def test_delete_with_remap_reassigns_incidents(super_admin_client, db_session):

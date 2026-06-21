@@ -12,7 +12,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, field_validator
 from sqlalchemy import func, select, update as sa_update
@@ -1518,9 +1518,9 @@ async def delete_category(
     remap_to = body.remap_to if body else None
 
     if incident_count > 0 and not remap_to:
-        raise HTTPException(
+        return JSONResponse(
             status_code=409,
-            detail={"incident_count": incident_count, "message": f"{incident_count} incidents use '{slug}'. Provide remap_to."},
+            content={"incident_count": incident_count, "message": f"{incident_count} incidents use '{slug}'. Provide remap_to."},
         )
 
     if remap_to:
