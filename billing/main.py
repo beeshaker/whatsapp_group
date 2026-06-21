@@ -1,7 +1,6 @@
 import os
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
 
 from fastapi import Depends, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -11,7 +10,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from auth import hash_password, verify_password, require_login
 from database import get_db, init_db, AsyncSessionLocal
-from models import AdminUser, Client, Payment, PlanPrice, PaymentSession
+from models import AdminUser, Client, Payment, PlanPrice
 
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 
@@ -45,7 +44,7 @@ app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request, "error": None})
+    return templates.TemplateResponse(request, "login.html", {"request": request, "error": None})
 
 
 @app.post("/login", response_class=HTMLResponse)
@@ -57,7 +56,7 @@ async def login_submit(
 ):
     user = await db.scalar(select(AdminUser).where(AdminUser.username == username))
     if not user or not verify_password(password, user.hashed_password):
-        return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid credentials"})
+        return templates.TemplateResponse(request, "login.html", {"request": request, "error": "Invalid credentials"})
     request.session["username"] = user.username
     return RedirectResponse("/", status_code=303)
 
@@ -76,14 +75,14 @@ def _next_renewal(plan: str) -> date:
 async def dashboard(request: Request, username: str = Depends(require_login), db=Depends(get_db)):
     clients = (await db.execute(select(Client).order_by(Client.name))).scalars().all()
     prices = {p.plan_type: p for p in (await db.execute(select(PlanPrice))).scalars().all()}
-    return templates.TemplateResponse("dashboard.html", {
+    return templates.TemplateResponse(request, "dashboard.html", {
         "request": request, "clients": clients, "prices": prices, "username": username,
     })
 
 
 @app.get("/clients/new", response_class=HTMLResponse)
 async def new_client_form(request: Request, username: str = Depends(require_login)):
-    return templates.TemplateResponse("client_form.html", {"request": request, "error": None})
+    return templates.TemplateResponse(request, "client_form.html", {"request": request, "error": None})
 
 
 @app.post("/clients", response_class=HTMLResponse)
@@ -97,7 +96,7 @@ async def create_client(
 ):
     subdomain = subdomain.lower().strip()
     if await db.scalar(select(Client).where(Client.subdomain == subdomain)):
-        return templates.TemplateResponse("client_form.html", {
+        return templates.TemplateResponse(request, "client_form.html", {
             "request": request,
             "error": f"Subdomain '{subdomain}' already exists",
         })
@@ -122,7 +121,7 @@ async def client_detail(
     payments = (await db.execute(
         select(Payment).where(Payment.client_id == client_id).order_by(Payment.initiated_at.desc())
     )).scalars().all()
-    return templates.TemplateResponse("client_detail.html", {
+    return templates.TemplateResponse(request, "client_detail.html", {
         "request": request, "client": client, "payments": payments, "username": username,
     })
 
