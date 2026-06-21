@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head><title>{{ client.name }}</title>
+<style>
+*{box-sizing:border-box}
+body{font-family:sans-serif;padding:2rem;background:#f4f4f4}
+.card{background:white;padding:1.5rem;border-radius:8px;margin-bottom:1.5rem;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+h2{margin-top:0}
+label{display:block;font-weight:bold;margin-top:.8rem;font-size:.9rem}
+input,select{width:100%;padding:.5rem;margin:.3rem 0;border:1px solid #ccc;border-radius:4px}
+button.save{padding:.5rem 1.2rem;background:#075e54;color:white;border:none;border-radius:4px;cursor:pointer;margin-top:.5rem}
+button.action{padding:.4rem .9rem;background:#25d366;color:white;border:none;border-radius:4px;cursor:pointer;margin-right:.5rem}
+button.danger{background:#dc3545}
+table{width:100%;border-collapse:collapse}
+th,td{padding:.6rem;border-bottom:1px solid #eee;text-align:left;font-size:.9rem}
+th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
+.badge{padding:.2rem .6rem;border-radius:12px;font-size:.8rem;font-weight:bold}
+.active{background:#d4edda;color:#155724}.grace{background:#fff3cd;color:#856404}
+.warning{background:#f8d7da;color:#721c24}.suspended{background:#d6d8db;color:#383d41}
+.confirmed{color:green}.pending{color:orange}.failed{color:red}
+</style>
+</head>
+<body>
+<p><a href="/">&#8592; Dashboard</a></p>
+
+<div class="card">
+  <h2>{{ client.name }} <span class="badge {{ client.status }}">{{ client.status }}</span></h2>
+  <p style="color:#666">Subdomain: <strong>{{ client.subdomain }}</strong> &nbsp;&middot;&nbsp; Plan: <strong>{{ client.plan }}</strong> &nbsp;&middot;&nbsp; Renewal: <strong>{{ client.renewal_date }}</strong></p>
+
+  <form method="post" action="/clients/{{ client.id }}">
+    <label>WhatsApp Group ID (superusers group)</label>
+    <input name="whatsapp_group_id" value="{{ client.whatsapp_group_id or '' }}" placeholder="120363XXXXXXXXXX@g.us">
+    <label>OpenWA URL</label>
+    <input name="openwa_url" value="{{ client.openwa_url or '' }}" placeholder="http://localhost:2001">
+    <label>OpenWA Session Name</label>
+    <input name="openwa_session" value="{{ client.openwa_session or '' }}" placeholder="acme">
+    <label>OpenWA API Key</label>
+    <input name="openwa_api_key" value="{{ client.openwa_api_key or '' }}">
+    <label>Docker Project Name</label>
+    <input name="docker_project" value="{{ client.docker_project or '' }}" placeholder="acme">
+    <label>Plan</label>
+    <select name="plan">
+      <option value="monthly" {% if client.plan == 'monthly' %}selected{% endif %}>Monthly</option>
+      <option value="annual" {% if client.plan == 'annual' %}selected{% endif %}>Annual</option>
+    </select>
+    <label>Renewal Date</label>
+    <input type="date" name="renewal_date" value="{{ client.renewal_date }}">
+    <button class="save" type="submit">Save Changes</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">Actions</h3>
+  <form method="post" action="/clients/{{ client.id }}/push-reminder" style="display:inline">
+    <button class="action" type="submit">Push Reminder to Group</button>
+  </form>
+  {% if client.status == 'suspended' %}
+  <form method="post" action="/clients/{{ client.id }}/reactivate" style="display:inline">
+    <button class="action" type="submit" style="background:#075e54">Reactivate</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">Payment History</h3>
+  <table>
+    <tr><th>Date</th><th>Phone</th><th>Amount</th><th>MPesa Receipt</th><th>Status</th><th>Period</th></tr>
+    {% for p in payments %}
+    <tr>
+      <td>{{ p.initiated_at.strftime('%Y-%m-%d %H:%M') }}</td>
+      <td>{{ p.phone }}</td>
+      <td>KES {{ p.amount }}</td>
+      <td>{{ p.mpesa_transaction_id or '&#8212;' }}</td>
+      <td class="{{ p.status }}">{{ p.status }}</td>
+      <td>{{ p.period_start }} &#8594; {{ p.period_end }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" style="text-align:center;color:#888;padding:1rem">No payments yet</td></tr>
+    {% endfor %}
+  </table>
+</div>
+</body>
+</html>

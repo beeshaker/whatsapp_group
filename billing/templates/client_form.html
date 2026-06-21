@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head><title>New Client</title>
+<style>
+body{font-family:sans-serif;padding:2rem;background:#f4f4f4}
+form{background:white;padding:2rem;border-radius:8px;max-width:480px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+label{display:block;font-weight:bold;margin-top:.8rem;font-size:.9rem}
+input,select{width:100%;padding:.5rem;margin:.3rem 0 1rem;border:1px solid #ccc;border-radius:4px}
+button{padding:.6rem 1.2rem;background:#25d366;color:white;border:none;border-radius:4px;cursor:pointer}
+.error{color:#c00;font-size:.9rem}
+</style>
+</head>
+<body>
+<p><a href="/">&#8592; Dashboard</a></p>
+<form method="post" action="/clients">
+  <h2>New Client</h2>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <label>Company Name</label>
+  <input name="name" required placeholder="Acme Corp">
+  <label>Subdomain (lowercase letters, numbers, hyphens)</label>
+  <input name="subdomain" pattern="[a-z0-9\-]+" required placeholder="acme">
+  <label>Plan</label>
+  <select name="plan">
+    <option value="monthly">Monthly</option>
+    <option value="annual">Annual</option>
+  </select>
+  <button type="submit">Create Client</button>
+</form>
+</body>
+</html>
