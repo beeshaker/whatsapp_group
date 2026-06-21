@@ -113,3 +113,39 @@ async def test_users_table_has_role_column(migrated_engine):
         result = await conn.execute(text("PRAGMA table_info(users)"))
         columns = [row[1] for row in result.all()]
         assert "role" in columns
+
+
+from models import IncidentCategory
+
+
+async def test_incident_categories_table_created(migrated_engine):
+    async with migrated_engine.connect() as conn:
+        result = await conn.execute(text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='incident_categories'"
+        ))
+        assert result.scalar_one_or_none() == "incident_categories"
+
+
+async def test_incident_categories_seeded(migrated_engine):
+    async with migrated_engine.connect() as conn:
+        result = await conn.execute(text("SELECT slug FROM incident_categories ORDER BY slug"))
+        slugs = {row[0] for row in result.all()}
+    assert slugs == {"plumbing", "electrical", "lift", "security", "structural", "cleaning", "access", "other"}
+
+
+async def test_other_category_is_protected(migrated_engine):
+    async with migrated_engine.connect() as conn:
+        result = await conn.execute(text(
+            "SELECT is_protected FROM incident_categories WHERE slug='other'"
+        ))
+        protected = result.scalar_one_or_none()
+    assert protected == 1
+
+
+async def test_non_other_categories_not_protected(migrated_engine):
+    async with migrated_engine.connect() as conn:
+        result = await conn.execute(text(
+            "SELECT is_protected FROM incident_categories WHERE slug='plumbing'"
+        ))
+        protected = result.scalar_one_or_none()
+    assert protected == 0

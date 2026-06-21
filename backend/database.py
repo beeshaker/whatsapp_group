@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
@@ -185,5 +186,44 @@ async def init_db():
                     updated_at TIMESTAMP NOT NULL
                 )
             """))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS incident_categories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    slug TEXT UNIQUE NOT NULL,
+                    label TEXT NOT NULL,
+                    is_protected BOOLEAN NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP NOT NULL
+                )
+            """))
+    except Exception:
+        pass
+
+    # Seed categories if table is empty
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text("SELECT COUNT(*) FROM incident_categories"))
+            count = result.scalar()
+            if count == 0:
+                now_iso = datetime.utcnow().isoformat()
+                seeds = [
+                    ("plumbing",    "Plumbing",    0),
+                    ("electrical",  "Electrical",  0),
+                    ("lift",        "Lift",        0),
+                    ("security",    "Security",    0),
+                    ("structural",  "Structural",  0),
+                    ("cleaning",    "Cleaning",    0),
+                    ("access",      "Access",      0),
+                    ("other",       "Other",       1),
+                ]
+                for slug, label, protected in seeds:
+                    await conn.execute(text(
+                        "INSERT OR IGNORE INTO incident_categories (slug, label, is_protected, created_at) "
+                        "VALUES (:slug, :label, :protected, :now)"
+                    ), {"slug": slug, "label": label, "protected": protected, "now": now_iso})
     except Exception:
         pass

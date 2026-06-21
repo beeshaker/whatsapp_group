@@ -68,7 +68,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(Text, nullable=False)
-    role: Mapped[str] = mapped_column(String(10), nullable=False, default="user", server_default="user")
+    role: Mapped[str] = mapped_column(String(15), nullable=False, default="user", server_default="user")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
@@ -116,3 +116,13 @@ class ChatSession(Base):
     session_key: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     messages: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class IncidentCategory(Base):
+    __tablename__ = "incident_categories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    slug: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    label: Mapped[str] = mapped_column(Text, nullable=False)
+    is_protected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
