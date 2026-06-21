@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head><title>Plan Prices</title>
+<style>
+body{font-family:sans-serif;padding:2rem;background:#f4f4f4}
+form{background:white;padding:2rem;border-radius:8px;max-width:420px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+label{display:block;font-weight:bold;margin-top:.8rem;font-size:.9rem}
+input{width:100%;padding:.5rem;margin:.3rem 0 1rem;border:1px solid #ccc;border-radius:4px}
+button{padding:.6rem 1.2rem;background:#075e54;color:white;border:none;border-radius:4px;cursor:pointer}
+.note{color:#888;font-size:.85rem;margin-top:.3rem}
+</style>
+</head>
+<body>
+<p><a href="/">← Dashboard</a></p>
+<form method="post" action="/prices">
+  <h2>Plan Prices (KES)</h2>
+  <label>Monthly Price</label>
+  <input name="monthly_amount" type="number" step="0.01" min="0"
+    value="{{ prices['monthly'].amount if 'monthly' in prices else '' }}" required>
+  <label>Annual Price</label>
+  <input name="annual_amount" type="number" step="0.01" min="0"
+    value="{{ prices['annual'].amount if 'annual' in prices else '' }}" required>
+  {% if 'monthly' in prices %}
+  <p class="note">Last updated {{ prices['monthly'].set_at.strftime('%Y-%m-%d') }} by {{ prices['monthly'].set_by }}</p>
+  {% endif %}
+  <button type="submit">Save Prices</button>
+</form>
+</body>
+</html>

@@ -62,3 +62,12 @@ async def test_update_client_openwa_config(auth_http, db_session):
     assert r.status_code in (200, 303)
     await db_session.refresh(client)
     assert client.openwa_url == "http://localhost:2001"
+
+
+@pytest.mark.asyncio
+async def test_set_and_read_prices(auth_http):
+    r = await auth_http.post("/prices", data={"monthly_amount": "1500.00", "annual_amount": "15000.00"})
+    assert r.status_code in (200, 303)
+    r2 = await auth_http.get("/prices")
+    assert b"1500" in r2.content
+    assert b"15000" in r2.content

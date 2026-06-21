@@ -1,6 +1,7 @@
 import os
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 
 from fastapi import Depends, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -158,3 +159,33 @@ async def update_client(
         client.plan = plan
     await db.commit()
     return RedirectResponse(f"/clients/{client_id}", status_code=303)
+
+
+@app.get("/prices", response_class=HTMLResponse)
+async def prices_page(request: Request, username: str = Depends(require_login), db=Depends(get_db)):
+    prices = {p.plan_type: p for p in (await db.execute(select(PlanPrice))).scalars().all()}
+    return templates.TemplateResponse(request, "prices.html", {"request": request, "prices": prices, "username": username})
+
+
+@app.post("/prices", response_class=HTMLResponse)
+async def set_prices(
+    request: Request,
+    monthly_amount: str = Form(...),
+    annual_amount: str = Form(...),
+    username: str = Depends(require_login),
+    db=Depends(get_db),
+):
+    now = datetime.now(timezone.utc)
+    for plan_type, amount_str in [("monthly", monthly_amount), ("annual", annual_amount)]:
+        existing = await db.scalar(select(PlanPrice).where(PlanPrice.plan_type == plan_type))
+        if existing:
+            existing.amount = Decimal(amount_str)
+            existing.set_at = now
+            existing.set_by = username
+        else:
+            db.add(PlanPrice(
+                plan_type=plan_type, amount=Decimal(amount_str),
+                currency="KES", set_at=now, set_by=username,
+            ))
+    await db.commit()
+    return RedirectResponse("/prices", status_code=303)
