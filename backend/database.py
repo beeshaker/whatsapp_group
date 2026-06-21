@@ -209,22 +209,22 @@ async def init_db():
             result = await conn.execute(text("SELECT COUNT(*) FROM incident_categories"))
             count = result.scalar()
             if count == 0:
-                now_iso = datetime.now(timezone.utc).isoformat()
+                now = datetime.now(timezone.utc)
                 seeds = [
-                    ("plumbing",    "Plumbing",    0),
-                    ("electrical",  "Electrical",  0),
-                    ("lift",        "Lift",        0),
-                    ("security",    "Security",    0),
-                    ("structural",  "Structural",  0),
-                    ("cleaning",    "Cleaning",    0),
-                    ("access",      "Access",      0),
-                    ("other",       "Other",       1),
+                    ("plumbing",    "Plumbing",    False),
+                    ("electrical",  "Electrical",  False),
+                    ("lift",        "Lift",        False),
+                    ("security",    "Security",    False),
+                    ("structural",  "Structural",  False),
+                    ("cleaning",    "Cleaning",    False),
+                    ("access",      "Access",      False),
+                    ("other",       "Other",       True),
                 ]
                 for slug, label, protected in seeds:
                     await conn.execute(text(
                         "INSERT INTO incident_categories (slug, label, is_protected, created_at) "
                         "VALUES (:slug, :label, :protected, :now) "
                         "ON CONFLICT (slug) DO NOTHING"
-                    ), {"slug": slug, "label": label, "protected": protected, "now": now_iso})
+                    ), {"slug": slug, "label": label, "protected": protected, "now": now})
     except Exception:
         pass
