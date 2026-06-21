@@ -1,0 +1,35 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    restart: always
+    ports:
+      - "127.0.0.1:${BACKEND_PORT}:8000"
+    env_file: .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - media_data:/app/media
+    networks:
+      - client-net
+
+  openwa:
+    build:
+      context: ./openwa
+    restart: always
+    ports:
+      - "127.0.0.1:${OPENWA_PORT}:2785"
+    volumes:
+      - openwa_data:/app/data
+    networks:
+      - client-net
+    depends_on:
+      - backend
+
+networks:
+  client-net:
+    driver: bridge
+
+volumes:
+  openwa_data:
+  media_data:
