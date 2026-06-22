@@ -39,6 +39,8 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
       SUPER_ADMIN_USERNAME: ${SUPER_ADMIN_USERNAME:-}
       SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD:-}
+      BILLING_SERVICE_URL: ${BILLING_SERVICE_URL:-}
+      BILLING_WEBHOOK_SECRET: ${BILLING_WEBHOOK_SECRET:-}
     networks:
       ops-net:
         # Dotted alias so the openwa webhook URL (which rejects bare,
