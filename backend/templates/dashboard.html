@@ -1167,6 +1167,9 @@
     {% if role == 'super_admin' %}
     <a class="nav-link" href="/super-admin/categories">⚙️ System Config</a>
     {% endif %}
+    {% if role in ('admin', 'super_admin') %}
+    <a class="nav-link" href="/settings">🔧 Settings</a>
+    {% endif %}
   </div>
   <div class="nav-right">
     <div class="user-pill">

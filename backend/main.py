@@ -1545,6 +1545,91 @@ async def admin_profile_page(
 
 
 # ---------------------------------------------------------------------------
+# Settings page + WhatsApp reconnect API
+# ---------------------------------------------------------------------------
+
+async def _openwa_find_session() -> tuple[str | None, str | None]:
+    """Return (session_uuid, status) for the configured OPENWA_SESSION, or (None, None)."""
+    import whatsapp as _wa
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(
+            f"{_wa.OPENWA_URL}/api/sessions",
+            headers={"X-API-Key": _wa.OPENWA_API_KEY},
+        )
+        r.raise_for_status()
+        for s in r.json():
+            if s.get("name") == _wa.OPENWA_SESSION:
+                return s["id"], s.get("status", "UNKNOWN")
+    return None, None
+
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(
+    request: Request,
+    username: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    user_result = await db.execute(select(User).where(User.username == username))
+    user_obj = user_result.scalar_one_or_none()
+    role = user_obj.role if user_obj else "user"
+    return templates.TemplateResponse(
+        "settings.html",
+        {"request": request, "username": username, "role": role},
+    )
+
+
+@app.get("/api/settings/whatsapp-status")
+async def api_whatsapp_status(_: str = Depends(require_admin)):
+    try:
+        session_id, status = await _openwa_find_session()
+        if not session_id:
+            return JSONResponse({"status": "NOT_FOUND"})
+        return JSONResponse({"status": status, "id": session_id})
+    except Exception as exc:
+        return JSONResponse({"status": "ERROR", "detail": str(exc)}, status_code=200)
+
+
+@app.post("/api/settings/whatsapp-reconnect")
+async def api_whatsapp_reconnect(_: str = Depends(require_admin)):
+    import whatsapp as _wa
+    try:
+        session_id, _ = await _openwa_find_session()
+        if not session_id:
+            return JSONResponse({"ok": False, "detail": "Session not found"}, status_code=404)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.post(
+                f"{_wa.OPENWA_URL}/api/sessions/{session_id}/start",
+                headers={"X-API-Key": _wa.OPENWA_API_KEY},
+            )
+            return JSONResponse({"ok": r.status_code < 400, "status": r.status_code})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "detail": str(exc)}, status_code=500)
+
+
+@app.get("/api/settings/whatsapp-qr")
+async def api_whatsapp_qr(_: str = Depends(require_admin)):
+    import whatsapp as _wa
+    try:
+        session_id, _ = await _openwa_find_session()
+        if not session_id:
+            return JSONResponse({"error": "Session not found"}, status_code=404)
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                f"{_wa.OPENWA_URL}/api/sessions/{session_id}/qr",
+                headers={"X-API-Key": _wa.OPENWA_API_KEY},
+            )
+            if r.status_code == 200:
+                return JSONResponse(r.json())
+            sr = await client.get(
+                f"{_wa.OPENWA_URL}/api/sessions/{session_id}",
+                headers={"X-API-Key": _wa.OPENWA_API_KEY},
+            )
+            return JSONResponse({"status": sr.json().get("status", "UNKNOWN")})
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+# ---------------------------------------------------------------------------
 # Super-admin category management
 # ---------------------------------------------------------------------------
 

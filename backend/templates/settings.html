@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings</title>
+  <style>
+    :root {
+      --bg: #07111f; --bg-soft: #0b1728; --surface: #101f34; --surface-2: #132840;
+      --line: rgba(148, 163, 184, 0.18); --text: #eef6ff; --muted: #91a3b8;
+      --blue: #38bdf8; --red: #ef4444; --green: #22c55e; --amber: #f59e0b;
+      --shadow: 0 18px 45px rgba(0,0,0,0.28); --radius-xl: 22px; --radius-lg: 16px; --radius-md: 12px;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    * { margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body { font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: var(--bg); color: var(--text); }
+    button, input { font: inherit; }
+
+    .nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(7,17,31,0.88); backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--line);
+      display: flex; align-items: center; gap: 1rem;
+      padding: 0 1.25rem; height: 52px;
+    }
+    .nav-brand {
+      display: flex; align-items: center; gap: .55rem;
+      text-decoration: none; color: var(--text); font-weight: 700; font-size: .9375rem;
+    }
+    .nav-brand-icon {
+      width: 28px; height: 28px;
+      background: linear-gradient(135deg, var(--blue) 0%, #7c3aed 100%);
+      border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: .875rem;
+    }
+    .nav-links { display: flex; align-items: center; gap: .25rem; flex: 1; justify-content: center; }
+    .nav-link {
+      display: flex; align-items: center; gap: .35rem;
+      padding: .35rem .7rem; border-radius: 8px; font-size: .8375rem; font-weight: 500;
+      color: var(--muted); text-decoration: none; transition: color .15s, background .15s;
+    }
+    .nav-link:hover { color: var(--text); background: rgba(148,163,184,.08); }
+    .nav-link.active { color: var(--blue); background: rgba(56,189,248,.1); }
+    .nav-right { display: flex; align-items: center; gap: .75rem; }
+    .user-pill {
+      display: flex; align-items: center; gap: .45rem;
+      padding: .28rem .6rem; background: var(--surface-2); border: 1px solid var(--line);
+      border-radius: 99px; font-size: .8rem; font-weight: 500;
+    }
+    .user-avatar {
+      width: 21px; height: 21px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--blue) 0%, #7c3aed 100%);
+      display: flex; align-items: center; justify-content: center;
+      font-size: .6rem; font-weight: 700; color: #fff;
+    }
+    .btn-signout {
+      padding: .3rem .75rem; background: transparent; border: 1px solid var(--line);
+      border-radius: 8px; color: var(--muted); font-size: .8rem; cursor: pointer;
+    }
+    .btn-signout:hover { color: var(--red); border-color: rgba(239,68,68,.4); }
+
+    .page { max-width: 680px; margin: 0 auto; padding: 2rem 1.25rem; }
+
+    h1 { font-size: 1.4rem; font-weight: 900; letter-spacing: -.03em; margin-bottom: 1.75rem; }
+
+    .section {
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.025));
+      border: 1px solid var(--line); border-radius: var(--radius-xl);
+      padding: 1.5rem; margin-bottom: 1.25rem;
+    }
+    .section-title {
+      font-size: .7rem; font-weight: 900; letter-spacing: .1em; text-transform: uppercase;
+      color: var(--muted); margin-bottom: 1rem;
+    }
+
+    .status-row { display: flex; align-items: center; gap: .75rem; margin-bottom: 1.25rem; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .status-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .status-dot.disconnected { background: var(--red); }
+    .status-dot.loading { background: var(--amber); }
+    .status-label { font-size: .9rem; font-weight: 700; }
+    .status-sub { font-size: .8rem; color: var(--muted); }
+
+    .qr-area { text-align: center; padding: 1rem 0; }
+    .qr-area img { width: 220px; height: 220px; border-radius: 12px; border: 1px solid var(--line); }
+    .qr-hint { margin-top: .75rem; font-size: .8rem; color: var(--muted); line-height: 1.5; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: .5rem;
+      padding: .55rem 1.2rem; border: none; border-radius: 12px;
+      font-size: .85rem; font-weight: 800; cursor: pointer;
+      transition: transform .15s, filter .15s, opacity .15s;
+    }
+    .btn:hover { transform: translateY(-1px); filter: brightness(1.08); }
+    .btn:disabled { opacity: .45; cursor: default; transform: none; filter: none; }
+    .btn-primary { background: linear-gradient(135deg, #0ea5e9, #0284c7); color: white; }
+    .btn-danger { background: linear-gradient(135deg, #dc2626, #b91c1c); color: white; }
+
+    .spinner {
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,.3); border-top-color: white;
+      border-radius: 50%; animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .success-banner {
+      display: none; align-items: center; gap: .6rem;
+      padding: .75rem 1rem; border-radius: 12px;
+      background: rgba(34,197,94,.12); border: 1px solid rgba(34,197,94,.25);
+      color: #86efac; font-size: .875rem; font-weight: 700; margin-top: 1rem;
+    }
+    .success-banner.show { display: flex; }
+  </style>
+</head>
+<body>
+
+<nav class="nav">
+  <a class="nav-brand" href="/">
+    <div class="nav-brand-icon">🎫</div>
+    Ops Ticketing
+  </a>
+  <div class="nav-links">
+    <a class="nav-link" href="/">📋 Live Queue</a>
+    <a class="nav-link" href="/archive">📁 Archive</a>
+    {% if role in ('admin', 'super_admin') %}
+    <a class="nav-link" href="/users">👥 Users</a>
+    {% endif %}
+    <a class="nav-link" href="/summaries">📊 Summaries</a>
+    <a class="nav-link" href="/admin/profile">👤 Profile</a>
+    {% if role == 'super_admin' %}
+    <a class="nav-link" href="/super-admin/categories">⚙️ System Config</a>
+    {% endif %}
+    <a class="nav-link active" href="/settings">🔧 Settings</a>
+  </div>
+  <div class="nav-right">
+    <div class="user-pill">
+      <div class="user-avatar" id="nav-avatar"></div>
+      <span>{{ username }}</span>
+    </div>
+    <form method="post" action="/logout" style="margin:0">
+      <button class="btn-signout" type="submit">Sign out</button>
+    </form>
+  </div>
+</nav>
+
+<div class="page">
+  <h1>Settings</h1>
+
+  <div class="section">
+    <div class="section-title">WhatsApp Connection</div>
+
+    <div class="status-row">
+      <div class="status-dot loading" id="status-dot"></div>
+      <div>
+        <div class="status-label" id="status-label">Checking…</div>
+        <div class="status-sub" id="status-sub"></div>
+      </div>
+    </div>
+
+    <div id="qr-area" class="qr-area" style="display:none">
+      <img id="qr-img" src="" alt="WhatsApp QR code">
+      <div class="qr-hint">
+        Open WhatsApp on your phone &rarr; <strong>Linked Devices</strong> &rarr; <strong>Link a Device</strong><br>
+        then scan this code. It refreshes automatically.
+      </div>
+    </div>
+
+    <div class="success-banner" id="success-banner">
+      ✓ WhatsApp connected successfully!
+    </div>
+
+    <div style="margin-top:1.25rem;display:flex;gap:.75rem;flex-wrap:wrap">
+      <button class="btn btn-primary" id="reconnect-btn" onclick="startReconnect()">
+        Reconnect WhatsApp
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+const CONNECTED_STATUSES = ['WORKING', 'CONNECTED', 'READY', 'AUTHENTICATED'];
+let qrPollInterval = null;
+
+(function() {
+  const el = document.getElementById('nav-avatar');
+  if (el) el.textContent = {{ username | tojson }}.slice(0, 2).toUpperCase();
+})();
+
+async function checkStatus() {
+  try {
+    const data = await fetch('/api/settings/whatsapp-status').then(r => r.json());
+    setStatusDisplay(data.status);
+  } catch(e) {
+    setStatusDisplay('ERROR');
+  }
+}
+
+function setStatusDisplay(status) {
+  const dot = document.getElementById('status-dot');
+  const label = document.getElementById('status-label');
+  const sub = document.getElementById('status-sub');
+
+  dot.className = 'status-dot';
+  if (CONNECTED_STATUSES.includes((status || '').toUpperCase())) {
+    dot.classList.add('connected');
+    label.textContent = 'Connected';
+    sub.textContent = 'WhatsApp is active and receiving messages.';
+    stopQrPoll();
+    document.getElementById('qr-area').style.display = 'none';
+  } else if (status === 'NOT_FOUND' || status === 'ERROR') {
+    dot.classList.add('disconnected');
+    label.textContent = 'Session not found';
+    sub.textContent = 'OpenWA session could not be located.';
+  } else {
+    dot.classList.add('disconnected');
+    label.textContent = 'Disconnected';
+    sub.textContent = `Status: ${status || 'unknown'}`;
+  }
+}
+
+async function startReconnect() {
+  const btn = document.getElementById('reconnect-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Starting…';
+
+  try {
+    await fetch('/api/settings/whatsapp-reconnect', { method: 'POST' });
+  } catch(e) {}
+
+  document.getElementById('qr-area').style.display = 'block';
+  document.getElementById('success-banner').classList.remove('show');
+  startQrPoll();
+
+  btn.disabled = false;
+  btn.textContent = 'Reconnect WhatsApp';
+}
+
+function startQrPoll() {
+  stopQrPoll();
+  pollQr();
+  qrPollInterval = setInterval(pollQr, 3000);
+}
+
+function stopQrPoll() {
+  if (qrPollInterval) { clearInterval(qrPollInterval); qrPollInterval = null; }
+}
+
+async function pollQr() {
+  try {
+    const data = await fetch('/api/settings/whatsapp-qr').then(r => r.json());
+
+    if (data.qrCode) {
+      document.getElementById('qr-img').src = data.qrCode;
+      document.getElementById('qr-area').style.display = 'block';
+    }
+
+    const status = (data.status || '').toUpperCase();
+    if (CONNECTED_STATUSES.includes(status)) {
+      stopQrPoll();
+      document.getElementById('qr-area').style.display = 'none';
+      document.getElementById('success-banner').classList.add('show');
+      setStatusDisplay(status);
+    }
+  } catch(e) {}
+}
+
+checkStatus();
+</script>
+</body>
+</html>
