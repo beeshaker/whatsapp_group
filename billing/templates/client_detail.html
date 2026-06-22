@@ -18,6 +18,21 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
 .active{background:#d4edda;color:#155724}.grace{background:#fff3cd;color:#856404}
 .warning{background:#f8d7da;color:#721c24}.suspended{background:#d6d8db;color:#383d41}
 .confirmed{color:green}.pending{color:orange}.failed{color:red}
+
+/* QR modal */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100;align-items:center;justify-content:center}
+.overlay.open{display:flex}
+.modal-box{background:white;border-radius:12px;padding:1.75rem;max-width:360px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.modal-box h3{margin:0 0 .5rem}
+.modal-box p{font-size:.85rem;color:#666;margin-bottom:1rem;line-height:1.5}
+.modal-box img{width:240px;height:240px;border:1px solid #eee;border-radius:8px}
+.modal-status{margin:.75rem 0;font-size:.875rem;font-weight:600;color:#555}
+.modal-status.ok{color:#155724}
+.modal-status.err{color:#721c24}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid #ccc;border-top-color:#075e54;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:4px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.modal-close-btn{margin-top:1rem;padding:.4rem 1rem;background:#eee;border:none;border-radius:6px;cursor:pointer;font-size:.85rem}
+.modal-close-btn:hover{background:#ddd}
 </style>
 </head>
 <body>
@@ -60,11 +75,10 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
   <form method="post" action="/clients/{{ client.id }}/push-reminder" style="display:inline">
     <button class="action" type="submit">Push Reminder to Group</button>
   </form>
-  <form method="post" action="/clients/{{ client.id }}/reconnect-whatsapp" style="display:inline">
-    <button class="action" type="submit" style="background:#075e54" {% if not client.openwa_url or not client.openwa_session %}disabled title="Set OpenWA URL and session name first"{% endif %}>
-      Reconnect WhatsApp
-    </button>
-  </form>
+  <button class="action" style="background:#075e54" onclick="openReconnect()"
+    {% if not client.openwa_url or not client.openwa_session %}disabled title="Set OpenWA URL and session name first"{% endif %}>
+    Reconnect WhatsApp
+  </button>
   <form method="post" action="/clients/{{ client.id }}/send-invite" style="display:inline">
     <button class="action" type="submit" {% if not client.admin_whatsapp_phone or not client.whatsapp_invite_link %}disabled title="Set admin phone and invite link first"{% endif %}>
       Send Invite to Admin
@@ -98,5 +112,67 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
     {% endfor %}
   </table>
 </div>
+<!-- WhatsApp reconnect modal -->
+<div class="overlay" id="qr-overlay" onclick="if(event.target===this)closeReconnect()">
+  <div class="modal-box">
+    <h3>Reconnect WhatsApp</h3>
+    <p>Open WhatsApp &rarr; <strong>Linked Devices</strong> &rarr; <strong>Link a Device</strong> and scan the code below.</p>
+    <div id="qr-content"><div class="modal-status"><span class="spinner"></span> Starting session&hellip;</div></div>
+    <button class="modal-close-btn" onclick="closeReconnect()">Close</button>
+  </div>
+</div>
+
+<script>
+const CLIENT_ID = {{ client.id }};
+let qrPoll = null;
+
+async function openReconnect() {
+  document.getElementById('qr-overlay').classList.add('open');
+  document.getElementById('qr-content').innerHTML = '<div class="modal-status"><span class="spinner"></span> Starting session&hellip;</div>';
+  try {
+    await fetch(`/clients/${CLIENT_ID}/reconnect-whatsapp`, { method: 'POST' });
+  } catch(e) {}
+  startQrPoll();
+}
+
+function closeReconnect() {
+  stopQrPoll();
+  document.getElementById('qr-overlay').classList.remove('open');
+}
+
+function startQrPoll() {
+  stopQrPoll();
+  pollQr();
+  qrPoll = setInterval(pollQr, 3000);
+}
+
+function stopQrPoll() {
+  if (qrPoll) { clearInterval(qrPoll); qrPoll = null; }
+}
+
+async function pollQr() {
+  try {
+    const data = await fetch(`/clients/${CLIENT_ID}/whatsapp-qr`).then(r => r.json());
+    const content = document.getElementById('qr-content');
+    if (!content) return;
+
+    if (data.error) {
+      content.innerHTML = `<div class="modal-status err">✗ ${data.error}</div>`;
+      return;
+    }
+
+    const status = (data.status || '').toUpperCase();
+    if (['WORKING','CONNECTED','READY','AUTHENTICATED'].includes(status)) {
+      stopQrPoll();
+      content.innerHTML = '<div class="modal-status ok">✓ Connected! You can close this.</div>';
+      return;
+    }
+
+    if (data.qrCode) {
+      content.innerHTML = `<img src="${data.qrCode}" alt="QR Code"><div class="modal-status"><span class="spinner"></span> Waiting for scan&hellip;</div>`;
+    }
+  } catch(e) {}
+}
+</script>
 </body>
 </html>
