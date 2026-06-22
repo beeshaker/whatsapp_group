@@ -14,6 +14,10 @@ _OPENWA_SESSION = os.getenv("OPENWA_SESSION", "")
 async def send_to_group(client: Client, text: str) -> None:
     """Send a plain-text message to a client's superusers WhatsApp group."""
     if not client.openwa_url or not client.whatsapp_group_id:
+        _log.warning(
+            "send_to_group skipped for %s: openwa_url=%r group_id=%r",
+            client.subdomain, client.openwa_url, client.whatsapp_group_id,
+        )
         return
 
     try:
@@ -29,12 +33,21 @@ async def send_to_group(client: Client, text: str) -> None:
                     session_id = s["id"]
                     break
             if not session_id:
+                _log.warning(
+                    "send_to_group: session %r not found in OpenWA for %s (available: %s)",
+                    client.openwa_session, client.subdomain,
+                    [s.get("name") for s in sessions_r.json()],
+                )
                 return
 
-            await http.post(
+            send_r = await http.post(
                 f"{client.openwa_url}/api/sessions/{session_id}/messages/send-text",
                 headers={"X-API-Key": client.openwa_api_key or "", "Content-Type": "application/json"},
                 json={"chatId": client.whatsapp_group_id, "text": text},
+            )
+            _log.warning(
+                "send_to_group %s → %s status=%s body=%s",
+                client.subdomain, client.whatsapp_group_id, send_r.status_code, send_r.text[:200],
             )
     except Exception as exc:
         _log.warning("send_to_group failed for %s: %s", client.subdomain, exc)
