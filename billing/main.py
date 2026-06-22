@@ -313,12 +313,21 @@ async def client_webhook(subdomain: str, request: Request, db=Depends(get_db)):
         db.add(payment)
         await db.flush()
 
-        stk = await initiate_stk_push(
-            phone=phone,
-            amount=amount,
-            account_ref=f"{client.subdomain}-sub",
-            callback_url=f"{MPESA_CALLBACK_BASE_URL}/webhook/mpesa",
-        )
+        try:
+            stk = await initiate_stk_push(
+                phone=phone,
+                amount=amount,
+                account_ref=f"{client.subdomain}-sub",
+                callback_url=f"{MPESA_CALLBACK_BASE_URL}/webhook/mpesa",
+            )
+        except Exception as exc:
+            import logging as _log
+            _log.getLogger(__name__).error("STK Push failed for %s: %s", client.subdomain, exc)
+            payment.status = "failed"
+            await db.delete(active_session)
+            await db.commit()
+            await send_to_group(client, "❌ M-Pesa payment request failed. Please try again with /payment.")
+            return {"ok": True}
 
         active_session.state = "awaiting_stk_confirm"
         active_session.phone = phone
