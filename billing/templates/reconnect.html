@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head><title>Reconnect WhatsApp — {{ client.name }}</title>
+<style>
+*{box-sizing:border-box}
+body{font-family:sans-serif;padding:2rem;background:#f4f4f4}
+.card{background:white;padding:1.5rem;border-radius:8px;margin-bottom:1.5rem;box-shadow:0 1px 4px rgba(0,0,0,.08);max-width:480px;margin:2rem auto}
+h2{margin-top:0}
+.qr-wrap{text-align:center;padding:1rem 0}
+.qr-wrap img{width:260px;height:260px;border:1px solid #eee;border-radius:4px}
+.status{text-align:center;margin:.8rem 0;font-size:.95rem;color:#555}
+.status.ok{color:#155724;font-weight:bold}
+.status.err{color:#721c24}
+.spinner{display:inline-block;width:18px;height:18px;border:3px solid #ccc;border-top-color:#075e54;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:.4rem}
+@keyframes spin{to{transform:rotate(360deg)}}
+a{color:#075e54}
+</style>
+</head>
+<body>
+<div class="card">
+  <p><a href="/clients/{{ client.id }}">&larr; Back to {{ client.name }}</a></p>
+  <h2>Reconnect WhatsApp</h2>
+  <p>Scan the QR code below with the WhatsApp account that runs this bot. Open WhatsApp &rarr; Linked Devices &rarr; Link a Device.</p>
+
+  <div class="qr-wrap" id="qr-wrap">
+    <div class="status" id="status"><span class="spinner"></span> Fetching QR code&hellip;</div>
+  </div>
+</div>
+
+<script>
+const clientId = {{ client.id }};
+let pollInterval;
+
+async function poll() {
+  try {
+    const res = await fetch(`/clients/${clientId}/whatsapp-qr`);
+    const data = await res.json();
+
+    if (data.error) {
+      setStatus('err', '✗ ' + data.error);
+      return;
+    }
+
+    const status = (data.status || '').toUpperCase();
+
+    if (data.qrCode) {
+      document.getElementById('qr-wrap').innerHTML =
+        `<img src="${data.qrCode}" alt="QR Code">` +
+        `<div class="status"><span class="spinner"></span> Waiting for scan&hellip;</div>`;
+    }
+
+    if (['WORKING', 'CONNECTED', 'READY', 'AUTHENTICATED'].includes(status)) {
+      clearInterval(pollInterval);
+      document.getElementById('qr-wrap').innerHTML =
+        `<div class="status ok">✓ Connected! Redirecting&hellip;</div>`;
+      setTimeout(() => { window.location = `/clients/${clientId}`; }, 1500);
+    }
+  } catch (e) {
+    setStatus('err', '✗ Could not reach billing service');
+  }
+}
+
+function setStatus(cls, msg) {
+  const el = document.getElementById('status');
+  if (el) { el.className = 'status ' + cls; el.textContent = msg; }
+}
+
+poll();
+pollInterval = setInterval(poll, 3000);
+</script>
+</body>
+</html>

@@ -60,6 +60,11 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
   <form method="post" action="/clients/{{ client.id }}/push-reminder" style="display:inline">
     <button class="action" type="submit">Push Reminder to Group</button>
   </form>
+  <form method="post" action="/clients/{{ client.id }}/reconnect-whatsapp" style="display:inline">
+    <button class="action" type="submit" style="background:#075e54" {% if not client.openwa_url or not client.openwa_session %}disabled title="Set OpenWA URL and session name first"{% endif %}>
+      Reconnect WhatsApp
+    </button>
+  </form>
   <form method="post" action="/clients/{{ client.id }}/send-invite" style="display:inline">
     <button class="action" type="submit" {% if not client.admin_whatsapp_phone or not client.whatsapp_invite_link %}disabled title="Set admin phone and invite link first"{% endif %}>
       Send Invite to Admin
