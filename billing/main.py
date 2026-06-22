@@ -566,6 +566,38 @@ async def _get_session_id(client: Client) -> str | None:
     return None
 
 
+async def _get_session_status(client: Client) -> str:
+    """Return the OpenWA session status string, or a descriptive error token."""
+    if not client.openwa_url or not client.openwa_session:
+        return "NOT_CONFIGURED"
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as http:
+            r = await http.get(
+                f"{client.openwa_url}/api/sessions",
+                headers={"X-API-Key": client.openwa_api_key or ""},
+            )
+            r.raise_for_status()
+            for s in r.json():
+                if s.get("name") == client.openwa_session:
+                    return s.get("status", "UNKNOWN")
+            return "NOT_FOUND"
+    except Exception:
+        return "UNREACHABLE"
+
+
+@app.get("/clients/{client_id}/whatsapp-status")
+async def whatsapp_status(
+    client_id: int,
+    username: str = Depends(require_login),
+    db=Depends(get_db),
+):
+    client = await db.get(Client, client_id)
+    if not client:
+        raise HTTPException(status_code=404)
+    status = await _get_session_status(client)
+    return JSONResponse({"status": status})
+
+
 @app.post("/clients/{client_id}/reconnect-whatsapp", response_class=HTMLResponse)
 async def reconnect_whatsapp(
     request: Request, client_id: int,
@@ -579,12 +611,17 @@ async def reconnect_whatsapp(
         session_id = await _get_session_id(client)
         if session_id:
             async with httpx.AsyncClient(timeout=15.0) as http:
+                # Stop first so we get a clean QR — ignore errors (may already be stopped)
+                await http.post(
+                    f"{client.openwa_url}/api/sessions/{session_id}/stop",
+                    headers={"X-API-Key": client.openwa_api_key or ""},
+                )
                 await http.post(
                     f"{client.openwa_url}/api/sessions/{session_id}/start",
                     headers={"X-API-Key": client.openwa_api_key or ""},
                 )
     except Exception:
-        pass  # Redirect to QR page regardless; errors shown there
+        pass
     return RedirectResponse(f"/clients/{client_id}/reconnect", status_code=303)
 
 

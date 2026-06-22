@@ -33,6 +33,13 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
 @keyframes spin{to{transform:rotate(360deg)}}
 .modal-close-btn{margin-top:1rem;padding:.4rem 1rem;background:#eee;border:none;border-radius:6px;cursor:pointer;font-size:.85rem}
 .modal-close-btn:hover{background:#ddd}
+
+/* WhatsApp status badge */
+.wa-status{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .7rem;border-radius:99px;font-size:.8rem;font-weight:700;margin-left:.75rem;vertical-align:middle}
+.wa-status .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.wa-online{background:#d4edda;color:#155724}.wa-online .dot{background:#28a745}
+.wa-offline{background:#f8d7da;color:#721c24}.wa-offline .dot{background:#dc3545}
+.wa-checking{background:#e2e3e5;color:#555}.wa-checking .dot{background:#aaa}
 </style>
 </head>
 <body>
@@ -71,7 +78,11 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
 </div>
 
 <div class="card">
-  <h3 style="margin-top:0">Actions</h3>
+  <h3 style="margin-top:0">Actions
+    <span class="wa-status wa-checking" id="wa-badge">
+      <span class="dot"></span><span id="wa-label">Checking…</span>
+    </span>
+  </h3>
   <form method="post" action="/clients/{{ client.id }}/push-reminder" style="display:inline">
     <button class="action" type="submit">Push Reminder to Group</button>
   </form>
@@ -125,6 +136,22 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
 <script>
 const CLIENT_ID = {{ client.id }};
 let qrPoll = null;
+const CONNECTED = ['WORKING','CONNECTED','READY','AUTHENTICATED'];
+
+async function refreshWaStatus() {
+  try {
+    const data = await fetch(`/clients/${CLIENT_ID}/whatsapp-status`).then(r => r.json());
+    const badge = document.getElementById('wa-badge');
+    const label = document.getElementById('wa-label');
+    const up = CONNECTED.includes((data.status || '').toUpperCase());
+    badge.className = 'wa-status ' + (up ? 'wa-online' : 'wa-offline');
+    label.textContent = up ? 'WhatsApp connected' : ('WhatsApp ' + (data.status || 'disconnected').toLowerCase());
+  } catch(e) {
+    document.getElementById('wa-label').textContent = 'Status unknown';
+  }
+}
+refreshWaStatus();
+setInterval(refreshWaStatus, 30000);
 
 async function openReconnect() {
   document.getElementById('qr-overlay').classList.add('open');
@@ -151,10 +178,11 @@ function stopQrPoll() {
 }
 
 async function pollQr() {
+  const content = document.getElementById('qr-content');
+  if (!content) return;
   try {
-    const data = await fetch(`/clients/${CLIENT_ID}/whatsapp-qr`).then(r => r.json());
-    const content = document.getElementById('qr-content');
-    if (!content) return;
+    const res = await fetch(`/clients/${CLIENT_ID}/whatsapp-qr`);
+    const data = await res.json();
 
     if (data.error) {
       content.innerHTML = `<div class="modal-status err">✗ ${data.error}</div>`;
@@ -162,16 +190,25 @@ async function pollQr() {
     }
 
     const status = (data.status || '').toUpperCase();
-    if (['WORKING','CONNECTED','READY','AUTHENTICATED'].includes(status)) {
+
+    if (CONNECTED.includes(status)) {
       stopQrPoll();
-      content.innerHTML = '<div class="modal-status ok">✓ Connected! You can close this.</div>';
+      content.innerHTML = '<div class="modal-status ok" style="color:#155724;font-size:1rem">✓ Connected! You can close this.</div>';
+      refreshWaStatus();
       return;
     }
 
     if (data.qrCode) {
-      content.innerHTML = `<img src="${data.qrCode}" alt="QR Code"><div class="modal-status"><span class="spinner"></span> Waiting for scan&hellip;</div>`;
+      content.innerHTML = `<img src="${data.qrCode}" alt="QR Code" style="width:240px;height:240px;border:1px solid #eee;border-radius:8px"><div class="modal-status"><span class="spinner"></span> Waiting for scan&hellip;</div>`;
+      return;
     }
-  } catch(e) {}
+
+    // Session started but QR not ready yet — show what state we're in
+    const msg = status ? `Session is ${status.toLowerCase()} — waiting for QR code&hellip;` : 'Starting session&hellip;';
+    content.innerHTML = `<div class="modal-status"><span class="spinner"></span> ${msg}</div>`;
+  } catch(e) {
+    content.innerHTML = '<div class="modal-status err">✗ Could not reach server</div>';
+  }
 }
 </script>
 </body>

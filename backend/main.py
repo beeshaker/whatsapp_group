@@ -1597,6 +1597,10 @@ async def api_whatsapp_reconnect(_: str = Depends(require_admin)):
         if not session_id:
             return JSONResponse({"ok": False, "detail": "Session not found"}, status_code=404)
         async with httpx.AsyncClient(timeout=15.0) as client:
+            await client.post(
+                f"{_wa.OPENWA_URL}/api/sessions/{session_id}/stop",
+                headers={"X-API-Key": _wa.OPENWA_API_KEY},
+            )
             r = await client.post(
                 f"{_wa.OPENWA_URL}/api/sessions/{session_id}/start",
                 headers={"X-API-Key": _wa.OPENWA_API_KEY},

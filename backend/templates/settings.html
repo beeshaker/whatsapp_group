@@ -248,23 +248,34 @@ function stopQrPoll() {
 async function pollQr() {
   try {
     const data = await fetch('/api/settings/whatsapp-qr').then(r => r.json());
-
-    if (data.qrCode) {
-      document.getElementById('qr-img').src = data.qrCode;
-      document.getElementById('qr-area').style.display = 'block';
-    }
-
     const status = (data.status || '').toUpperCase();
+
     if (CONNECTED_STATUSES.includes(status)) {
       stopQrPoll();
       document.getElementById('qr-area').style.display = 'none';
       document.getElementById('success-banner').classList.add('show');
       setStatusDisplay(status);
+      return;
     }
+
+    if (data.qrCode) {
+      document.getElementById('qr-img').src = data.qrCode;
+      document.getElementById('qr-area').style.display = 'block';
+      document.querySelector('.qr-hint').textContent =
+        'Open WhatsApp → Linked Devices → Link a Device, then scan this code.';
+      return;
+    }
+
+    // QR not ready yet — show transitional status
+    document.getElementById('qr-area').style.display = 'block';
+    document.getElementById('qr-img').removeAttribute('src');
+    document.querySelector('.qr-hint').textContent =
+      status ? `Session is ${status.toLowerCase()} — waiting for QR code…` : 'Starting session…';
   } catch(e) {}
 }
 
 checkStatus();
+setInterval(checkStatus, 30000);
 </script>
 </body>
 </html>
