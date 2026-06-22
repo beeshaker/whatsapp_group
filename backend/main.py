@@ -14,7 +14,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, field_validator
 from sqlalchemy import func, select, update as sa_update
@@ -238,6 +238,41 @@ app.add_middleware(
     https_only=False,
     same_site="lax",
 )
+
+
+_SETUP_HTML = os.path.join(os.path.dirname(__file__), "setup.html")
+_OPENWA_INTERNAL = os.getenv("OPENWA_URL", "http://openwa:2785")
+
+
+@app.get("/setup", response_class=HTMLResponse)
+async def setup_page():
+    if not os.path.exists(_SETUP_HTML):
+        raise HTTPException(status_code=404, detail="setup.html not found — mount it into the container")
+    return FileResponse(_SETUP_HTML, media_type="text/html")
+
+
+@app.api_route("/api/openwa/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+async def openwa_proxy(path: str, request: Request):
+    """Reverse-proxy to the OpenWA container so the setup page works through a single ngrok tunnel."""
+    url = f"{_OPENWA_INTERNAL}/api/{path}"
+    forward_headers = {
+        k: v for k, v in request.headers.items()
+        if k.lower() in ("x-api-key", "content-type")
+    }
+    body = await request.body()
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.request(
+            method=request.method,
+            url=url,
+            headers=forward_headers,
+            content=body,
+            params=dict(request.query_params),
+        )
+    try:
+        return JSONResponse(content=resp.json(), status_code=resp.status_code)
+    except Exception:
+        return Response(content=resp.content, status_code=resp.status_code,
+                        media_type=resp.headers.get("content-type", "application/octet-stream"))
 
 
 @app.get("/health")
