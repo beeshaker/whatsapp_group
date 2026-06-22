@@ -4,6 +4,8 @@ import os
 import re
 import sys
 import zoneinfo
+
+import httpx
 from contextlib import asynccontextmanager
 from datetime import date as _date, datetime, timedelta, timezone
 from typing import Optional
@@ -110,6 +112,9 @@ logger = logging.getLogger(__name__)
 
 GATEWAY_SECRET_TOKEN = os.getenv("GATEWAY_SECRET_TOKEN", "change-me")
 SUMMARY_TIMEZONE = os.getenv("SUMMARY_TIMEZONE", "Africa/Nairobi")
+BILLING_SERVICE_URL = os.getenv("BILLING_SERVICE_URL", "")
+BILLING_WEBHOOK_SECRET = os.getenv("BILLING_WEBHOOK_SECRET", "")
+SUPERUSERS_GROUP_ID = os.getenv("SUPERUSERS_GROUP_ID", "")
 try:
     SUMMARY_SCHEDULE_HOUR = int(os.getenv("SUMMARY_SCHEDULE_HOUR", "8"))
 except ValueError:
@@ -531,6 +536,23 @@ async def _handle_media_ingest(
     return {"status": "staged_media", "incident_id": incident_id}
 
 
+async def _forward_to_billing(subdomain: str, event_body: dict) -> None:
+    if not BILLING_SERVICE_URL:
+        return
+    import hashlib, hmac as _hmac_mod, json as _json
+    payload = _json.dumps(event_body).encode()
+    sig = _hmac_mod.new(BILLING_WEBHOOK_SECRET.encode(), payload, hashlib.sha256).hexdigest()
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(
+                f"{BILLING_SERVICE_URL}/webhook/client/{subdomain}",
+                content=payload,
+                headers={"Content-Type": "application/json", "X-Webhook-Signature": sig},
+            )
+    except Exception:
+        logger.exception("Failed to forward message to billing service")
+
+
 @app.post("/api/v1/ops/ingest", status_code=status.HTTP_202_ACCEPTED)
 async def ingest(
     request: Request,
@@ -581,6 +603,19 @@ async def ingest(
         return {"status": "ignored", "message": "Non-group or non-chat event skipped"}
 
     group_id = chat_id
+    # Forward superusers group messages to billing service; do not classify as incidents
+    if SUPERUSERS_GROUP_ID and group_id == SUPERUSERS_GROUP_ID:
+        await _forward_to_billing(
+            os.getenv("OPENWA_SESSION", ""),
+            {
+                "event": "message",
+                "body": data.get("body", ""),
+                "fromMe": data.get("fromMe", False),
+                "chatId": group_id,
+                "messageId": data.get("id", ""),
+            },
+        )
+        return JSONResponse({"status": "billing_forwarded"}, status_code=status.HTTP_202_ACCEPTED)
     group_name = (
         data.get("chatName")
         or (data.get("chat") or {}).get("name")
