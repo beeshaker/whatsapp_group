@@ -364,7 +364,22 @@ async def _process_client_message(client: Client, data: dict, db) -> dict:
         await send_to_group(client, "📱 Please reply with your M-Pesa phone number (e.g. 0712345678):")
         return {"ok": True}
 
-    if active_session and active_session.state == "awaiting_phone":
+    if not active_session:
+        # Notify once if there is a recently-expired session so the user isn't left guessing.
+        expired = await db.scalar(
+            select(PaymentSession).where(
+                PaymentSession.client_id == client.id,
+                PaymentSession.expires_at <= now,
+                PaymentSession.expires_at > now - timedelta(hours=1),
+            )
+        )
+        if expired:
+            await db.delete(expired)
+            await db.commit()
+            await send_to_group(client, "⏰ Your payment window expired. Type /payment to start again.")
+        return {"ok": True}
+
+    if active_session.state == "awaiting_phone":
         phone = _normalize_phone(message_text)
         if not phone:
             await send_to_group(client, "❌ Invalid number. Please reply with your M-Pesa number (e.g. 0712345678):")
@@ -373,6 +388,41 @@ async def _process_client_message(client: Client, data: dict, db) -> dict:
         prices = {p.plan_type: p for p in (await db.execute(select(PlanPrice))).scalars().all()}
         if client.plan not in prices:
             await send_to_group(client, "❌ Payment is not configured yet. Please contact your administrator.")
+            await db.delete(active_session)
+            await db.commit()
+            return {"ok": True}
+        amount = prices[client.plan].amount
+
+        active_session.state = "awaiting_confirm"
+        active_session.phone = phone
+        active_session.expires_at = now + timedelta(minutes=5)
+        await db.commit()
+
+        await send_to_group(
+            client,
+            f"💳 You'll be charged *KES {amount}* for your {client.plan} plan to {phone}.\n"
+            f"Reply *YES* to confirm or *NO* to cancel.",
+        )
+        return {"ok": True}
+
+    if active_session.state == "awaiting_confirm":
+        reply = message_text.lower()
+        if reply in ("no", "cancel"):
+            await db.delete(active_session)
+            await db.commit()
+            await send_to_group(client, "❌ Payment cancelled. Type /payment to start again.")
+            return {"ok": True}
+
+        if reply not in ("yes", "y", "ok"):
+            await send_to_group(client, "Please reply *YES* to confirm payment or *NO* to cancel.")
+            return {"ok": True}
+
+        phone = active_session.phone
+        prices = {p.plan_type: p for p in (await db.execute(select(PlanPrice))).scalars().all()}
+        if client.plan not in prices:
+            await send_to_group(client, "❌ Payment is not configured yet. Please contact your administrator.")
+            await db.delete(active_session)
+            await db.commit()
             return {"ok": True}
         amount = prices[client.plan].amount
 
@@ -401,7 +451,6 @@ async def _process_client_message(client: Client, data: dict, db) -> dict:
             return {"ok": True}
 
         active_session.state = "awaiting_stk_confirm"
-        active_session.phone = phone
         active_session.checkout_request_id = stk.get("CheckoutRequestID")
         active_session.payment_id = payment.id
         active_session.expires_at = now + timedelta(minutes=10)
