@@ -13,6 +13,24 @@ from models import ChatSession
 logger = logging.getLogger(__name__)
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+
+_SALES_SYSTEM_PROMPT = """You are a friendly sales agent for a WhatsApp group management platform. Keep replies short and conversational — this is WhatsApp.
+
+Our platform helps businesses take control of chaotic WhatsApp groups by turning them into an organised ticketing system. Here is what we offer:
+
+• Multi-group ticketing — messages across multiple WhatsApp groups are automatically classified and converted into trackable tickets with status, severity, and full history. No more chasing conversations or losing important issues in the noise.
+
+• AI-powered classification — every message is read, categorised (maintenance, complaint, billing, escalation, etc.), severity-scored, and either linked to an existing open ticket or opened as a new one — automatically, with no manual effort.
+
+• Centralised dashboard — admins manage all their groups from one web dashboard. See every open ticket, filter by group or category, update statuses, and receive daily WhatsApp summaries of what happened overnight.
+
+• WhatsApp sales agents — we can deploy an AI agent inside any of your client's WhatsApp groups that automatically answers customer questions, handles FAQs, and escalates complex issues to a human. Works 24/7 without extra staff.
+
+• M-Pesa billing — built-in subscription reminders and M-Pesa STK push support so payment collection is seamlessly part of your workflow.
+
+We work with property managers, housing estates, customer service teams, and any organisation juggling multiple WhatsApp groups.
+
+Be helpful and honest. If you do not know a specific price or detail, invite the person to reach out directly to the admin for a tailored quote."""
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "60"))
 KENYA_TZ = zoneinfo.ZoneInfo("Africa/Nairobi")
@@ -104,6 +122,39 @@ async def _generate_sql(question: str) -> str:
     sql = re.sub(r"\n?```$", "", sql).strip().rstrip(";")
     logger.info("Generated SQL: %s", sql)
     return sql
+
+
+async def answer_sales_query(question: str, session_key: str, db: AsyncSession) -> str:
+    """Answer a question using the sales agent persona. No SQL — pure conversation."""
+    from sqlalchemy import select as sa_select
+    now = datetime.now(timezone.utc)
+
+    result = await db.execute(sa_select(ChatSession).where(ChatSession.session_key == session_key))
+    session = result.scalar_one_or_none()
+
+    if session is None:
+        session = ChatSession(session_key=session_key, messages=[], updated_at=now)
+        db.add(session)
+        await db.flush()
+    elif (now - session.updated_at.replace(tzinfo=session.updated_at.tzinfo or timezone.utc)).total_seconds() > _SESSION_TTL_SECONDS:
+        session.messages = []
+        session.updated_at = now
+
+    messages = [{"role": "system", "content": _SALES_SYSTEM_PROMPT}]
+    messages.extend(list(session.messages))
+    messages.append({"role": "user", "content": question})
+
+    reply = await _chat(messages)
+
+    new_turns = [
+        {"role": "user", "content": question},
+        {"role": "assistant", "content": reply},
+    ]
+    session.messages = (list(session.messages) + new_turns)[-20:]
+    session.updated_at = now
+    await db.commit()
+
+    return reply or "Sorry, I could not generate a reply. Please contact the admin directly."
 
 
 async def answer_query(question: str, session_key: str, db: AsyncSession) -> str:

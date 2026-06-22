@@ -47,6 +47,9 @@ class Client(Base):
     openwa_session: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     openwa_api_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     docker_project: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    admin_whatsapp_phone: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    whatsapp_invite_link: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    backend_port: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     def __init__(self, **kw):

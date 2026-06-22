@@ -38,6 +38,12 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
     <input name="openwa_api_key" value="{{ client.openwa_api_key or '' }}">
     <label>Docker Project Name</label>
     <input name="docker_project" value="{{ client.docker_project or '' }}" placeholder="acme">
+    <label>Backend Port (auto-registers nginx subdomain)</label>
+    <input name="backend_port" type="number" value="{{ client.backend_port or '' }}" placeholder="8001">
+    <label>Admin WhatsApp Phone</label>
+    <input name="admin_whatsapp_phone" value="{{ client.admin_whatsapp_phone or '' }}" placeholder="0712345678">
+    <label>WhatsApp Group Invite Link</label>
+    <input name="whatsapp_invite_link" value="{{ client.whatsapp_invite_link or '' }}" placeholder="https://chat.whatsapp.com/...">
     <label>Plan</label>
     <select name="plan">
       <option value="monthly" {% if client.plan == 'monthly' %}selected{% endif %}>Monthly</option>
@@ -54,6 +60,14 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
   <form method="post" action="/clients/{{ client.id }}/push-reminder" style="display:inline">
     <button class="action" type="submit">Push Reminder to Group</button>
   </form>
+  <form method="post" action="/clients/{{ client.id }}/send-invite" style="display:inline">
+    <button class="action" type="submit" {% if not client.admin_whatsapp_phone or not client.whatsapp_invite_link %}disabled title="Set admin phone and invite link first"{% endif %}>
+      Send Invite to Admin
+    </button>
+  </form>
+  {% if request.query_params.get('invited') %}
+  <p style="color:green;margin-top:.5rem">Invite sent to {{ client.admin_whatsapp_phone }}.</p>
+  {% endif %}
   {% if client.status == 'suspended' %}
   <form method="post" action="/clients/{{ client.id }}/reactivate" style="display:inline">
     <button class="action" type="submit" style="background:#075e54">Reactivate</button>

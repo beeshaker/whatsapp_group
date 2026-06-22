@@ -10,16 +10,17 @@ from decimal import Decimal
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import select, text
 from starlette.middleware.sessions import SessionMiddleware
 
 from auth import hash_password, verify_password, require_login
-from database import get_db, init_db, AsyncSessionLocal
+from database import get_db, init_db, AsyncSessionLocal, engine
 from docker_manager import start_client, stop_client
 from models import AdminUser, Client, Payment, PaymentSession, PlanPrice
 from mpesa import initiate_stk_push
 from scheduler import start_scheduler
-from whatsapp import send_to_group
+from nginx_manager import add_client_port, remove_client_port
+from whatsapp import send_to_group, send_dm_text
 
 BILLING_WEBHOOK_SECRET = os.getenv("BILLING_WEBHOOK_SECRET", "")
 MPESA_CALLBACK_BASE_URL = os.getenv("MPESA_CALLBACK_BASE_URL", "https://whats2eat.com/billing")
@@ -43,9 +44,24 @@ async def _seed_admin():
             await db.commit()
 
 
+async def _migrate_db():
+    """Add new columns to existing tables without a migration framework."""
+    async with engine.begin() as conn:
+        for col_def in (
+            "admin_whatsapp_phone TEXT",
+            "whatsapp_invite_link TEXT",
+            "backend_port INTEGER",
+        ):
+            try:
+                await conn.execute(text(f"ALTER TABLE clients ADD COLUMN {col_def}"))
+            except Exception:
+                pass  # Column already exists
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    await _migrate_db()
     await _seed_admin()
     import logging as _log
     if SECRET_KEY == "billing-secret-change-in-prod":
@@ -116,6 +132,8 @@ async def create_client(
     name: str = Form(...),
     subdomain: str = Form(...),
     plan: str = Form(...),
+    admin_whatsapp_phone: str = Form(default=""),
+    backend_port: str = Form(default=""),
     username: str = Depends(require_login),
     db=Depends(get_db),
 ):
@@ -125,12 +143,18 @@ async def create_client(
             "request": request,
             "error": f"Subdomain '{subdomain}' already exists",
         })
+    port_int = int(backend_port.strip()) if backend_port.strip().isdigit() else None
     client = Client(
         name=name, subdomain=subdomain, plan=plan, status="active",
         renewal_date=_next_renewal(plan), created_at=datetime.now(timezone.utc),
+        admin_whatsapp_phone=admin_whatsapp_phone.strip() or None,
+        backend_port=port_int,
     )
     db.add(client)
     await db.commit()
+    if port_int:
+        import asyncio
+        await asyncio.get_event_loop().run_in_executor(None, add_client_port, subdomain, port_int)
     return RedirectResponse(f"/clients/{client.id}", status_code=303)
 
 
@@ -161,6 +185,9 @@ async def update_client(
     docker_project: str = Form(default=""),
     renewal_date: str = Form(default=""),
     plan: str = Form(default=""),
+    admin_whatsapp_phone: str = Form(default=""),
+    whatsapp_invite_link: str = Form(default=""),
+    backend_port: str = Form(default=""),
     username: str = Depends(require_login),
     db=Depends(get_db),
 ):
@@ -181,8 +208,48 @@ async def update_client(
         client.renewal_date = date.fromisoformat(renewal_date)
     if plan in ("monthly", "annual"):
         client.plan = plan
+    client.admin_whatsapp_phone = admin_whatsapp_phone.strip() or client.admin_whatsapp_phone
+    client.whatsapp_invite_link = whatsapp_invite_link.strip() or client.whatsapp_invite_link
+    new_port = int(backend_port.strip()) if backend_port.strip().isdigit() else None
+    port_changed = new_port and new_port != client.backend_port
+    if new_port:
+        client.backend_port = new_port
     await db.commit()
+    if port_changed:
+        import asyncio
+        await asyncio.get_event_loop().run_in_executor(
+            None, add_client_port, client.subdomain, new_port
+        )
     return RedirectResponse(f"/clients/{client_id}", status_code=303)
+
+
+@app.post("/clients/{client_id}/send-invite", response_class=HTMLResponse)
+async def send_invite(
+    request: Request, client_id: int,
+    username: str = Depends(require_login),
+    db=Depends(get_db),
+):
+    client = await db.get(Client, client_id)
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+    phone = (client.admin_whatsapp_phone or "").strip()
+    link = (client.whatsapp_invite_link or "").strip()
+    if not phone or not link:
+        return HTMLResponse(
+            "<p>Admin phone or invite link not set. Go back and save them first.</p>"
+            "<p><a href='/clients/" + str(client_id) + "'>Back</a></p>",
+            status_code=400,
+        )
+    digits = re.sub(r"\D", "", phone)
+    if re.fullmatch(r"07\d{8}", digits):
+        digits = "254" + digits[1:]
+    message = (
+        f"Hi! You've been invited to join the WhatsApp monitoring group for *{client.name}*.\n\n"
+        f"Click the link below to join:\n{link}\n\n"
+        f"This group is managed by our incident ticketing system — all messages are tracked and actioned."
+    )
+    await send_dm_text(digits, message)
+    return RedirectResponse(f"/clients/{client_id}?invited=1", status_code=303)
 
 
 @app.get("/prices", response_class=HTMLResponse)

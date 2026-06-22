@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Whats2Manage</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #111; color: #eee; display: flex; flex-direction: column; align-items: center; padding: 2rem; min-height: 100vh; }
+    h1 { font-size: 1.4rem; margin-bottom: 1.5rem; color: #fff; letter-spacing: 0.05em; }
+    .card { background: #1e1e1e; border-radius: 12px; padding: 1.5rem; width: 100%; max-width: 440px; margin-bottom: 1rem; }
+    .status-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; }
+    .dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+    .dot-grey   { background: #555; }
+    .dot-yellow { background: #f9a825; animation: pulse 1s infinite; }
+    .dot-green  { background: #43a047; }
+    .dot-red    { background: #e53935; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .label { font-size: 0.85rem; color: #aaa; }
+    .value { font-size: 1rem; font-weight: 600; }
+    #qr-wrap { display: flex; justify-content: center; margin: 1rem 0; }
+    #qr-img  { width: 240px; height: 240px; border-radius: 8px; background: #fff; }
+    #qr-hint { text-align: center; font-size: 0.8rem; color: #aaa; margin-top: 0.5rem; }
+    .btn { width: 100%; padding: 0.75rem; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; margin-top: 0.5rem; transition: opacity 0.2s; }
+    .btn:disabled { opacity: 0.4; cursor: default; }
+    .btn-blue  { background: #1565c0; color: #fff; }
+    .btn-green { background: #2e7d32; color: #fff; }
+    #log { font-size: 0.78rem; color: #888; max-height: 120px; overflow-y: auto; line-height: 1.6; }
+    #log div:last-child { color: #ccc; }
+    a.dashboard-link { display: block; text-align: center; margin-top: 0.5rem; color: #64b5f6; text-decoration: none; font-size: 0.9rem; }
+    a.dashboard-link:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h1>⚙ Whats2Manage</h1>
+
+  <div class="card">
+    <div class="status-row">
+      <div class="dot dot-grey" id="dot"></div>
+      <div>
+        <div class="label">Session status</div>
+        <div class="value" id="status-text">checking…</div>
+      </div>
+    </div>
+    <div class="label" id="phone-text"></div>
+  </div>
+
+  <div class="card" id="qr-card" style="display:none">
+    <div class="label" style="margin-bottom:0.5rem">Scan with WhatsApp → Linked Devices → Link a Device</div>
+    <div id="qr-wrap"><img id="qr-img" alt="QR code"></div>
+    <div id="qr-hint">Refreshes every 15 seconds — scan immediately after it updates</div>
+  </div>
+
+  <div class="card" id="webhook-card" style="display:none">
+    <div class="label" style="margin-bottom:0.5rem">Webhook</div>
+    <div class="value" id="webhook-status">not registered</div>
+    <button class="btn btn-blue" id="webhook-btn" onclick="registerWebhook()">Register Webhook</button>
+    <a class="dashboard-link" id="dashboard-link" href="/" target="_blank">→ Open Dashboard</a>
+  </div>
+
+  <div class="card">
+    <div class="label" style="margin-bottom:0.5rem">Log</div>
+    <div id="log"></div>
+  </div>
+
+  <script>
+    // When served from the backend (/setup), use relative proxy paths.
+    // When served from python -m http.server 9999, keep localhost URLs.
+    const _local = window.location.port === '9999';
+    const OPENWA = _local ? 'http://localhost:2785/api' : '/api/openwa';
+    const _backendBase = _local ? 'http://localhost:8000' : '';
+    const KEY    = 'dev-admin-key';
+    const BACKEND_SECRET = 'ops-gateway-secret-2026';
+
+    let sessionId = null;
+    let qrInterval = null;
+    let pollInterval = null;
+
+    function log(msg) {
+      const d = document.getElementById('log');
+      const el = document.createElement('div');
+      el.textContent = new Date().toLocaleTimeString() + '  ' + msg;
+      d.appendChild(el);
+      d.scrollTop = d.scrollHeight;
+    }
+
+    function setDot(state) {
+      const dot = document.getElementById('dot');
+      dot.className = 'dot dot-' + state;
+    }
+
+    async function api(method, path, body) {
+      const opts = { method, headers: { 'X-API-Key': KEY, 'Content-Type': 'application/json' } };
+      if (body) opts.body = JSON.stringify(body);
+      const r = await fetch(OPENWA + path, opts);
+      return r.json();
+    }
+
+    async function refreshQR() {
+      if (!sessionId) return;
+      try {
+        const data = await api('GET', '/sessions/' + sessionId + '/qr');
+        if (data.qrCode) {
+          document.getElementById('qr-img').src = data.qrCode;
+          document.getElementById('qr-hint').textContent = 'Updated ' + new Date().toLocaleTimeString() + ' — scan NOW';
+        }
+      } catch(e) { /* session may not be in qr_ready yet */ }
+    }
+
+    async function checkWebhook() {
+      if (!sessionId) return;
+      const hooks = await api('GET', '/sessions/' + sessionId + '/webhooks');
+      const active = Array.isArray(hooks) && hooks.find(h => h.active);
+      if (active) {
+        document.getElementById('webhook-status').textContent = '✓ registered → ' + active.url;
+        document.getElementById('webhook-btn').disabled = true;
+        document.getElementById('webhook-btn').textContent = 'Registered ✓';
+      }
+    }
+
+    async function registerWebhook() {
+      document.getElementById('webhook-btn').disabled = true;
+      log('Getting backend webhook URL…');
+      let backendUrl = null;
+      try {
+        const data = await fetch(_backendBase + '/api/webhook-url').then(r => r.json());
+        backendUrl = data.url;
+      } catch(e) {
+        log('Backend unreachable — is it running?');
+        document.getElementById('webhook-btn').disabled = false;
+        return;
+      }
+      log('Registering webhook → ' + backendUrl);
+      const result = await api('POST', '/sessions/' + sessionId + '/webhooks', {
+        url: backendUrl,
+        events: ['message.received'],
+        headers: { 'X-API-Key': BACKEND_SECRET }
+      });
+      if (result.active) {
+        log('Webhook registered ✓');
+        document.getElementById('webhook-status').textContent = '✓ registered → ' + backendUrl;
+        document.getElementById('webhook-btn').textContent = 'Registered ✓';
+      } else {
+        log('Failed: ' + JSON.stringify(result));
+        document.getElementById('webhook-btn').disabled = false;
+      }
+    }
+
+    async function poll() {
+      try {
+        const sessions = await api('GET', '/sessions');
+        if (!Array.isArray(sessions) || sessions.length === 0) {
+          // No sessions — create one
+          if (!sessionId) {
+            log('No session found — creating one…');
+            const s = await api('POST', '/sessions', { name: 'opsgateway' });
+            sessionId = s.id;
+            log('Session created: ' + sessionId);
+            await api('POST', '/sessions/' + sessionId + '/start');
+            log('Session starting…');
+          }
+          return;
+        }
+
+        const session = sessions[0];
+        sessionId = session.id;
+        const status = session.status;
+
+        document.getElementById('status-text').textContent = status || 'unknown';
+
+        if (status === 'ready') {
+          setDot('green');
+          document.getElementById('qr-card').style.display = 'none';
+          document.getElementById('webhook-card').style.display = 'block';
+          document.getElementById('phone-text').textContent = session.phone ? '📱 ' + session.phone : '';
+          clearInterval(qrInterval);
+          qrInterval = null;
+          await checkWebhook();
+        } else if (status === 'qr_ready' || status === 'initializing') {
+          setDot('yellow');
+          document.getElementById('qr-card').style.display = 'block';
+          document.getElementById('webhook-card').style.display = 'none';
+          if (!qrInterval) {
+            await refreshQR();
+            qrInterval = setInterval(refreshQR, 15000);
+          }
+        } else if (status === 'disconnected' || status === 'created') {
+          setDot('grey');
+          log('Starting session…');
+          await api('POST', '/sessions/' + sessionId + '/start');
+        } else {
+          setDot('red');
+        }
+      } catch(e) {
+        log('Error: ' + e.message);
+      }
+    }
+
+    if (_local) document.getElementById('dashboard-link').href = 'http://localhost:8000/';
+    log('Connecting to Whats2Manage…');
+    poll();
+    pollInterval = setInterval(poll, 5000);
+  </script>
+</body>
+</html>

@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 
 from auth import require_login, require_admin, require_super_admin, hash_password, verify_password, check_incident_group_access
-from chat import answer_query
+from chat import answer_query, answer_sales_query
 from classifier import classify_message, classify_update_or_new
 from database import get_db, init_db, AsyncSessionLocal
 from media import MEDIA_DIR, download_media
@@ -638,19 +638,17 @@ async def ingest(
         return {"status": "ignored", "message": "Non-group or non-chat event skipped"}
 
     group_id = chat_id
-    # Forward superusers group messages to billing service; do not classify as incidents
+    # Sales agent — handle the superusers group as a sales/support channel
     if SUPERUSERS_GROUP_ID and group_id == SUPERUSERS_GROUP_ID:
-        await _forward_to_billing(
-            os.getenv("OPENWA_SESSION", ""),
-            {
-                "event": "message",
-                "body": data.get("body", ""),
-                "fromMe": data.get("fromMe", False),
-                "chatId": group_id,
-                "messageId": data.get("id", ""),
-            },
-        )
-        return JSONResponse({"status": "billing_forwarded"}, status_code=status.HTTP_202_ACCEPTED)
+        if not data.get("fromMe", False):
+            msg_body = (data.get("body") or "").strip()
+            if msg_body:
+                try:
+                    reply = await answer_sales_query(msg_body, f"sales:{group_id}", db)
+                    await send_group_message(group_id, reply)
+                except Exception as exc:
+                    logger.error("Sales agent reply failed: %s", exc)
+        return JSONResponse({"status": "sales_handled"}, status_code=status.HTTP_202_ACCEPTED)
     group_name = (
         data.get("chatName")
         or (data.get("chat") or {}).get("name")

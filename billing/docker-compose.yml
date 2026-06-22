@@ -1,0 +1,49 @@
+services:
+  billing:
+    build: .
+    container_name: billing-app
+    restart: always
+    ports:
+      - "127.0.0.1:9000:9000"
+    environment:
+      DATABASE_URL: sqlite+aiosqlite:////app/data/billing.db
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
+      SECRET_KEY: ${SECRET_KEY:-billing-secret-change-in-prod}
+      BILLING_WEBHOOK_SECRET: ${BILLING_WEBHOOK_SECRET:-}
+      MPESA_CALLBACK_BASE_URL: ${MPESA_CALLBACK_BASE_URL:-https://whats2eat.com/billing}
+      OPENWA_URL: ${OPENWA_URL:-}
+      OPENWA_API_KEY: ${OPENWA_API_KEY:-}
+      OPENWA_SESSION: ${OPENWA_SESSION:-}
+      NGINX_CONF_DIR: /nginx-conf
+      NGINX_CONTAINER_NAME: billing-nginx-1
+    volumes:
+      - billing_data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+      - nginx_conf:/nginx-conf
+    networks:
+      - billing-net
+
+  nginx:
+    image: nginx:alpine
+    container_name: billing-nginx-1
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - nginx_conf:/etc/nginx/conf.d
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ./nginx/10-main.conf:/etc/nginx/conf.d/10-main.conf:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - billing-net
+
+volumes:
+  billing_data:
+  nginx_conf:
+
+networks:
+  billing-net:
+    driver: bridge
