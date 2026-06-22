@@ -4,7 +4,7 @@ services:
     container_name: billing-app
     restart: always
     ports:
-      - "127.0.0.1:9000:9000"
+      - "9000:9000"
     environment:
       DATABASE_URL: sqlite+aiosqlite:////app/data/billing.db
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
