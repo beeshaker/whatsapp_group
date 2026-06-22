@@ -12,7 +12,7 @@ _docker_client = docker.from_env()
 
 
 async def _run(fn):
-    return await asyncio.get_event_loop().run_in_executor(None, fn)
+    return await asyncio.get_running_loop().run_in_executor(None, fn)
 
 
 async def stop_client(client: Client) -> None:

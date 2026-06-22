@@ -37,6 +37,8 @@ async def _check_client_status(client: Client, db) -> None:
             )
 
     elif client.status == "grace":
+        if not client.grace_started_at:
+            return  # data integrity issue — skip
         grace_age = now - client.grace_started_at
         if grace_age >= timedelta(days=_GRACE_DAYS):
             client.status = "warning"
@@ -56,6 +58,8 @@ async def _check_client_status(client: Client, db) -> None:
             )
 
     elif client.status == "warning":
+        if not client.warning_sent_at:
+            return  # data integrity issue — skip
         warning_age = now - client.warning_sent_at
         if warning_age >= timedelta(hours=_WARNING_HOURS):
             client.status = "suspended"

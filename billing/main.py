@@ -47,6 +47,17 @@ async def _seed_admin():
 async def lifespan(app: FastAPI):
     await init_db()
     await _seed_admin()
+    import logging as _log
+    if SECRET_KEY == "billing-secret-change-in-prod":
+        _log.getLogger(__name__).warning(
+            "SECURITY WARNING: SECRET_KEY is using the insecure default. "
+            "Set SECRET_KEY env var before production deployment."
+        )
+    if not BILLING_WEBHOOK_SECRET:
+        _log.getLogger(__name__).warning(
+            "SECURITY WARNING: BILLING_WEBHOOK_SECRET is not set. "
+            "Webhook signature verification is disabled."
+        )
     scheduler = start_scheduler()
     yield
     scheduler.shutdown(wait=False)
@@ -189,15 +200,27 @@ async def set_prices(
     db=Depends(get_db),
 ):
     now = datetime.now(timezone.utc)
-    for plan_type, amount_str in [("monthly", monthly_amount), ("annual", annual_amount)]:
+    try:
+        amounts = {
+            "monthly": Decimal(monthly_amount),
+            "annual": Decimal(annual_amount),
+        }
+        if any(v < 0 for v in amounts.values()):
+            raise ValueError("Amount must be non-negative")
+    except Exception as e:
+        prices = {p.plan_type: p for p in (await db.execute(select(PlanPrice))).scalars().all()}
+        return templates.TemplateResponse(request, "prices.html", {
+            "prices": prices, "username": username, "error": f"Invalid amount: {e}",
+        })
+    for plan_type, amount in amounts.items():
         existing = await db.scalar(select(PlanPrice).where(PlanPrice.plan_type == plan_type))
         if existing:
-            existing.amount = Decimal(amount_str)
+            existing.amount = amount
             existing.set_at = now
             existing.set_by = username
         else:
             db.add(PlanPrice(
-                plan_type=plan_type, amount=Decimal(amount_str),
+                plan_type=plan_type, amount=amount,
                 currency="KES", set_at=now, set_by=username,
             ))
     await db.commit()
@@ -277,7 +300,10 @@ async def client_webhook(subdomain: str, request: Request, db=Depends(get_db)):
             return {"ok": True}
 
         prices = {p.plan_type: p for p in (await db.execute(select(PlanPrice))).scalars().all()}
-        amount = prices[client.plan].amount if client.plan in prices else Decimal("0")
+        if client.plan not in prices:
+            await send_to_group(client, "❌ Payment is not configured yet. Please contact your administrator.")
+            return {"ok": True}
+        amount = prices[client.plan].amount
 
         today = date.today()
         payment = Payment(
@@ -319,6 +345,8 @@ async def mpesa_callback(request: Request, db=Depends(get_db)):
     data = await request.json()
     callback = data.get("Body", {}).get("stkCallback", {})
     checkout_id = callback.get("CheckoutRequestID")
+    if not checkout_id:
+        return {"ResultCode": 0, "ResultDesc": "Accepted"}
     result_code = callback.get("ResultCode")
 
     session = await db.scalar(
@@ -328,6 +356,10 @@ async def mpesa_callback(request: Request, db=Depends(get_db)):
         return {"ResultCode": 0, "ResultDesc": "Accepted"}
 
     client = await db.get(Client, session.client_id)
+    if not client:
+        await db.delete(session)
+        await db.commit()
+        return {"ResultCode": 0, "ResultDesc": "Accepted"}
     payment = await db.get(Payment, session.payment_id) if session.payment_id else None
 
     if result_code == 0:
@@ -424,4 +456,4 @@ async def auth_check(request: Request, db=Depends(get_db)):
 
 @app.get("/payment-expired", response_class=HTMLResponse)
 async def payment_expired_page(request: Request):
-    return templates.TemplateResponse("payment_expired.html", {"request": request})
+    return templates.TemplateResponse(request, "payment_expired.html", {})
