@@ -320,22 +320,26 @@ def _period_end(plan: str, start: date) -> date:
 # Webhook: WhatsApp messages from client backends
 # ---------------------------------------------------------------------------
 
-@app.post("/webhook/client/{subdomain}")
-async def client_webhook(subdomain: str, request: Request, db=Depends(get_db)):
+@app.post("/webhook/by-group/{group_id}")
+async def group_webhook(group_id: str, request: Request, db=Depends(get_db)):
     body = await request.body()
     sig = request.headers.get("X-Webhook-Signature", "")
     if BILLING_WEBHOOK_SECRET and not _verify_sig(BILLING_WEBHOOK_SECRET, body, sig):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
-    client = await db.scalar(select(Client).where(Client.subdomain == subdomain))
+    client = await db.scalar(select(Client).where(Client.whatsapp_group_id == group_id))
     if not client:
-        raise HTTPException(status_code=404)
+        return {"ok": True}
 
     try:
         data = json.loads(body)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON")
 
+    return await _process_client_message(client, data, db)
+
+
+async def _process_client_message(client: Client, data: dict, db) -> dict:
     if data.get("fromMe", False):
         return {"ok": True}
 
@@ -410,6 +414,25 @@ async def client_webhook(subdomain: str, request: Request, db=Depends(get_db)):
         return {"ok": True}
 
     return {"ok": True}
+
+
+@app.post("/webhook/client/{subdomain}")
+async def client_webhook(subdomain: str, request: Request, db=Depends(get_db)):
+    body = await request.body()
+    sig = request.headers.get("X-Webhook-Signature", "")
+    if BILLING_WEBHOOK_SECRET and not _verify_sig(BILLING_WEBHOOK_SECRET, body, sig):
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+    client = await db.scalar(select(Client).where(Client.subdomain == subdomain))
+    if not client:
+        raise HTTPException(status_code=404)
+
+    try:
+        data = json.loads(body)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    return await _process_client_message(client, data, db)
 
 
 # ---------------------------------------------------------------------------

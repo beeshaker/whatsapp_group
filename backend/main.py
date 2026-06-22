@@ -1,3 +1,4 @@
+import asyncio
 import hmac
 import logging
 import os
@@ -588,6 +589,23 @@ async def _forward_to_billing(subdomain: str, event_body: dict) -> None:
         logger.exception("Failed to forward message to billing service")
 
 
+async def _forward_to_billing_by_group(group_id: str, event_body: dict) -> None:
+    if not BILLING_SERVICE_URL:
+        return
+    import hashlib, hmac as _hmac_mod, json as _json
+    payload = _json.dumps(event_body).encode()
+    sig = _hmac_mod.new(BILLING_WEBHOOK_SECRET.encode(), payload, hashlib.sha256).hexdigest()
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(
+                f"{BILLING_SERVICE_URL}/webhook/by-group/{group_id}",
+                content=payload,
+                headers={"Content-Type": "application/json", "X-Webhook-Signature": sig},
+            )
+    except Exception:
+        logger.exception("Failed to forward command to billing service for group %s", group_id)
+
+
 @app.post("/api/v1/ops/ingest", status_code=status.HTTP_202_ACCEPTED)
 async def ingest(
     request: Request,
@@ -675,6 +693,9 @@ async def ingest(
         message_body = data.get("body", "").strip()[:4000]
         if not message_body:
             return {"status": "ignored", "message": "Empty message body"}
+        if message_body.startswith("/") and BILLING_SERVICE_URL:
+            asyncio.create_task(_forward_to_billing_by_group(group_id, data))
+            return {"status": "forwarded_to_billing"}
         return await _handle_text_ingest(
             db, group_id, group_name, reporter_name, reporter_phone,
             message_body, received_at, message_id,
