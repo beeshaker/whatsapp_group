@@ -1,18 +1,28 @@
+import hashlib
+import hmac as _hmac
+import json
 import os
+import re
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from fastapi import Depends, FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from starlette.middleware.sessions import SessionMiddleware
 
 from auth import hash_password, verify_password, require_login
 from database import get_db, init_db, AsyncSessionLocal
-from models import AdminUser, Client, Payment, PlanPrice
+from docker_manager import start_client, stop_client
+from models import AdminUser, Client, Payment, PaymentSession, PlanPrice
+from mpesa import initiate_stk_push
 from scheduler import start_scheduler
+from whatsapp import send_to_group
+
+BILLING_WEBHOOK_SECRET = os.getenv("BILLING_WEBHOOK_SECRET", "")
+MPESA_CALLBACK_BASE_URL = os.getenv("MPESA_CALLBACK_BASE_URL", "https://whats2eat.com/billing")
 
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 
@@ -192,3 +202,226 @@ async def set_prices(
             ))
     await db.commit()
     return RedirectResponse("/prices", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------------------------
+
+def _verify_sig(secret: str, body: bytes, signature: str) -> bool:
+    expected = _hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return _hmac.compare_digest(expected, signature)
+
+
+def _normalize_phone(raw: str) -> str | None:
+    digits = re.sub(r"\D", "", raw)
+    if re.fullmatch(r"07\d{8}", digits):
+        return "254" + digits[1:]
+    if re.fullmatch(r"2547\d{8}", digits):
+        return digits
+    return None
+
+
+def _period_end(plan: str, start: date) -> date:
+    return start + timedelta(days=30 if plan == "monthly" else 365)
+
+
+# ---------------------------------------------------------------------------
+# Webhook: WhatsApp messages from client backends
+# ---------------------------------------------------------------------------
+
+@app.post("/webhook/client/{subdomain}")
+async def client_webhook(subdomain: str, request: Request, db=Depends(get_db)):
+    body = await request.body()
+    sig = request.headers.get("X-Webhook-Signature", "")
+    if BILLING_WEBHOOK_SECRET and not _verify_sig(BILLING_WEBHOOK_SECRET, body, sig):
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+    client = await db.scalar(select(Client).where(Client.subdomain == subdomain))
+    if not client:
+        raise HTTPException(status_code=404)
+
+    try:
+        data = json.loads(body)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    if data.get("fromMe", False):
+        return {"ok": True}
+
+    message_text = (data.get("body") or "").strip()
+    now = datetime.now(timezone.utc)
+
+    active_session = await db.scalar(
+        select(PaymentSession).where(
+            PaymentSession.client_id == client.id,
+            PaymentSession.expires_at > now,
+        )
+    )
+
+    if message_text.lower() == "/payment":
+        if active_session:
+            await db.delete(active_session)
+        db.add(PaymentSession(
+            client_id=client.id, state="awaiting_phone",
+            created_at=now, expires_at=now + timedelta(minutes=5),
+        ))
+        await db.commit()
+        await send_to_group(client, "📱 Please reply with your M-Pesa phone number (e.g. 0712345678):")
+        return {"ok": True}
+
+    if active_session and active_session.state == "awaiting_phone":
+        phone = _normalize_phone(message_text)
+        if not phone:
+            await send_to_group(client, "❌ Invalid number. Please reply with your M-Pesa number (e.g. 0712345678):")
+            return {"ok": True}
+
+        prices = {p.plan_type: p for p in (await db.execute(select(PlanPrice))).scalars().all()}
+        amount = prices[client.plan].amount if client.plan in prices else Decimal("0")
+
+        today = date.today()
+        payment = Payment(
+            client_id=client.id, phone=phone, amount=amount, status="pending",
+            initiated_at=now, period_start=today, period_end=_period_end(client.plan, today),
+        )
+        db.add(payment)
+        await db.flush()
+
+        stk = await initiate_stk_push(
+            phone=phone,
+            amount=amount,
+            account_ref=f"{client.subdomain}-sub",
+            callback_url=f"{MPESA_CALLBACK_BASE_URL}/webhook/mpesa",
+        )
+
+        active_session.state = "awaiting_stk_confirm"
+        active_session.phone = phone
+        active_session.checkout_request_id = stk.get("CheckoutRequestID")
+        active_session.payment_id = payment.id
+        active_session.expires_at = now + timedelta(minutes=10)
+        await db.commit()
+
+        await send_to_group(
+            client,
+            f"✅ STK Push sent to {phone}. Enter your M-Pesa PIN on your phone to pay KES {amount}.",
+        )
+        return {"ok": True}
+
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Webhook: MPesa Daraja STK callback
+# ---------------------------------------------------------------------------
+
+@app.post("/webhook/mpesa")
+async def mpesa_callback(request: Request, db=Depends(get_db)):
+    data = await request.json()
+    callback = data.get("Body", {}).get("stkCallback", {})
+    checkout_id = callback.get("CheckoutRequestID")
+    result_code = callback.get("ResultCode")
+
+    session = await db.scalar(
+        select(PaymentSession).where(PaymentSession.checkout_request_id == checkout_id)
+    )
+    if not session:
+        return {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+    client = await db.get(Client, session.client_id)
+    payment = await db.get(Payment, session.payment_id) if session.payment_id else None
+
+    if result_code == 0:
+        mpesa_id = next(
+            (item["Value"] for item in callback.get("CallbackMetadata", {}).get("Item", [])
+             if item["Name"] == "MpesaReceiptNumber"),
+            None,
+        )
+        if payment:
+            payment.status = "confirmed"
+            payment.mpesa_transaction_id = mpesa_id
+            payment.confirmed_at = datetime.now(timezone.utc)
+
+        client.status = "active"
+        client.grace_started_at = None
+        client.warning_sent_at = None
+        client.renewal_date = payment.period_end if payment else _period_end(client.plan, date.today())
+        await db.delete(session)
+        await db.commit()
+
+        await start_client(client)
+        await send_to_group(
+            client,
+            f"🎉 Payment confirmed! Your subscription is active until {client.renewal_date}. "
+            f"M-Pesa receipt: {mpesa_id}",
+        )
+    else:
+        if payment:
+            payment.status = "failed"
+        await db.delete(session)
+        await db.commit()
+        await send_to_group(client, "❌ Payment failed or was cancelled. Type /payment to try again.")
+
+    return {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+
+# ---------------------------------------------------------------------------
+# Manual admin actions
+# ---------------------------------------------------------------------------
+
+@app.post("/clients/{client_id}/push-reminder")
+async def push_reminder(
+    request: Request, client_id: int,
+    username: str = Depends(require_login),
+    db=Depends(get_db),
+):
+    client = await db.get(Client, client_id)
+    if not client:
+        raise HTTPException(status_code=404)
+    await send_to_group(
+        client,
+        f"🔔 Payment reminder: Your subscription {'renews' if client.status == 'active' else 'expired'} "
+        f"on {client.renewal_date}. Type /payment to pay now.",
+    )
+    return RedirectResponse(f"/clients/{client_id}", status_code=303)
+
+
+@app.post("/clients/{client_id}/reactivate")
+async def manual_reactivate(
+    request: Request, client_id: int,
+    username: str = Depends(require_login),
+    db=Depends(get_db),
+):
+    client = await db.get(Client, client_id)
+    if not client:
+        raise HTTPException(status_code=404)
+    client.status = "active"
+    client.grace_started_at = None
+    client.warning_sent_at = None
+    await db.commit()
+    await start_client(client)
+    await send_to_group(client, "✅ Your account has been manually reactivated by the administrator.")
+    return RedirectResponse(f"/clients/{client_id}", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Nginx auth-check gate
+# ---------------------------------------------------------------------------
+
+@app.get("/internal/auth-check")
+async def auth_check(request: Request, db=Depends(get_db)):
+    subdomain = request.headers.get("X-Client-Subdomain", "")
+    if not subdomain:
+        return JSONResponse(status_code=200, content={"ok": True})
+    client = await db.scalar(select(Client).where(Client.subdomain == subdomain))
+    if client and client.status in ("grace", "warning", "suspended"):
+        raise HTTPException(status_code=403, detail="Subscription inactive")
+    return JSONResponse(status_code=200, content={"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# Payment-expired static page
+# ---------------------------------------------------------------------------
+
+@app.get("/payment-expired", response_class=HTMLResponse)
+async def payment_expired_page(request: Request):
+    return templates.TemplateResponse("payment_expired.html", {"request": request})
