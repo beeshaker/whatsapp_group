@@ -21,6 +21,8 @@ services:
       - billing_data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock
       - nginx_conf:/nginx-conf
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - billing-net
 
