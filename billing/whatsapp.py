@@ -41,7 +41,7 @@ async def send_to_group(client: Client, text: str) -> None:
                     [s.get("name") for s in sessions_r.json()],
                 )
                 return
-            if session_status and session_status not in ("WORKING", "CONNECTED"):
+            if session_status and session_status.upper() not in ("WORKING", "CONNECTED", "READY", "AUTHENTICATED"):
                 _log.warning(
                     "send_to_group: session %r is not active for %s (status=%s) — reconnect via OpenWA dashboard",
                     client.openwa_session, client.subdomain, session_status,
