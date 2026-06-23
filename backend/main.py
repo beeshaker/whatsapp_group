@@ -693,8 +693,9 @@ async def ingest(
         message_body = data.get("body", "").strip()[:4000]
         if not message_body:
             return {"status": "ignored", "message": "Empty message body"}
-        if message_body.startswith("/") and BILLING_SERVICE_URL:
+        if BILLING_SERVICE_URL:
             asyncio.create_task(_forward_to_billing_by_group(group_id, data))
+        if message_body.startswith("/"):
             return {"status": "forwarded_to_billing"}
         return await _handle_text_ingest(
             db, group_id, group_name, reporter_name, reporter_phone,

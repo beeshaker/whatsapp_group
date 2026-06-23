@@ -182,7 +182,13 @@ async function pollQr() {
   if (!content) return;
   try {
     const res = await fetch(`/clients/${CLIENT_ID}/whatsapp-qr`);
-    const data = await res.json();
+    let data;
+    try { data = await res.json(); } catch(e) {
+      content.innerHTML = `<div class="modal-status err">✗ Bad response (HTTP ${res.status}) — check server logs</div>`;
+      return;
+    }
+
+    console.log('[QR poll]', res.status, data);
 
     if (data.error) {
       content.innerHTML = `<div class="modal-status err">✗ ${data.error}</div>`;
@@ -203,11 +209,11 @@ async function pollQr() {
       return;
     }
 
-    // Session started but QR not ready yet — show what state we're in
-    const msg = status ? `Session is ${status.toLowerCase()} — waiting for QR code&hellip;` : 'Starting session&hellip;';
+    const msg = status ? `Session is <strong>${status}</strong> — waiting for QR&hellip;` : 'Starting session&hellip;';
     content.innerHTML = `<div class="modal-status"><span class="spinner"></span> ${msg}</div>`;
   } catch(e) {
-    content.innerHTML = '<div class="modal-status err">✗ Could not reach server</div>';
+    content.innerHTML = `<div class="modal-status err">✗ ${e.message}</div>`;
+    console.error('[QR poll error]', e);
   }
 }
 </script>
