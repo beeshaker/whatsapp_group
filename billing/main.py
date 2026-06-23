@@ -49,13 +49,17 @@ async def _seed_admin():
 async def _migrate_db():
     """Add new columns to existing tables without a migration framework."""
     async with engine.begin() as conn:
-        for col_def in (
-            "admin_whatsapp_phone TEXT",
-            "whatsapp_invite_link TEXT",
-            "backend_port INTEGER",
-        ):
+        migrations = [
+            ("clients", "admin_whatsapp_phone TEXT"),
+            ("clients", "whatsapp_invite_link TEXT"),
+            ("clients", "backend_port INTEGER"),
+            ("payment_sessions", "phone TEXT"),
+            ("payment_sessions", "checkout_request_id TEXT"),
+            ("payment_sessions", "payment_id INTEGER"),
+        ]
+        for table, col_def in migrations:
             try:
-                await conn.execute(text(f"ALTER TABLE clients ADD COLUMN {col_def}"))
+                await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col_def}"))
             except Exception:
                 pass  # Column already exists
 
