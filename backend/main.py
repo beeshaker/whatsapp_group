@@ -115,6 +115,7 @@ GATEWAY_SECRET_TOKEN = os.getenv("GATEWAY_SECRET_TOKEN", "change-me")
 SUMMARY_TIMEZONE = os.getenv("SUMMARY_TIMEZONE", "Africa/Nairobi")
 BILLING_SERVICE_URL = os.getenv("BILLING_SERVICE_URL", "")
 BILLING_WEBHOOK_SECRET = os.getenv("BILLING_WEBHOOK_SECRET", "")
+CLIENT_SUBDOMAIN = os.getenv("CLIENT_SUBDOMAIN", "")
 SUPERUSERS_GROUP_ID = os.getenv("SUPERUSERS_GROUP_ID", "")
 try:
     SUMMARY_SCHEDULE_HOUR = int(os.getenv("SUMMARY_SCHEDULE_HOUR", "8"))
@@ -1562,6 +1563,42 @@ async def _openwa_find_session() -> tuple[str | None, str | None]:
             if s.get("name") == _wa.OPENWA_SESSION:
                 return s["id"], s.get("status", "UNKNOWN")
     return None, None
+
+
+@app.get("/billing", response_class=HTMLResponse)
+async def billing_page(
+    request: Request,
+    username: str = Depends(require_login),
+    db: AsyncSession = Depends(get_db),
+):
+    user_result = await db.execute(select(User).where(User.username == username))
+    user_obj = user_result.scalar_one_or_none()
+    role = user_obj.role if user_obj else "user"
+    statement = None
+    error = None
+    if BILLING_SERVICE_URL and CLIENT_SUBDOMAIN:
+        try:
+            import httpx as _httpx
+            async with _httpx.AsyncClient(timeout=8.0) as _http:
+                r = await _http.get(
+                    f"{BILLING_SERVICE_URL}/api/clients/{CLIENT_SUBDOMAIN}/statement",
+                    headers={"X-Billing-Secret": BILLING_WEBHOOK_SECRET},
+                )
+                if r.status_code == 200:
+                    statement = r.json()
+                else:
+                    error = f"Billing service returned {r.status_code}"
+        except Exception as exc:
+            error = f"Could not reach billing service: {exc}"
+    elif not CLIENT_SUBDOMAIN:
+        error = "CLIENT_SUBDOMAIN not configured"
+    elif not BILLING_SERVICE_URL:
+        error = "BILLING_SERVICE_URL not configured"
+    return templates.TemplateResponse(
+        "billing.html",
+        {"request": request, "username": username, "role": role,
+         "statement": statement, "error": error},
+    )
 
 
 @app.get("/settings", response_class=HTMLResponse)

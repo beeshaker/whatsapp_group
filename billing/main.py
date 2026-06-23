@@ -713,6 +713,43 @@ async def manual_reactivate(
 
 
 # ---------------------------------------------------------------------------
+# Client-facing statement API (called by backend service)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/clients/{subdomain}/statement")
+async def client_statement(subdomain: str, request: Request, db=Depends(get_db)):
+    secret = request.headers.get("X-Billing-Secret", "")
+    if BILLING_WEBHOOK_SECRET and secret != BILLING_WEBHOOK_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    client = await db.scalar(select(Client).where(Client.subdomain == subdomain))
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    payments = (await db.execute(
+        select(Payment).where(Payment.client_id == client.id).order_by(Payment.initiated_at.desc())
+    )).scalars().all()
+    return {
+        "client": {
+            "name": client.name,
+            "plan": client.plan,
+            "status": client.status,
+            "renewal_date": str(client.renewal_date),
+        },
+        "payments": [
+            {
+                "date": p.initiated_at.strftime("%Y-%m-%d %H:%M"),
+                "phone": p.phone,
+                "amount": str(p.amount),
+                "receipt": p.mpesa_transaction_id,
+                "status": p.status,
+                "period_start": str(p.period_start),
+                "period_end": str(p.period_end),
+            }
+            for p in payments
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
 # Nginx auth-check gate
 # ---------------------------------------------------------------------------
 
