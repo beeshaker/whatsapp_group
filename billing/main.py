@@ -22,7 +22,7 @@ from models import AdminUser, Client, Payment, PaymentSession, PlanPrice
 from mpesa import initiate_stk_push
 from scheduler import start_scheduler
 from nginx_manager import add_client_port, remove_client_port
-from whatsapp import send_to_group, send_dm_text
+from whatsapp import send_to_group, send_dm_text, send_document_to_group
 
 BILLING_WEBHOOK_SECRET = os.getenv("BILLING_WEBHOOK_SECRET", "")
 MPESA_CALLBACK_BASE_URL = os.getenv("MPESA_CALLBACK_BASE_URL", "https://whats2eat.com/billing")
@@ -553,6 +553,45 @@ async def mpesa_callback(request: Request, db=Depends(get_db)):
             f"🔄 Next Renewal: *{client.renewal_date}*\n\n"
             f"Thank you for your payment!",
         )
+        # Generate and send PDF statement
+        try:
+            from pdf import generate_statement
+            all_payments = (await db.execute(
+                select(Payment).where(Payment.client_id == client.id).order_by(Payment.initiated_at.desc())
+            )).scalars().all()
+            invoice_data = {
+                "amount": str(amount),
+                "receipt": mpesa_id,
+                "phone": str(phone),
+                "period_start": str(period_start),
+                "period_end": str(period_end),
+                "date": confirmed_at,
+            } if payment else None
+            history = [
+                {
+                    "date": p.initiated_at.strftime("%Y-%m-%d %H:%M"),
+                    "phone": p.phone,
+                    "amount": str(p.amount),
+                    "receipt": p.mpesa_transaction_id,
+                    "status": p.status,
+                    "period_start": str(p.period_start),
+                    "period_end": str(p.period_end),
+                }
+                for p in all_payments
+            ]
+            pdf_bytes = generate_statement(
+                client_name=client.name,
+                client_plan=client.plan,
+                client_status=client.status,
+                renewal_date=client.renewal_date,
+                payments=history,
+                invoice_payment=invoice_data,
+            )
+            filename = f"statement_{client.subdomain}_{date.today()}.pdf"
+            await send_document_to_group(client, pdf_bytes, filename, caption="📄 Your payment statement")
+        except Exception as exc:
+            import logging as _log
+            _log.getLogger(__name__).warning("PDF statement generation failed for %s: %s", client.subdomain, exc)
     else:
         if payment:
             payment.status = "failed"

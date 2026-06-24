@@ -1,3 +1,4 @@
+import base64
 import logging
 import os
 
@@ -59,6 +60,44 @@ async def send_to_group(client: Client, text: str) -> None:
             )
     except Exception as exc:
         _log.warning("send_to_group failed for %s: %s", client.subdomain, exc)
+
+
+async def send_document_to_group(client: Client, pdf_bytes: bytes, filename: str, caption: str = "") -> None:
+    """Send a PDF document to a client's WhatsApp group."""
+    if not client.openwa_url or not client.whatsapp_group_id:
+        _log.warning("send_document_to_group skipped for %s: missing openwa_url or group_id", client.subdomain)
+        return
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as http:
+            sessions_r = await http.get(
+                f"{client.openwa_url}/api/sessions",
+                headers={"X-API-Key": client.openwa_api_key or ""},
+            )
+            sessions_r.raise_for_status()
+            session_id = None
+            for s in sessions_r.json():
+                if s.get("name") == client.openwa_session:
+                    status = (s.get("status") or "").upper()
+                    if status in ("WORKING", "CONNECTED", "READY", "AUTHENTICATED"):
+                        session_id = s["id"]
+                    break
+            if not session_id:
+                _log.warning("send_document_to_group: session %r not active for %s", client.openwa_session, client.subdomain)
+                return
+
+            data_b64 = base64.b64encode(pdf_bytes).decode()
+            r = await http.post(
+                f"{client.openwa_url}/api/sessions/{session_id}/messages/send-file",
+                headers={"X-API-Key": client.openwa_api_key or "", "Content-Type": "application/json"},
+                json={
+                    "chatId": client.whatsapp_group_id,
+                    "file": {"data": data_b64, "mimetype": "application/pdf", "filename": filename},
+                    "caption": caption,
+                },
+            )
+            _log.warning("send_document_to_group %s status=%s body=%s", client.subdomain, r.status_code, r.text[:200])
+    except Exception as exc:
+        _log.warning("send_document_to_group failed for %s: %s", client.subdomain, exc)
 
 
 async def send_dm_text(phone: str, text: str) -> None:
