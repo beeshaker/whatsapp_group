@@ -33,7 +33,7 @@ class _StatementPDF(FPDF):
         self.set_y(-14)
         self.set_font("Helvetica", "", 8)
         self.set_text_color(*_MUTED)
-        self.cell(0, 6, f"Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC  ·  Page {self.page_no()}", align="C")
+        self.cell(0, 6, f"Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC  |  Page {self.page_no()}", align="C")
 
 
 def generate_statement(
@@ -102,10 +102,10 @@ def generate_statement(
             y0 += 6
 
         _inv_row("Amount:", f"KES {invoice_payment['amount']}", bold=True)
-        _inv_row("M-Pesa Receipt:", invoice_payment.get("receipt") or "—")
-        _inv_row("Phone:", invoice_payment.get("phone", "—"))
-        _inv_row("Period:", f"{invoice_payment['period_start']} → {invoice_payment['period_end']}")
-        _inv_row("Payment Date:", invoice_payment.get("date", "—"))
+        _inv_row("M-Pesa Receipt:", invoice_payment.get("receipt") or "-")
+        _inv_row("Phone:", invoice_payment.get("phone") or "-")
+        _inv_row("Period:", f"{invoice_payment['period_start']} to {invoice_payment['period_end']}")
+        _inv_row("Payment Date:", invoice_payment.get("date") or "-")
 
         pdf.ln(36)
 
@@ -139,7 +139,7 @@ def generate_statement(
             (p.get("date", "")[:16], 36),
             (p.get("phone", ""), 30),
             (f"KES {p.get('amount', '')}", 24),
-            (p.get("receipt") or "—", 36),
+            (p.get("receipt") or "-", 36),
             (p.get("status", "").upper(), 22),
             (f"{p.get('period_start','')} - {p.get('period_end','')}", 42),
         ]
