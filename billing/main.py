@@ -363,7 +363,7 @@ async def _process_client_message(client: Client, data: dict, db) -> dict:
         try:
             from pdf import generate_statement
             all_payments = (await db.execute(
-                select(Payment).where(Payment.client_id == client.id).order_by(Payment.initiated_at.desc())
+                select(Payment).where(Payment.client_id == client.id, Payment.status == "confirmed").order_by(Payment.initiated_at.desc())
             )).scalars().all()
             history = [
                 {
@@ -591,7 +591,7 @@ async def mpesa_callback(request: Request, db=Depends(get_db)):
         try:
             from pdf import generate_statement
             all_payments = (await db.execute(
-                select(Payment).where(Payment.client_id == client.id).order_by(Payment.initiated_at.desc())
+                select(Payment).where(Payment.client_id == client.id, Payment.status == "confirmed").order_by(Payment.initiated_at.desc())
             )).scalars().all()
             invoice_data = {
                 "amount": str(amount),
