@@ -535,10 +535,23 @@ async def mpesa_callback(request: Request, db=Depends(get_db)):
         await db.commit()
 
         await start_client(client)
+        period_start = payment.period_start if payment else date.today()
+        period_end = payment.period_end if payment else client.renewal_date
+        amount = payment.amount if payment else "—"
+        phone = payment.phone if payment else "—"
+        confirmed_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M") + " UTC"
         await send_to_group(
             client,
-            f"🎉 Payment confirmed! Your subscription is active until {client.renewal_date}. "
-            f"M-Pesa receipt: {mpesa_id}",
+            f"🎉 *Payment Confirmed!*\n\n"
+            f"📋 *Payment Summary*\n"
+            f"  • Amount: KES {amount}\n"
+            f"  • M-Pesa Receipt: {mpesa_id or '—'}\n"
+            f"  • Phone: {phone}\n"
+            f"  • Date: {confirmed_at}\n\n"
+            f"✅ Account Status: *Active*\n"
+            f"📅 Period Covered: {period_start} → {period_end}\n"
+            f"🔄 Next Renewal: *{client.renewal_date}*\n\n"
+            f"Thank you for your payment!",
         )
     else:
         if payment:
