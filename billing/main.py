@@ -359,6 +359,40 @@ async def _process_client_message(client: Client, data: dict, db) -> dict:
         )
     )
 
+    if message_text.lower() == "/statement":
+        try:
+            from pdf import generate_statement
+            all_payments = (await db.execute(
+                select(Payment).where(Payment.client_id == client.id).order_by(Payment.initiated_at.desc())
+            )).scalars().all()
+            history = [
+                {
+                    "date": p.initiated_at.strftime("%Y-%m-%d %H:%M"),
+                    "phone": p.phone,
+                    "amount": str(p.amount),
+                    "receipt": p.mpesa_transaction_id,
+                    "status": p.status,
+                    "period_start": str(p.period_start),
+                    "period_end": str(p.period_end),
+                }
+                for p in all_payments
+            ]
+            pdf_bytes = generate_statement(
+                client_name=client.name,
+                client_plan=client.plan,
+                client_status=client.status,
+                renewal_date=client.renewal_date,
+                payments=history,
+                invoice_payment=history[0] if history else None,
+            )
+            filename = f"statement_{client.subdomain}_{date.today()}.pdf"
+            await send_document_to_group(client, pdf_bytes, filename, caption="📄 Your latest payment statement")
+        except Exception as exc:
+            import logging as _l
+            _l.getLogger(__name__).warning("Statement command failed for %s: %s", client.subdomain, exc)
+            await send_to_group(client, "❌ Could not generate statement. Please try again later.")
+        return {"ok": True}
+
     if message_text.lower() == "/payment":
         if active_session:
             await db.delete(active_session)
