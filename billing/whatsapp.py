@@ -87,11 +87,13 @@ async def send_document_to_group(client: Client, pdf_bytes: bytes, filename: str
 
             data_b64 = base64.b64encode(pdf_bytes).decode()
             r = await http.post(
-                f"{client.openwa_url}/api/sessions/{session_id}/messages/send-file",
+                f"{client.openwa_url}/api/sessions/{session_id}/messages/send-document",
                 headers={"X-API-Key": client.openwa_api_key or "", "Content-Type": "application/json"},
                 json={
                     "chatId": client.whatsapp_group_id,
-                    "file": {"data": data_b64, "mimetype": "application/pdf", "filename": filename},
+                    "base64": data_b64,
+                    "mimetype": "application/pdf",
+                    "filename": filename,
                     "caption": caption,
                 },
             )
