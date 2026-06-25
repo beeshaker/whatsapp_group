@@ -333,15 +333,21 @@ async def group_webhook(group_id: str, request: Request, db=Depends(get_db)):
     if BILLING_WEBHOOK_SECRET and not _verify_sig(BILLING_WEBHOOK_SECRET, body, sig):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
+    import logging as _lg
+    _lg.getLogger(__name__).warning("group_webhook: group_id=%r", group_id)
     client = await db.scalar(select(Client).where(Client.whatsapp_group_id == group_id))
     if not client:
+        _lg.getLogger(__name__).warning("group_webhook: no client found for group_id=%r", group_id)
         return {"ok": True}
+    _lg.getLogger(__name__).warning("group_webhook: found client=%s", client.subdomain)
 
     try:
-        data = json.loads(body)
+        payload = json.loads(body)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON")
 
+    # OpenWA wraps message fields inside a "data" key
+    data = payload.get("data", payload)
     return await _process_client_message(client, data, db)
 
 
