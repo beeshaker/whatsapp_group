@@ -739,6 +739,9 @@ async def ingest(
         )
 
     # Media message
+    billing_status = await _get_client_billing_status()
+    if billing_status in ("billing_only", "closed"):
+        return {"status": "billing_only_drop"}
     caption = (data.get("caption") or "").strip()[:4000]
     media_url: Optional[str] = data.get("mediaUrl") or None
     return await _handle_media_ingest(

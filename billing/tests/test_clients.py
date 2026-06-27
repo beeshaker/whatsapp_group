@@ -134,7 +134,7 @@ async def test_auth_check_blocks_closed(auth_http, db_session):
 
 
 @pytest.mark.asyncio
-async def test_auth_check_allows_grace(auth_http, db_session):
+async def test_auth_check_blocks_grace(auth_http, db_session):
     await auth_http.post("/clients", data={"name": "Grace", "subdomain": "graceclient", "plan": "monthly"})
     from models import Client
     from sqlalchemy import select

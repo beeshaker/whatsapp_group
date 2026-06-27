@@ -69,7 +69,7 @@ async def _check_client_status(client: Client, db) -> None:
             now - client.last_warning_sent_at >= timedelta(hours=_WARNING_INTERVAL_HOURS)
         ):
             days_overdue = (today - client.renewal_date).days
-            days_left = _GRACE_DAYS - grace_age.days
+            days_left = max(0, _GRACE_DAYS - grace_age.days)
             client.last_warning_sent_at = now
             await db.commit()
             await send_to_group(

@@ -209,3 +209,50 @@ async def test_auth_check_billing_only_returns_403(http, grace_client, db_sessio
 async def test_auth_check_unknown_subdomain_returns_200(http):
     r = await http.get("/internal/auth-check", headers={"X-Client-Subdomain": "unknown"})
     assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_close_command_sets_status_closed(db_session, monkeypatch):
+    """POST /close via by-group webhook closes the client and calls stop_client."""
+    from sqlalchemy import select
+    import database, main
+
+    stop_mock = AsyncMock()
+    send_mock = AsyncMock()
+    monkeypatch.setattr("main.stop_client", stop_mock)
+    monkeypatch.setattr("main.send_to_group", send_mock)
+    monkeypatch.setattr("main.start_client", AsyncMock())
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    monkeypatch.setattr(database, "AsyncSessionLocal", factory)
+
+    from models import Client
+    import os
+    os.environ["BILLING_WEBHOOK_SECRET"] = ""
+
+    client = Client(
+        name="CloseCo", subdomain="closeco", plan="monthly", status="active",
+        renewal_date=date.today() + timedelta(days=30),
+        whatsapp_group_id="closeco-group@g.us",
+        openwa_url="http://localhost:2001",
+        openwa_session="closeco",
+        openwa_api_key="key",
+        docker_project="closeco",
+        created_at=datetime.now(timezone.utc),
+    )
+    db_session.add(client)
+    await db_session.commit()
+
+    body = b'{"body":"/close","fromMe":false,"type":"chat","chatId":"closeco-group@g.us"}'
+    async with AsyncClient(transport=ASGITransport(app=main.app), base_url="http://test") as http_client:
+        r = await http_client.post(
+            f"/webhook/by-group/closeco-group@g.us",
+            content=body,
+            headers={"Content-Type": "application/json"},
+        )
+    assert r.status_code == 200
+
+    await db_session.refresh(client)
+    assert client.status == "closed"
+    stop_mock.assert_called_once()
