@@ -1473,6 +1473,8 @@ async def dashboard(
     user_result = await db.execute(select(User).where(User.username == username))
     user_obj = user_result.scalar_one_or_none()
     role = user_obj.role if user_obj else "user"
+    cats_result = await db.execute(select(IncidentCategory).order_by(IncidentCategory.label))
+    categories = cats_result.scalars().all()
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -1483,6 +1485,7 @@ async def dashboard(
             "username": username,
             "role": role,
             "mode": "live",
+            "categories": categories,
         },
     )
 
@@ -1523,6 +1526,8 @@ async def archive_dashboard(
     user_result = await db.execute(select(User).where(User.username == username))
     user_obj = user_result.scalar_one_or_none()
     role = user_obj.role if user_obj else "user"
+    cats_result = await db.execute(select(IncidentCategory).order_by(IncidentCategory.label))
+    categories = cats_result.scalars().all()
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -1533,6 +1538,7 @@ async def archive_dashboard(
             "username": username,
             "role": role,
             "mode": "archive",
+            "categories": categories,
         },
     )
 

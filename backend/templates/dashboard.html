@@ -1229,14 +1229,10 @@
             <div class="filter-header-meta"><span class="cnt" id="selected-cat-count">0</span><span class="filter-chevron">⌄</span></div>
           </button>
           <div class="filter-content">
-            <div class="fopt" data-filter="cat" data-val="plumbing" onclick="toggleFilter(this)"><span class="left">🔧 Plumbing</span><span class="cnt" data-cnt-cat="plumbing">0</span></div>
-            <div class="fopt" data-filter="cat" data-val="electrical" onclick="toggleFilter(this)"><span class="left">⚡ Electrical</span><span class="cnt" data-cnt-cat="electrical">0</span></div>
-            <div class="fopt" data-filter="cat" data-val="lift" onclick="toggleFilter(this)"><span class="left">🛗 Lift</span><span class="cnt" data-cnt-cat="lift">0</span></div>
-            <div class="fopt" data-filter="cat" data-val="security" onclick="toggleFilter(this)"><span class="left">🔒 Security</span><span class="cnt" data-cnt-cat="security">0</span></div>
-            <div class="fopt" data-filter="cat" data-val="structural" onclick="toggleFilter(this)"><span class="left">🏗 Structural</span><span class="cnt" data-cnt-cat="structural">0</span></div>
-            <div class="fopt" data-filter="cat" data-val="cleaning" onclick="toggleFilter(this)"><span class="left">🧹 Cleaning</span><span class="cnt" data-cnt-cat="cleaning">0</span></div>
-            <div class="fopt" data-filter="cat" data-val="access" onclick="toggleFilter(this)"><span class="left">🚪 Access</span><span class="cnt" data-cnt-cat="access">0</span></div>
-            <div class="fopt" data-filter="cat" data-val="other" onclick="toggleFilter(this)"><span class="left">📋 Other</span><span class="cnt" data-cnt-cat="other">0</span></div>
+            {% set cat_icons = {'plumbing':'🔧','electrical':'⚡','lift':'🛗','security':'🔒','structural':'🏗','cleaning':'🧹','access':'🚪','other':'📋'} %}
+            {% for cat in categories %}
+            <div class="fopt" data-filter="cat" data-val="{{ cat.slug }}" onclick="toggleFilter(this)"><span class="left">{{ cat_icons.get(cat.slug, '📋') }} {{ cat.label }}</span><span class="cnt" data-cnt-cat="{{ cat.slug }}">0</span></div>
+            {% endfor %}
           </div>
         </div>
       </div>
@@ -1916,9 +1912,9 @@ function updateCounts() {
     const el = document.querySelector(`[data-cnt-sev="${s}"]`);
     if (el) el.textContent = allIncidents.filter(i => i.severity === s).length;
   });
-  ['plumbing','electrical','lift','security','structural','cleaning','access','other'].forEach(s => {
-    const el = document.querySelector(`[data-cnt-cat="${s}"]`);
-    if (el) el.textContent = allIncidents.filter(i => i.category === s).length;
+  document.querySelectorAll('[data-cnt-cat]').forEach(el => {
+    const s = el.dataset.cntCat;
+    el.textContent = allIncidents.filter(i => i.category === s).length;
   });
 }
 
