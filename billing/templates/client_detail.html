@@ -16,7 +16,7 @@ th,td{padding:.6rem;border-bottom:1px solid #eee;text-align:left;font-size:.9rem
 th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
 .badge{padding:.2rem .6rem;border-radius:12px;font-size:.8rem;font-weight:bold}
 .active{background:#d4edda;color:#155724}.grace{background:#fff3cd;color:#856404}
-.warning{background:#f8d7da;color:#721c24}.suspended{background:#d6d8db;color:#383d41}
+.billing_only{background:#f8d7da;color:#721c24}.closed{background:#d6d8db;color:#383d41}
 .confirmed{color:green}.pending{color:orange}.failed{color:red}
 
 /* QR modal */
@@ -73,6 +73,11 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
     </select>
     <label>Renewal Date</label>
     <input type="date" name="renewal_date" value="{{ client.renewal_date }}">
+    <label>Data Retention Days (after close)</label>
+    <input type="number" name="data_retention_days" value="{{ client.data_retention_days or 90 }}" min="1" max="365">
+    {% if client.status == 'billing_only' and client.billing_only_started_at %}
+    <p style="color:#721c24;font-size:.85rem">Billing-only since: <strong>{{ client.billing_only_started_at.strftime('%Y-%m-%d %H:%M') }} UTC</strong></p>
+    {% endif %}
     <button class="save" type="submit">Save Changes</button>
   </form>
 </div>
@@ -98,9 +103,15 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
   {% if request.query_params.get('invited') %}
   <p style="color:green;margin-top:.5rem">Invite sent to {{ client.admin_whatsapp_phone }}.</p>
   {% endif %}
-  {% if client.status == 'suspended' %}
+  {% if client.status in ('grace', 'billing_only', 'closed') %}
   <form method="post" action="/clients/{{ client.id }}/reactivate" style="display:inline">
     <button class="action" type="submit" style="background:#075e54">Reactivate</button>
+  </form>
+  {% endif %}
+  {% if client.status != 'closed' %}
+  <form method="post" action="/clients/{{ client.id }}/close" style="display:inline"
+    onsubmit="return confirm('Are you sure you want to close this account? This will stop all services.')">
+    <button class="action danger" type="submit">Close Account</button>
   </form>
   {% endif %}
 </div>

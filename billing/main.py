@@ -199,6 +199,7 @@ async def update_client(
     admin_whatsapp_phone: str = Form(default=""),
     whatsapp_invite_link: str = Form(default=""),
     backend_port: str = Form(default=""),
+    data_retention_days: str = Form(default=""),
     username: str = Depends(require_login),
     db=Depends(get_db),
 ):
@@ -219,6 +220,10 @@ async def update_client(
         client.renewal_date = date.fromisoformat(renewal_date)
     if plan in ("monthly", "annual"):
         client.plan = plan
+    if data_retention_days.strip().isdigit():
+        val = int(data_retention_days.strip())
+        if 1 <= val <= 365:
+            client.data_retention_days = val
     client.admin_whatsapp_phone = admin_whatsapp_phone.strip() or client.admin_whatsapp_phone
     client.whatsapp_invite_link = whatsapp_invite_link.strip() or client.whatsapp_invite_link
     new_port = int(backend_port.strip()) if backend_port.strip().isdigit() else None
