@@ -1,3 +1,6 @@
+admin
+changeme
+
 # ============================================================
 # WHATSAPP OPS GATEWAY — STARTUP RUNBOOK
 # ============================================================
@@ -19,9 +22,16 @@ docker compose up -d --build
 docker compose up -d
 
 
-# STEP 2 — Open the setup UI (keep this terminal running)
-python3 -m http.server 9999 --directory /home/abhishek/projects/whatsappgroup/whatsapp-ticketing
-# Then open: http://localhost:9999/setup.html
+# STEP 2 — Open the setup UI
+#
+# LOCAL (SSH with port-forwarding or direct access):
+#   python3 -m http.server 9999 --directory /home/abhishek/projects/whatsappgroup/whatsapp-ticketing
+#   Then open: http://localhost:9999/setup.html
+#
+# VPS via ngrok (single tunnel):
+#   ngrok http 8000
+#   Then open: https://<your-ngrok-url>/setup
+#   (backend proxies OpenWA internally — no need for extra tunnels)
 #
 # The UI will automatically:
 #   - Create and start the WhatsApp session

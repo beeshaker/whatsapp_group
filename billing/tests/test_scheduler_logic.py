@@ -101,12 +101,14 @@ async def test_grace_sends_reminder_every_2_days():
         grace_started_at=now - timedelta(days=3),
         last_warning_sent_at=now - timedelta(days=3),
     )
+    mock_db = AsyncMock()
     with patch("scheduler.send_to_group", new=AsyncMock()) as mock_send:
-        await _check_client_status(c, AsyncMock())
+        await _check_client_status(c, mock_db)
     mock_send.assert_called_once()
     msg = mock_send.call_args[0][1]
     assert "overdue" in msg.lower() or "unpaid" in msg.lower()
     assert "days" in msg
+    mock_db.commit.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -160,12 +162,14 @@ async def test_billing_only_sends_reminder_every_2_days():
         last_warning_sent_at=now - timedelta(days=3),
         data_retention_days=90,
     )
+    mock_db = AsyncMock()
     with patch("scheduler.send_to_group", new=AsyncMock()) as mock_send:
-        await _check_client_status(c, AsyncMock())
+        await _check_client_status(c, mock_db)
     mock_send.assert_called_once()
     msg = mock_send.call_args[0][1]
     assert "suspended" in msg.lower() or "urgent" in msg.lower()
     assert "days" in msg
+    mock_db.commit.assert_called_once()
 
 
 @pytest.mark.asyncio

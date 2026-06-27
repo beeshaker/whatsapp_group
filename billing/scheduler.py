@@ -71,6 +71,7 @@ async def _check_client_status(client: Client, db) -> None:
             days_overdue = (today - client.renewal_date).days
             days_left = _GRACE_DAYS - grace_age.days
             client.last_warning_sent_at = now
+            await db.commit()
             await send_to_group(
                 client,
                 f"⚠️ Your subscription is unpaid ({days_overdue} days overdue). "
@@ -87,6 +88,7 @@ async def _check_client_status(client: Client, db) -> None:
             days_elapsed = (now - billing_only_start).days
             days_remaining = max(0, client.data_retention_days - days_elapsed)
             client.last_warning_sent_at = now
+            await db.commit()
             await send_to_group(
                 client,
                 f"\U0001f6a8 Urgent: Your service remains suspended ({days_overdue} days overdue). "

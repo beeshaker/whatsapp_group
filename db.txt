@@ -1,0 +1,94 @@
+====================================================
+  CONNECTING TO THE DATABASE
+====================================================
+
+Open a psql shell inside the running postgres container:
+
+  docker exec -it whatsapp-ticketing-postgres-1 psql -U ops_user -d ops_incidents
+
+Useful psql commands once inside:
+
+  \dt              -- list all tables
+  \d incidents     -- describe a specific table
+  \q               -- quit
+
+Quick checks:
+
+  SELECT status, COUNT(*) FROM incidents GROUP BY status;
+  SELECT DISTINCT group_id FROM incidents;
+  SELECT * FROM incidents ORDER BY received_at DESC LIMIT 10;
+  SELECT * FROM users;
+
+====================================================
+  TABLE STRUCTURE
+====================================================
+
+users
+  id               SERIAL PRIMARY KEY
+  username         TEXT NOT NULL UNIQUE
+  hashed_password  TEXT NOT NULL
+  role             TEXT  -- 'admin' | 'user'
+  created_at       TIMESTAMP WITH TIME ZONE
+  created_by       TEXT  -- username of creator, NULL for bootstrap admin
+
+user_groups
+  user_id          INTEGER  FK -> users.id
+  group_id         TEXT
+  PRIMARY KEY (user_id, group_id)
+
+incidents
+  id               SERIAL PRIMARY KEY
+  group_id         TEXT NOT NULL          -- WhatsApp group JID e.g. "120363xxxxxxx@g.us"
+  message_body     TEXT
+  category         TEXT
+  severity         TEXT  -- 'high' | 'medium' | 'low'
+  status           TEXT  -- 'new' | 'review' | 'acknowledged' | 'resolved' | 'ignored'
+  received_at      TIMESTAMP WITH TIME ZONE
+  wa_message_id    TEXT
+
+  Open incidents = status NOT IN ('resolved', 'ignored')
+
+incident_status_history
+  id               SERIAL PRIMARY KEY
+  incident_id      INTEGER  FK -> incidents.id
+  from_status      TEXT
+  to_status        TEXT
+  changed_by       TEXT  -- username or NULL for automated changes
+  changed_at       TIMESTAMP WITH TIME ZONE
+
+incident_updates
+  id               SERIAL PRIMARY KEY
+  incident_id      INTEGER  FK -> incidents.id
+  message_body     TEXT
+  sent_at          TIMESTAMP WITH TIME ZONE
+
+incident_media
+  id               SERIAL PRIMARY KEY
+  incident_id      INTEGER  FK -> incidents.id
+  media_type       TEXT  -- 'image' | 'video' | 'document' | 'audio'
+  file_path        TEXT
+  downloaded_at    TIMESTAMP WITH TIME ZONE
+
+audit_log
+  id               SERIAL PRIMARY KEY
+  actor            TEXT
+  action           TEXT
+  target_id        INTEGER
+  detail           TEXT
+  created_at       TIMESTAMP WITH TIME ZONE
+
+admin_profiles
+  user_id          INTEGER  PK, FK -> users.id
+  whatsapp_phone   TEXT  -- phone digits only e.g. "254712345678", NULL if not set
+
+admin_group_subscriptions
+  id               SERIAL PRIMARY KEY
+  user_id          INTEGER  FK -> users.id
+  group_id         TEXT
+  UNIQUE (user_id, group_id)
+
+chat_sessions
+  id               SERIAL PRIMARY KEY
+  session_key      TEXT UNIQUE NOT NULL  -- "web:<username>" or "wa:<phone>"
+  messages         JSONB  -- [{role, content}, ...]
+  updated_at       TIMESTAMP WITH TIME ZONE
