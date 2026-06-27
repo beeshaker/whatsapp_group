@@ -71,3 +71,75 @@ async def test_set_and_read_prices(auth_http):
     r2 = await auth_http.get("/prices")
     assert b"1500" in r2.content
     assert b"15000" in r2.content
+
+
+@pytest.mark.asyncio
+async def test_status_endpoint_returns_active(auth_http, db_session):
+    await auth_http.post("/clients", data={"name": "Acme", "subdomain": "acmestatus", "plan": "monthly"})
+    r = await auth_http.get("/api/clients/acmestatus/status")
+    assert r.status_code == 200
+    assert r.json()["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_status_endpoint_returns_billing_only(auth_http, db_session):
+    await auth_http.post("/clients", data={"name": "Billing", "subdomain": "billingonly", "plan": "monthly"})
+    from models import Client
+    from sqlalchemy import select
+    client = await db_session.scalar(select(Client).where(Client.subdomain == "billingonly"))
+    client.status = "billing_only"
+    await db_session.commit()
+    r = await auth_http.get("/api/clients/billingonly/status")
+    assert r.status_code == 200
+    assert r.json()["status"] == "billing_only"
+
+
+@pytest.mark.asyncio
+async def test_close_endpoint_sets_status_closed(auth_http, db_session):
+    from unittest.mock import patch, AsyncMock
+    await auth_http.post("/clients", data={"name": "Close Me", "subdomain": "closeme", "plan": "monthly"})
+    from models import Client
+    from sqlalchemy import select
+    client = await db_session.scalar(select(Client).where(Client.subdomain == "closeme"))
+    with patch("main.stop_client", new=AsyncMock()):
+        with patch("main.send_to_group", new=AsyncMock()):
+            r = await auth_http.post(f"/clients/{client.id}/close")
+    assert r.status_code in (200, 303)
+    await db_session.refresh(client)
+    assert client.status == "closed"
+
+
+@pytest.mark.asyncio
+async def test_auth_check_blocks_billing_only(auth_http, db_session):
+    await auth_http.post("/clients", data={"name": "BlockMe", "subdomain": "blockme", "plan": "monthly"})
+    from models import Client
+    from sqlalchemy import select
+    client = await db_session.scalar(select(Client).where(Client.subdomain == "blockme"))
+    client.status = "billing_only"
+    await db_session.commit()
+    r = await auth_http.get("/internal/auth-check", headers={"X-Client-Subdomain": "blockme"})
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_auth_check_blocks_closed(auth_http, db_session):
+    await auth_http.post("/clients", data={"name": "Closed", "subdomain": "closedclient", "plan": "monthly"})
+    from models import Client
+    from sqlalchemy import select
+    client = await db_session.scalar(select(Client).where(Client.subdomain == "closedclient"))
+    client.status = "closed"
+    await db_session.commit()
+    r = await auth_http.get("/internal/auth-check", headers={"X-Client-Subdomain": "closedclient"})
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_auth_check_allows_grace(auth_http, db_session):
+    await auth_http.post("/clients", data={"name": "Grace", "subdomain": "graceclient", "plan": "monthly"})
+    from models import Client
+    from sqlalchemy import select
+    client = await db_session.scalar(select(Client).where(Client.subdomain == "graceclient"))
+    client.status = "grace"
+    await db_session.commit()
+    r = await auth_http.get("/internal/auth-check", headers={"X-Client-Subdomain": "graceclient"})
+    assert r.status_code == 403

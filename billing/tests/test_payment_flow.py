@@ -198,8 +198,8 @@ async def test_auth_check_grace_returns_403(http, grace_client):
 
 
 @pytest.mark.asyncio
-async def test_auth_check_suspended_returns_403(http, grace_client, db_session):
-    grace_client.status = "suspended"
+async def test_auth_check_billing_only_returns_403(http, grace_client, db_session):
+    grace_client.status = "billing_only"
     await db_session.commit()
     r = await http.get("/internal/auth-check", headers={"X-Client-Subdomain": "acme"})
     assert r.status_code == 403

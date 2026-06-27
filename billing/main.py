@@ -370,6 +370,17 @@ async def _process_client_message(client: Client, data: dict, db) -> dict:
         )
     )
 
+    if message_text.lower() == "/close":
+        client.status = "closed"
+        await db.commit()
+        await stop_client(client)
+        await send_to_group(
+            client,
+            "\U0001f44b Your account has been closed. All services have been stopped. "
+            "Thank you for using our service.",
+        )
+        return {"ok": True}
+
     if message_text.lower() == "/statement":
         try:
             from pdf import generate_statement
@@ -574,7 +585,10 @@ async def mpesa_callback(request: Request, db=Depends(get_db)):
 
         client.status = "active"
         client.grace_started_at = None
-        client.warning_sent_at = None
+        client.billing_only_started_at = None
+        client.last_warning_sent_at = None
+        client.pre_expiry_14_warned = False
+        client.pre_expiry_2_warned = False
         client.renewal_date = payment.period_end if payment else _period_end(client.plan, date.today())
         await db.delete(session)
         await db.commit()
@@ -802,10 +816,33 @@ async def manual_reactivate(
         raise HTTPException(status_code=404)
     client.status = "active"
     client.grace_started_at = None
-    client.warning_sent_at = None
+    client.billing_only_started_at = None
+    client.last_warning_sent_at = None
+    client.pre_expiry_14_warned = False
+    client.pre_expiry_2_warned = False
     await db.commit()
     await start_client(client)
     await send_to_group(client, "✅ Your account has been manually reactivated by the administrator.")
+    return RedirectResponse(f"/clients/{client_id}", status_code=303)
+
+
+@app.post("/clients/{client_id}/close")
+async def close_client(
+    request: Request, client_id: int,
+    username: str = Depends(require_login),
+    db=Depends(get_db),
+):
+    client = await db.get(Client, client_id)
+    if not client:
+        raise HTTPException(status_code=404)
+    client.status = "closed"
+    await db.commit()
+    await stop_client(client)
+    await send_to_group(
+        client,
+        "\U0001f44b Your account has been closed. All services have been stopped. "
+        "Thank you for using our service.",
+    )
     return RedirectResponse(f"/clients/{client_id}", status_code=303)
 
 
@@ -846,6 +883,17 @@ async def client_statement(subdomain: str, request: Request, db=Depends(get_db))
     }
 
 
+@app.get("/api/clients/{subdomain}/status")
+async def client_billing_status(subdomain: str, request: Request, db=Depends(get_db)):
+    secret = request.headers.get("X-Billing-Secret", "")
+    if BILLING_WEBHOOK_SECRET and secret != BILLING_WEBHOOK_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    client = await db.scalar(select(Client).where(Client.subdomain == subdomain))
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return {"status": client.status}
+
+
 # ---------------------------------------------------------------------------
 # Nginx auth-check gate
 # ---------------------------------------------------------------------------
@@ -856,7 +904,7 @@ async def auth_check(request: Request, db=Depends(get_db)):
     if not subdomain:
         return JSONResponse(status_code=200, content={"ok": True})
     client = await db.scalar(select(Client).where(Client.subdomain == subdomain))
-    if client and client.status in ("grace", "warning", "suspended"):
+    if client and client.status in ("grace", "billing_only", "closed"):
         raise HTTPException(status_code=403, detail="Subscription inactive")
     return JSONResponse(status_code=200, content={"ok": True})
 
