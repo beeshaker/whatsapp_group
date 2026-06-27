@@ -123,10 +123,39 @@ except ValueError:
     logger.warning("Invalid SUMMARY_SCHEDULE_HOUR env var, using default of 8")
     SUMMARY_SCHEDULE_HOUR = 8
 DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://localhost:8000")
+
+_billing_status_cache: dict | None = None
+_CACHE_TTL_SECONDS = 60
+
 SECRET_KEY = os.getenv("SECRET_KEY", "")
 if not SECRET_KEY or SECRET_KEY == "change-me":
     logger.error("SECRET_KEY env var is not set or is the default value. Refusing to start.")
     sys.exit(1)
+
+
+async def _get_client_billing_status() -> str:
+    global _billing_status_cache
+    if not BILLING_SERVICE_URL or not CLIENT_SUBDOMAIN:
+        return "active"
+    now = datetime.now(timezone.utc)
+    if (
+        _billing_status_cache is not None
+        and (now - _billing_status_cache["fetched_at"]).total_seconds() < _CACHE_TTL_SECONDS
+    ):
+        return _billing_status_cache["status"]
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as http:
+            r = await http.get(
+                f"{BILLING_SERVICE_URL}/api/clients/{CLIENT_SUBDOMAIN}/status",
+                headers={"X-Billing-Secret": BILLING_WEBHOOK_SECRET},
+            )
+            r.raise_for_status()
+            status = r.json().get("status", "active")
+    except Exception:
+        logger.warning("Billing status check failed — defaulting to active")
+        return "active"
+    _billing_status_cache = {"status": status, "fetched_at": now}
+    return status
 
 
 async def require_write_auth(
@@ -696,6 +725,12 @@ async def ingest(
             return {"status": "ignored", "message": "Empty message body"}
         if BILLING_SERVICE_URL:
             asyncio.create_task(_forward_to_billing_by_group(group_id, data))
+
+        # billing gate — silent drop for billing_only and closed
+        billing_status = await _get_client_billing_status()
+        if billing_status in ("billing_only", "closed"):
+            return {"status": "billing_only_drop"}
+
         if message_body.startswith("/"):
             return {"status": "forwarded_to_billing"}
         return await _handle_text_ingest(
