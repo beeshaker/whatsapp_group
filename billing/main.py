@@ -56,6 +56,11 @@ async def _migrate_db():
             ("payment_sessions", "phone TEXT"),
             ("payment_sessions", "checkout_request_id TEXT"),
             ("payment_sessions", "payment_id INTEGER"),
+            ("clients", "billing_only_started_at DATETIME"),
+            ("clients", "last_warning_sent_at DATETIME"),
+            ("clients", "data_retention_days INTEGER DEFAULT 90"),
+            ("clients", "pre_expiry_14_warned BOOLEAN DEFAULT 0"),
+            ("clients", "pre_expiry_2_warned BOOLEAN DEFAULT 0"),
         ]
         for table, col_def in migrations:
             try:
