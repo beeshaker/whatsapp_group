@@ -1,3 +1,4 @@
+import importlib
 import os
 
 # Set env vars BEFORE any app imports — database.py reads these at module load
@@ -14,10 +15,33 @@ from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.pool import StaticPool
 
+import main as main_module
 from database import Base, get_db
 from main import app
 from models import User, UserGroup
 from auth import hash_password, require_login, require_admin, require_super_admin
+
+
+@pytest.fixture(autouse=True)
+def _restore_main_module_state():
+    """Some tests (test_billing_forward.py) call importlib.reload(main) after
+    monkeypatching env vars to exercise env-derived module constants like
+    GATEWAY_SECRET_TOKEN. That reload mutates the shared `main` module's
+    __dict__ in place, so once monkeypatch reverts the env vars at its own
+    teardown, `main`'s globals (GATEWAY_SECRET_TOKEN, _billing_status_cache,
+    etc.) are left reflecting the *temporary* values — corrupting every
+    later test in the same pytest process regardless of file.
+
+    This fixture is autouse, so pytest instantiates it before other
+    explicitly-requested fixtures (including monkeypatch) within the same
+    scope, which means its teardown (below `yield`) runs *after* theirs —
+    i.e. after monkeypatch has already reverted the env vars back to
+    conftest's values. Reloading `main` at that point re-executes its
+    module-level code against the restored environment, fixing the globals
+    back to what every other test expects.
+    """
+    yield
+    importlib.reload(main_module)
 
 # Pre-hash once at module load — avoids per-test bcrypt cost
 _HASHED_TESTPASS = hash_password("testpass")

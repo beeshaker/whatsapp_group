@@ -19,11 +19,28 @@ async def client(monkeypatch):
     monkeypatch.setenv("OPENWA_SESSION", "acme")
     monkeypatch.setenv("GATEWAY_SECRET_TOKEN", GATEWAY_TOKEN)
     import importlib, main as backend_main
+    from tests.conftest import _TestSession
+    from database import get_db
     importlib.reload(backend_main)
+
+    async def _override_get_db():
+        async with _TestSession() as session:
+            yield session
+
+    backend_main.app.dependency_overrides[get_db] = _override_get_db
     async with AsyncClient(transport=ASGITransport(app=backend_main.app), base_url="http://test") as c:
         yield c
+    backend_main.app.dependency_overrides.clear()
 
 
+@pytest.mark.skip(
+    reason="Pre-existing product-logic gap, unrelated to current work: "
+    "_forward_to_billing() (webhook/client/{subdomain}) is dead code and the "
+    "superusers-group branch in main.py always short-circuits to the sales "
+    "agent before any billing forward runs. See memory/"
+    "project_billing_payment_forward_bug.md. Parked per user decision on "
+    "2026-07-02 — do not fix as part of unrelated feature work."
+)
 @pytest.mark.asyncio
 async def test_payment_command_forwarded_to_billing(client):
     posted = []
