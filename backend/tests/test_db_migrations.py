@@ -149,3 +149,95 @@ async def test_non_other_categories_not_protected(migrated_engine):
         ))
         protected = result.scalar_one_or_none()
     assert protected == 0
+
+
+async def test_incidents_table_has_priority_column(migrated_engine):
+    async with migrated_engine.connect() as conn:
+        result = await conn.execute(text("PRAGMA table_info(incidents)"))
+        columns = [row[1] for row in result.all()]
+        assert "priority" in columns
+        assert "severity" not in columns
+
+
+async def test_incidents_table_has_end_date_column(migrated_engine):
+    async with migrated_engine.connect() as conn:
+        result = await conn.execute(text("PRAGMA table_info(incidents)"))
+        columns = [row[1] for row in result.all()]
+        assert "end_date" in columns
+
+
+async def test_incidents_table_has_escalated_column(migrated_engine):
+    async with migrated_engine.connect() as conn:
+        result = await conn.execute(text("PRAGMA table_info(incidents)"))
+        columns = [row[1] for row in result.all()]
+        assert "escalated" in columns
+
+
+async def test_escalated_defaults_to_false(db_session):
+    from models import Incident
+    now = datetime.now(timezone.utc)
+    incident = Incident(
+        group_id="g1@g.us",
+        property_name="Block A",
+        reporter_name="Alice",
+        message_body="Pump leaking",
+        category="plumbing",
+        priority="high",
+        confidence=0.9,
+        status="review",
+        received_at=now,
+    )
+    db_session.add(incident)
+    await db_session.commit()
+    await db_session.refresh(incident)
+    assert incident.escalated is False
+    assert incident.end_date is None
+
+
+async def test_severity_rename_preserves_existing_data():
+    """Simulates upgrading a pre-existing DB that still has the old `severity` column."""
+    upgrade_engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    async with upgrade_engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE incidents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id TEXT NOT NULL,
+                property_name TEXT NOT NULL,
+                reporter_name TEXT,
+                reporter_phone TEXT,
+                message_body TEXT NOT NULL,
+                category VARCHAR(50) NOT NULL,
+                severity VARCHAR(20) NOT NULL,
+                confidence FLOAT NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'review',
+                received_at TIMESTAMP NOT NULL,
+                message_id TEXT
+            )
+        """))
+        await conn.execute(text(
+            "INSERT INTO incidents (group_id, property_name, message_body, category, "
+            "severity, confidence, status, received_at) VALUES "
+            "('g1@g.us', 'Block A', 'Pump leaking', 'plumbing', 'high', 0.9, 'review', "
+            "'2026-01-01 00:00:00')"
+        ))
+
+    import database
+    original_engine = database.engine
+    database.engine = upgrade_engine
+    try:
+        await init_db()
+    finally:
+        database.engine = original_engine
+
+    async with upgrade_engine.connect() as conn:
+        result = await conn.execute(text("SELECT priority FROM incidents"))
+        assert result.scalar_one() == "high"
+        columns = [row[1] for row in (await conn.execute(text("PRAGMA table_info(incidents)"))).all()]
+        assert "severity" not in columns
+        assert "end_date" in columns
+        assert "escalated" in columns
+    await upgrade_engine.dispose()
