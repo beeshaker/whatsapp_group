@@ -34,6 +34,7 @@ from summaries import build_summary, format_whatsapp_summary, window_for_date
 from whatsapp import reply_to_message, send_group_message
 
 _VALID_STATUSES = {"new", "review", "acknowledged", "resolved", "ignored"}
+_VALID_PRIORITIES = {"low", "medium", "high", "urgent"}
 _MEDIA_TYPES = {"image", "video", "document", "audio"}
 
 
@@ -106,6 +107,20 @@ class CreateCategoryBody(BaseModel):
 
 class DeleteCategoryBody(BaseModel):
     remap_to: Optional[str] = None
+
+
+class TicketDetailUpdateBody(BaseModel):
+    priority: Optional[str] = None
+    category: Optional[str] = None
+    end_date: Optional[datetime] = None
+    escalated: Optional[bool] = None
+
+    @field_validator("end_date")
+    @classmethod
+    def normalize_end_date(cls, v: Optional[datetime]) -> Optional[datetime]:
+        if v is not None and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
 
 
 logging.basicConfig(level=logging.INFO)
@@ -1040,6 +1055,77 @@ async def update_incident_status(
         ))
     await db.commit()
     return {"id": incident.id, "status": incident.status}
+
+
+@app.patch("/incidents/{incident_id}")
+async def update_incident_fields(
+    incident_id: int,
+    body: TicketDetailUpdateBody,
+    actor: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    fields_set = body.model_fields_set
+    if not fields_set:
+        raise HTTPException(status_code=422, detail="At least one field must be provided")
+
+    result = await db.execute(select(Incident).where(Incident.id == incident_id))
+    incident = result.scalar_one_or_none()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    now = datetime.now(timezone.utc)
+    changes = []
+
+    if "priority" in fields_set:
+        if body.priority not in _VALID_PRIORITIES:
+            raise HTTPException(
+                status_code=422, detail=f"priority must be one of {sorted(_VALID_PRIORITIES)}"
+            )
+        if body.priority != incident.priority:
+            changes.append(f"priority: {incident.priority} → {body.priority}")
+            incident.priority = body.priority
+
+    if "category" in fields_set:
+        cat_result = await db.execute(
+            select(IncidentCategory).where(IncidentCategory.slug == body.category)
+        )
+        if not cat_result.scalar_one_or_none():
+            raise HTTPException(status_code=422, detail=f"Unknown category: {body.category}")
+        if body.category != incident.category:
+            changes.append(f"category: {incident.category} → {body.category}")
+            incident.category = body.category
+
+    if "end_date" in fields_set:
+        if body.end_date != incident.end_date:
+            changes.append(f"end_date: {incident.end_date} → {body.end_date}")
+            incident.end_date = body.end_date
+
+    if "escalated" in fields_set:
+        if body.escalated is None:
+            raise HTTPException(status_code=422, detail="escalated must be a boolean")
+        if body.escalated != incident.escalated:
+            changes.append(f"escalated: {incident.escalated} → {body.escalated}")
+            incident.escalated = body.escalated
+
+    db.add(incident)
+    for change in changes:
+        db.add(AuditLog(
+            username=actor,
+            action="ticket_detail_update",
+            incident_id=incident_id,
+            detail=change,
+            created_at=now,
+        ))
+    await db.commit()
+    await db.refresh(incident)
+
+    return {
+        "id": incident.id,
+        "priority": incident.priority,
+        "category": incident.category,
+        "end_date": incident.end_date.isoformat() if incident.end_date else None,
+        "escalated": incident.escalated,
+    }
 
 
 @app.post("/incidents/{incident_id}/reply")
