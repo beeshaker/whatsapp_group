@@ -30,8 +30,8 @@ _FOLLOWUP_PAYLOAD = {
     },
 }
 
-_INCIDENT_CLASS = {"is_incident": True, "category": "plumbing", "severity": "high", "confidence": 0.92}
-_NOISE_CLASS = {"is_incident": False, "category": "other", "severity": "low", "confidence": 0.95}
+_INCIDENT_CLASS = {"is_incident": True, "category": "plumbing", "priority": "high", "confidence": 0.92}
+_NOISE_CLASS = {"is_incident": False, "category": "other", "priority": "low", "confidence": 0.95}
 
 
 async def test_followup_creates_update_when_llm_says_update(client):

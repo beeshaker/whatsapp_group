@@ -69,7 +69,7 @@ async def test_group_message_still_processed_after_dm_logic(client):
         },
     }
     with patch("main.classify_message", new=AsyncMock(return_value={
-        "is_incident": True, "category": "plumbing", "severity": "high", "confidence": 0.9
+        "is_incident": True, "category": "plumbing", "priority": "high", "confidence": 0.9
     })):
         with patch("main.push_incident", new=AsyncMock()):
             resp = await client.post(

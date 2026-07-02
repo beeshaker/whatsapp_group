@@ -74,13 +74,13 @@ async def db():
         yield session
 
 
-async def _add_incident(db, group_id, message_body, severity, status, received_at):
+async def _add_incident(db, group_id, message_body, priority, status, received_at):
     inc = Incident(
         group_id=group_id,
         property_name="Test",
         message_body=message_body,
         category="plumbing",
-        severity=severity,
+        priority=priority,
         confidence=0.9,
         status=status,
         received_at=received_at,
@@ -173,7 +173,7 @@ async def test_get_summaries_admin_only(client):
     with patch("main.build_summary", new=AsyncMock(return_value={
         "group_id": "g@g.us", "period_label": "Wednesday 18 Jun",
         "new_count": 1, "resolved_count": 0, "still_open_count": 1,
-        "new_incidents": [{"id": 1, "title": "x", "severity": "high", "status": "review"}],
+        "new_incidents": [{"id": 1, "title": "x", "priority": "high", "status": "review"}],
         "open_backlog": {"high": 1, "medium": 0, "low": 0},
     })):
         with patch("main._distinct_group_ids", new=AsyncMock(return_value=["g@g.us"])):
@@ -201,7 +201,7 @@ def test_format_whatsapp_summary_contains_key_fields():
         "resolved_count": 1,
         "still_open_count": 3,
         "new_incidents": [
-            {"id": 1, "title": "Pump leaking", "severity": "high", "status": "review"},
+            {"id": 1, "title": "Pump leaking", "priority": "high", "status": "review"},
         ],
         "open_backlog": {"high": 2, "medium": 1, "low": 0},
     }

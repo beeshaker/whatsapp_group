@@ -19,28 +19,28 @@ _VALID_PAYLOAD = {
 _INCIDENT_CLASSIFICATION = {
     "is_incident": True,
     "category": "plumbing",
-    "severity": "high",
+    "priority": "high",
     "confidence": 0.92,
 }
 
 _NOISE_CLASSIFICATION = {
     "is_incident": False,
     "category": "other",
-    "severity": "low",
+    "priority": "low",
     "confidence": 0.95,
 }
 
 _LOW_CONF_CLASSIFICATION = {
     "is_incident": True,
     "category": "plumbing",
-    "severity": "low",
+    "priority": "low",
     "confidence": 0.3,
 }
 
 _MID_CONF_CLASSIFICATION = {
     "is_incident": True,
     "category": "plumbing",
-    "severity": "low",
+    "priority": "low",
     "confidence": 0.75,
 }
 
@@ -125,7 +125,7 @@ async def test_ingest_stages_confirmed_incident(client):
     assert body["status"] == "staged"
     assert body["property"] == "Oakridge Heights - Block B"
     assert body["category"] == "plumbing"
-    assert body["severity"] == "high"
+    assert body["priority"] == "high"
 
 
 async def test_ingest_captures_reporter_identity(client):

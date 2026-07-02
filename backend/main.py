@@ -443,7 +443,7 @@ async def _handle_text_ingest(
         reporter_phone=reporter_phone,
         message_body=message_body,
         category=classification["category"],
-        severity=classification["severity"],
+        priority=classification["priority"],
         confidence=classification["confidence"],
         status="review",
         received_at=received_at,
@@ -474,17 +474,17 @@ async def _handle_text_ingest(
         logger.error("push_incident failed: %s", exc)
 
     logger.info(
-        "[INCIDENT] property=%s category=%s severity=%s confidence=%.2f",
+        "[INCIDENT] property=%s category=%s priority=%s confidence=%.2f",
         group_name,
         classification["category"],
-        classification["severity"],
+        classification["priority"],
         classification["confidence"],
     )
     return {
         "status": "staged",
         "property": group_name,
         "category": classification["category"],
-        "severity": classification["severity"],
+        "priority": classification["priority"],
     }
 
 
@@ -542,7 +542,7 @@ async def _handle_media_ingest(
                     reporter_phone=reporter_phone,
                     message_body=caption,
                     category=classification["category"],
-                    severity=classification["severity"],
+                    priority=classification["priority"],
                     confidence=classification["confidence"],
                     status="review",
                     received_at=received_at,
@@ -788,7 +788,7 @@ async def list_incidents(
             "reporter_name": i.reporter_name,
             "reporter_phone": i.reporter_phone,
             "category": i.category,
-            "severity": i.severity,
+            "priority": i.priority,
             "confidence": round(i.confidence, 2),
             "status": i.status,
             "message_body": i.message_body,
@@ -887,7 +887,7 @@ async def get_incident_detail(
         "reporter_name": incident.reporter_name,
         "reporter_phone": incident.reporter_phone,
         "category": incident.category,
-        "severity": incident.severity,
+        "priority": incident.priority,
         "confidence": round(incident.confidence, 2),
         "status": incident.status,
         "message_body": incident.message_body,
@@ -945,7 +945,7 @@ async def relink_update(
             reporter_phone=update.reporter_phone,
             message_body=update.message_body,
             category="other",
-            severity="low",
+            priority="low",
             confidence=0.0,
             status="review",
             received_at=update.received_at,

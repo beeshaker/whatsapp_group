@@ -72,12 +72,12 @@ async def test_list_groups_returns_distinct_groups(groups_client):
         for body in ["first", "second"]:
             session.add(Incident(
                 group_id="aaa@g.us", property_name="Alpha", reporter_name="R",
-                message_body=body, category="maintenance", severity="low",
+                message_body=body, category="maintenance", priority="low",
                 confidence=0.9, status="review", received_at=datetime.now(timezone.utc),
             ))
         session.add(Incident(
             group_id="bbb@g.us", property_name="Beta", reporter_name="R",
-            message_body="third", category="maintenance", severity="low",
+            message_body="third", category="maintenance", priority="low",
             confidence=0.9, status="review", received_at=datetime.now(timezone.utc),
         ))
         await session.commit()

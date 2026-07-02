@@ -11,7 +11,7 @@ async def test_incidents_returns_staged_record(client):
     classification = {
         "is_incident": True,
         "category": "electrical",
-        "severity": "medium",
+        "priority": "medium",
         "confidence": 0.88,
     }
     payload = {
@@ -38,7 +38,7 @@ async def test_incidents_returns_staged_record(client):
     assert len(records) == 1
     assert records[0]["property_name"] == "Riverside Towers"
     assert records[0]["category"] == "electrical"
-    assert records[0]["severity"] == "medium"
+    assert records[0]["priority"] == "medium"
     assert records[0]["status"] == "review"
 
 
@@ -51,7 +51,7 @@ async def test_dashboard_returns_html(authenticated_client):
 async def test_dashboard_contains_incident_card_markup(authenticated_client):
     classification = {
         "is_incident": True, "category": "plumbing",
-        "severity": "high", "confidence": 0.90,
+        "priority": "high", "confidence": 0.90,
     }
     payload = {
         "event": "message.received",
@@ -92,7 +92,7 @@ async def test_dashboard_shows_review_badge(authenticated_client):
 async def test_incidents_since_id_returns_only_newer(client):
     classification = {
         "is_incident": True, "category": "plumbing",
-        "severity": "high", "confidence": 0.92,
+        "priority": "high", "confidence": 0.92,
     }
     base_payload = {
         "event": "message.received",
@@ -123,7 +123,7 @@ async def test_incidents_since_id_returns_only_newer(client):
 
 async def test_list_incidents_statuses_filter_returns_only_resolved(client):
     from unittest.mock import AsyncMock, patch
-    classification = {"is_incident": True, "category": "plumbing", "severity": "high", "confidence": 0.92}
+    classification = {"is_incident": True, "category": "plumbing", "priority": "high", "confidence": 0.92}
     payload_a = {
         "event": "message.received",
         "data": {"id": "msg-s1", "type": "chat", "isGroup": True, "chatId": "1@g.us",
@@ -160,7 +160,7 @@ async def test_list_incidents_statuses_filter_returns_only_resolved(client):
 
 async def test_list_incidents_statuses_filter_multiple(client):
     from unittest.mock import AsyncMock, patch
-    classification = {"is_incident": True, "category": "plumbing", "severity": "high", "confidence": 0.92}
+    classification = {"is_incident": True, "category": "plumbing", "priority": "high", "confidence": 0.92}
     for msg_id, body_text in [("msg-m1", "Issue M1"), ("msg-m2", "Issue M2")]:
         payload = {
             "event": "message.received",
@@ -188,7 +188,7 @@ async def test_archive_route_returns_html(authenticated_client):
 
 async def test_archive_route_shows_only_resolved_incidents(authenticated_client):
     from unittest.mock import AsyncMock, patch
-    classification = {"is_incident": True, "category": "plumbing", "severity": "high", "confidence": 0.92}
+    classification = {"is_incident": True, "category": "plumbing", "priority": "high", "confidence": 0.92}
     payload_live = {
         "event": "message.received",
         "data": {"id": "msg-arc1", "type": "chat", "isGroup": True, "chatId": "3@g.us",
@@ -218,7 +218,7 @@ async def test_archive_route_shows_only_resolved_incidents(authenticated_client)
 
 async def test_live_dashboard_excludes_resolved_incidents(authenticated_client):
     from unittest.mock import AsyncMock, patch
-    classification = {"is_incident": True, "category": "plumbing", "severity": "high", "confidence": 0.92}
+    classification = {"is_incident": True, "category": "plumbing", "priority": "high", "confidence": 0.92}
     payload = {
         "event": "message.received",
         "data": {"id": "msg-exc1", "type": "chat", "isGroup": True, "chatId": "4@g.us",
@@ -249,7 +249,7 @@ async def test_incidents_filtered_by_group_for_user_role(client, db_session):
     """A user with role='user' only sees incidents from their assigned groups."""
     from unittest.mock import AsyncMock, patch
 
-    classification = {"is_incident": True, "category": "maintenance", "severity": "low", "confidence": 0.9}
+    classification = {"is_incident": True, "category": "maintenance", "priority": "low", "confidence": 0.9}
     for chatId, chatName, msg_id, body_text in [
         ("visible@g.us", "Visible Property", "msg-vis1", "Visible incident"),
         ("hidden@g.us",  "Hidden Property",  "msg-hid1", "Hidden incident"),

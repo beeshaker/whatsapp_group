@@ -1,6 +1,6 @@
 from unittest.mock import AsyncMock, patch
 
-_INCIDENT_CLASS = {"is_incident": True, "category": "plumbing", "severity": "high", "confidence": 0.92}
+_INCIDENT_CLASS = {"is_incident": True, "category": "plumbing", "priority": "high", "confidence": 0.92}
 
 _ORIGINAL = {
     "event": "message.received",
