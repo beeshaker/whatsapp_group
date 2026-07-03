@@ -1561,6 +1561,7 @@ async def dashboard(
     role = user_obj.role if user_obj else "user"
     cats_result = await db.execute(select(IncidentCategory).order_by(IncidentCategory.label))
     categories = cats_result.scalars().all()
+    categories_json = [{"slug": c.slug, "label": c.label} for c in categories]
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -1572,6 +1573,7 @@ async def dashboard(
             "role": role,
             "mode": "live",
             "categories": categories,
+            "categories_json": categories_json,
         },
     )
 
@@ -1614,6 +1616,7 @@ async def archive_dashboard(
     role = user_obj.role if user_obj else "user"
     cats_result = await db.execute(select(IncidentCategory).order_by(IncidentCategory.label))
     categories = cats_result.scalars().all()
+    categories_json = [{"slug": c.slug, "label": c.label} for c in categories]
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -1625,6 +1628,7 @@ async def archive_dashboard(
             "role": role,
             "mode": "archive",
             "categories": categories,
+            "categories_json": categories_json,
         },
     )
 
