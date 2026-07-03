@@ -19,6 +19,8 @@
       --blue-deep: #075985;
       --red: #ef4444;
       --red-soft: rgba(239, 68, 68, 0.14);
+      --urgent: #e11d48;
+      --urgent-soft: rgba(225, 29, 72, 0.18);
       --amber: #f59e0b;
       --amber-soft: rgba(245, 158, 11, 0.14);
       --green: #22c55e;
@@ -585,9 +587,10 @@
         rgba(16, 31, 52, 0.92);
     }
 
-    .card[data-sev="high"]::before { background: var(--red); }
-    .card[data-sev="medium"]::before { background: var(--amber); }
-    .card[data-sev="low"]::before { background: var(--green); }
+    .card[data-priority="urgent"]::before { background: var(--urgent); }
+    .card[data-priority="high"]::before { background: var(--red); }
+    .card[data-priority="medium"]::before { background: var(--amber); }
+    .card[data-priority="low"]::before { background: var(--green); }
     .card.hidden { display: none; }
 
     .card-head {
@@ -784,6 +787,7 @@
       border: 1px solid rgba(255,255,255,0.08);
     }
 
+    .badge-urgent { background: var(--urgent-soft); color: #fecdd3; }
     .badge-high { background: var(--red-soft); color: #fecaca; }
     .badge-medium { background: var(--amber-soft); color: #fde68a; }
     .badge-low { background: var(--green-soft); color: #bbf7d0; }
@@ -919,6 +923,44 @@
       color: var(--muted);
       margin-bottom: 8px;
     }
+
+    .ticket-details-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      align-items: end;
+    }
+    .ticket-details-grid label {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .ticket-details-grid select,
+    .ticket-details-grid input[type="date"] {
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 13px;
+    }
+    .ticket-details-readonly {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      font-size: 13px;
+    }
+    .ticket-details-readonly .label {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      display: block;
+    }
+    .btn-escalate { background: linear-gradient(135deg, #dc2626, #991b1b); }
+    .btn-unescalate { background: linear-gradient(135deg, #334155, #1f2937); }
 
     .update-thread { display: flex; flex-direction: column; gap: 10px; }
 
@@ -1211,15 +1253,16 @@
         </div>
         {% endif %}
 
-        <div class="filter-group collapsible" data-group="severity">
+        <div class="filter-group collapsible" data-group="priority">
           <button type="button" class="filter-header" onclick="toggleFilterGroup(this)">
-            <h4>Severity</h4>
-            <div class="filter-header-meta"><span class="cnt" id="selected-sev-count">0</span><span class="filter-chevron">⌄</span></div>
+            <h4>Priority</h4>
+            <div class="filter-header-meta"><span class="cnt" id="selected-priority-count">0</span><span class="filter-chevron">⌄</span></div>
           </button>
           <div class="filter-content">
-            <div class="fopt" data-filter="sev" data-val="high" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#ef4444"></span>High Priority</span><span class="cnt" data-cnt-sev="high">0</span></div>
-            <div class="fopt" data-filter="sev" data-val="medium" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#f59e0b"></span>Medium</span><span class="cnt" data-cnt-sev="medium">0</span></div>
-            <div class="fopt" data-filter="sev" data-val="low" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#22c55e"></span>Low</span><span class="cnt" data-cnt-sev="low">0</span></div>
+            <div class="fopt" data-filter="priority" data-val="urgent" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#e11d48"></span>Urgent</span><span class="cnt" data-cnt-priority="urgent">0</span></div>
+            <div class="fopt" data-filter="priority" data-val="high" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#ef4444"></span>High</span><span class="cnt" data-cnt-priority="high">0</span></div>
+            <div class="fopt" data-filter="priority" data-val="medium" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#f59e0b"></span>Medium</span><span class="cnt" data-cnt-priority="medium">0</span></div>
+            <div class="fopt" data-filter="priority" data-val="low" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#22c55e"></span>Low</span><span class="cnt" data-cnt-priority="low">0</span></div>
           </div>
         </div>
 
@@ -1280,7 +1323,7 @@
           {% set media_count = row.media_count %}
           <article class="card"
                data-id="{{ i.id }}"
-               data-sev="{{ i.severity }}"
+               data-priority="{{ i.priority }}"
                data-status="{{ i.status }}"
                data-cat="{{ i.category }}"
                data-updates="{{ update_count }}"
@@ -1309,7 +1352,7 @@
                 {% endif %}
               </div>
               <div class="card-right">
-                <span class="badge badge-{{ i.severity }}">{{ i.severity }}</span>
+                <span class="badge badge-{{ i.priority }}">{{ i.priority }}</span>
                 <span class="badge badge-{{ i.status }}" id="status-badge-{{ i.id }}">{{ i.status }}</span>
                 <span class="chevron">⌄</span>
               </div>
@@ -1388,12 +1431,14 @@
 
 <script>
 const CURRENT_USER = {{ username | tojson }};
+const CURRENT_ROLE = {{ role | tojson }};
+const CATEGORIES = {{ categories_json | tojson }};
 const MODE = '{{ mode | default("live") }}';
 const POLL_INTERVAL = 30000;
 
 let allIncidents = [];
 let pendingNew = [];
-let activeFilters = { status: new Set(), sev: new Set(), cat: new Set() };
+let activeFilters = { status: new Set(), priority: new Set(), cat: new Set() };
 let maxId = 0;
 
 const statusLabels = { new: 'new', review: 'review', acknowledged: 'acknowledged', resolved: 'resolved', ignored: 'ignored' };
@@ -1428,6 +1473,47 @@ async function openDetailModal(incidentId) {
 
 function closeDetailModal() {
   document.getElementById('detail-modal-overlay').classList.remove('open');
+}
+
+function renderTicketDetailsSection(detail) {
+  const isAdmin = CURRENT_ROLE === 'admin' || CURRENT_ROLE === 'super_admin';
+  const endDateValue = detail.end_date ? detail.end_date.slice(0, 10) : '';
+
+  if (!isAdmin) {
+    const catLabel = (CATEGORIES.find(c => c.slug === detail.category) || {}).label || detail.category;
+    return `
+      <div class="ticket-details-readonly">
+        <div><span class="label">Priority</span>${esc(cap(detail.priority))}</div>
+        <div><span class="label">Category</span>${esc(catLabel)}</div>
+        <div><span class="label">End date</span>${endDateValue || '—'}</div>
+        <div><span class="label">Escalated</span>${detail.escalated ? 'Yes' : 'No'}</div>
+      </div>`;
+  }
+
+  const priorityOptions = ['low', 'medium', 'high', 'urgent'].map(p =>
+    `<option value="${p}" ${p === detail.priority ? 'selected' : ''}>${cap(p)}</option>`
+  ).join('');
+  const categoryOptions = CATEGORIES.map(c =>
+    `<option value="${c.slug}" ${c.slug === detail.category ? 'selected' : ''}>${esc(c.label)}</option>`
+  ).join('');
+
+  return `
+    <div class="ticket-details-grid">
+      <label>Priority
+        <select onchange="updateTicketField(${detail.id}, 'priority', this.value)">${priorityOptions}</select>
+      </label>
+      <label>Category
+        <select onchange="updateTicketField(${detail.id}, 'category', this.value)">${categoryOptions}</select>
+      </label>
+      <label>End date
+        <input type="date" value="${endDateValue}"
+          onchange="updateTicketField(${detail.id}, 'end_date', this.value || null)">
+      </label>
+      <button type="button" class="act-btn ${detail.escalated ? 'btn-unescalate' : 'btn-escalate'}"
+        onclick="updateTicketField(${detail.id}, 'escalated', ${!detail.escalated})">
+        ${detail.escalated ? '✗ Un-escalate' : '⚠ Escalate'}
+      </button>
+    </div>`;
 }
 
 function renderDetailModal(detail) {
@@ -1526,6 +1612,10 @@ function renderDetailModal(detail) {
 
   return `
     <div>
+      <div class="modal-section-label">Ticket details</div>
+      ${renderTicketDetailsSection(detail)}
+    </div>
+    <div>
       <div class="modal-section-label">Original report</div>
       <div class="message-box"><div class="message">${esc(detail.message_body)}</div></div>
     </div>
@@ -1576,6 +1666,23 @@ async function sendReplyFromBar() {
   }
 }
 
+async function updateTicketField(incidentId, field, value) {
+  try {
+    const r = await fetch(`/incidents/${incidentId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [field]: value }),
+    });
+    if (!r.ok) throw new Error('Update failed');
+    showToast(`Ticket #${incidentId} updated`);
+    if (_currentDetailId === incidentId) {
+      await openDetailModal(incidentId);
+    }
+  } catch (e) {
+    showToast('Could not update ticket. Please try again.');
+  }
+}
+
 async function relinkUpdate(updateId, currentIncidentId) {
   const sel = document.getElementById(`relink-select-${updateId}`);
   const targetId = parseInt(sel.value, 10);
@@ -1614,7 +1721,7 @@ function extractIncidentFromCard(card) {
   return {
     id: parseInt(card.dataset.id, 10),
     property_name: propertyName,
-    severity: card.dataset.sev,
+    priority: card.dataset.priority,
     status: card.dataset.status,
     category: card.dataset.cat,
     message_body: card.querySelector('.message')?.textContent || '',
@@ -1647,7 +1754,7 @@ async function poll() {
 
     if (MODE === 'live') {
       const highOpen = [...allIncidents, ...pendingNew].filter(
-        i => i.severity === 'high' && !['resolved','ignored'].includes(i.status)
+        i => i.priority === 'high' && !['resolved','ignored'].includes(i.status)
       ).length;
       document.title = highOpen > 0 ? `(${highOpen} HIGH) {{ title }}` : '{{ title }}';
     }
@@ -1677,7 +1784,7 @@ function normalizeIncident(i) {
   return {
     id: i.id,
     property_name: i.property_name || 'Unknown property',
-    severity: i.severity || 'low',
+    priority: i.priority || 'medium',
     status: i.status || 'new',
     category: i.category || 'other',
     message_body: i.message_body || '',
@@ -1696,7 +1803,7 @@ function buildCard(raw) {
   const category = cap(i.category);
 
   return `
-<article class="card" data-id="${i.id}" data-sev="${esc(i.severity)}" data-status="${esc(i.status)}" data-cat="${esc(i.category)}">
+<article class="card" data-id="${i.id}" data-priority="${esc(i.priority)}" data-status="${esc(i.status)}" data-cat="${esc(i.category)}">
   <div class="card-head" onclick="toggleCard(this.closest('.card'))">
     <div class="category-icon">${icon}</div>
     <div class="info">
@@ -1710,7 +1817,7 @@ function buildCard(raw) {
       </div>` : ''}
     </div>
     <div class="card-right">
-      <span class="badge badge-${esc(i.severity)}">${esc(i.severity)}</span>
+      <span class="badge badge-${esc(i.priority)}">${esc(i.priority)}</span>
       <span class="badge badge-${esc(i.status)}" id="status-badge-${i.id}">${esc(statusLabels[i.status] || i.status)}</span>
       <span class="chevron">⌄</span>
     </div>
@@ -1840,10 +1947,10 @@ function toggleFilterGroup(button) {
 
 function updateSelectedFilterCounts() {
   const statusCount = document.getElementById('selected-status-count');
-  const sevCount = document.getElementById('selected-sev-count');
+  const priorityCount = document.getElementById('selected-priority-count');
   const catCount = document.getElementById('selected-cat-count');
   if (statusCount) statusCount.textContent = activeFilters.status.size;
-  if (sevCount) sevCount.textContent = activeFilters.sev.size;
+  if (priorityCount) priorityCount.textContent = activeFilters.priority.size;
   if (catCount) catCount.textContent = activeFilters.cat.size;
 }
 
@@ -1854,7 +1961,7 @@ function hydrateCategoryIcons(root = document) {
 }
 
 function clearFilters() {
-  activeFilters = { status: new Set(), sev: new Set(), cat: new Set() };
+  activeFilters = { status: new Set(), priority: new Set(), cat: new Set() };
   document.getElementById('search-input').value = '';
   document.querySelectorAll('.fopt.active').forEach(el => el.classList.remove('active'));
   updateSelectedFilterCounts();
@@ -1867,16 +1974,16 @@ function applyFilters() {
 
   document.querySelectorAll('.card[data-id]').forEach(card => {
     const matchStatus = activeFilters.status.size === 0 || activeFilters.status.has(card.dataset.status);
-    const matchSev = activeFilters.sev.size === 0 || activeFilters.sev.has(card.dataset.sev);
+    const matchPriority = activeFilters.priority.size === 0 || activeFilters.priority.has(card.dataset.priority);
     const matchCat = activeFilters.cat.size === 0 || activeFilters.cat.has(card.dataset.cat);
     const searchable = [
       card.querySelector('.title')?.textContent,
       card.querySelector('.message')?.textContent,
       card.querySelector('.meta')?.textContent,
-      card.dataset.status, card.dataset.sev, card.dataset.cat
+      card.dataset.status, card.dataset.priority, card.dataset.cat
     ].join(' ').toLowerCase();
     const matchSearch = !q || searchable.includes(q);
-    const shouldShow = matchStatus && matchSev && matchCat && matchSearch;
+    const shouldShow = matchStatus && matchPriority && matchCat && matchSearch;
     card.classList.toggle('hidden', !shouldShow);
     if (shouldShow) visible++;
   });
@@ -1896,7 +2003,7 @@ function updateStats() {
     if (total) total.textContent = allIncidents.length;
     return;
   }
-  const highOpen = allIncidents.filter(i => i.severity === 'high' && !['resolved','ignored'].includes(i.status)).length;
+  const highOpen = allIncidents.filter(i => i.priority === 'high' && !['resolved','ignored'].includes(i.status)).length;
   const inReview = allIncidents.filter(i => i.status === 'review').length;
   document.getElementById('stat-high').textContent = highOpen;
   document.getElementById('stat-review').textContent = inReview;
@@ -1908,9 +2015,9 @@ function updateCounts() {
     const el = document.querySelector(`[data-cnt="${s}"]`);
     if (el) el.textContent = allIncidents.filter(i => i.status === s).length;
   });
-  ['high','medium','low'].forEach(s => {
-    const el = document.querySelector(`[data-cnt-sev="${s}"]`);
-    if (el) el.textContent = allIncidents.filter(i => i.severity === s).length;
+  ['urgent','high','medium','low'].forEach(s => {
+    const el = document.querySelector(`[data-cnt-priority="${s}"]`);
+    if (el) el.textContent = allIncidents.filter(i => i.priority === s).length;
   });
   document.querySelectorAll('[data-cnt-cat]').forEach(el => {
     const s = el.dataset.cntCat;

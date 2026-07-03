@@ -19,11 +19,11 @@ except ValueError:
 _FALLBACK: dict = {
     "is_incident": False,
     "category": "other",
-    "severity": "low",
+    "priority": "low",
     "confidence": 0.0,
 }
 
-_VALID_SEVERITIES = {"low", "medium", "high"}
+_VALID_PRIORITIES = {"low", "medium", "high", "urgent"}
 
 
 def _build_prompt(message: str, categories: list[str]) -> str:
@@ -38,7 +38,7 @@ def _build_prompt(message: str, categories: list[str]) -> str:
         "{\n"
         '  "is_incident": true or false,\n'
         f'  "category": "{pipe_cats}",\n'
-        '  "severity": "low|medium|high",\n'
+        '  "priority": "low|medium|high|urgent",\n'
         '  "confidence": 0.0 to 1.0\n'
         "}\n\n"
         f"Message: {safe_message}"
@@ -63,12 +63,12 @@ async def classify_message(message: str, db: AsyncSession) -> dict:
             raw = response.json().get("response", "")
             parsed = json.loads(raw)
             raw_category = str(parsed.get("category", "other")).lower()
-            raw_severity = str(parsed.get("severity", "low")).lower()
+            raw_priority = str(parsed.get("priority", "medium")).lower()
             raw_confidence = float(parsed.get("confidence", 0.0))
             return {
                 "is_incident": bool(parsed.get("is_incident", False)),
                 "category": raw_category if raw_category in valid_set else "other",
-                "severity": raw_severity if raw_severity in _VALID_SEVERITIES else "low",
+                "priority": raw_priority if raw_priority in _VALID_PRIORITIES else "medium",
                 "confidence": max(0.0, min(1.0, raw_confidence)),
             }
     except Exception as exc:

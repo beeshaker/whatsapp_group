@@ -53,7 +53,7 @@ async def _seed_incident(group_id: str) -> int:
     async with _WSSession() as session:
         inc = Incident(
             group_id=group_id, property_name="Test", reporter_name="R",
-            message_body="msg", category="maintenance", severity="low",
+            message_body="msg", category="maintenance", priority="low",
             confidence=0.9, status="review", received_at=datetime.now(timezone.utc),
         )
         session.add(inc)

@@ -34,6 +34,7 @@ from summaries import build_summary, format_whatsapp_summary, window_for_date
 from whatsapp import reply_to_message, send_group_message
 
 _VALID_STATUSES = {"new", "review", "acknowledged", "resolved", "ignored"}
+_VALID_PRIORITIES = {"low", "medium", "high", "urgent"}
 _MEDIA_TYPES = {"image", "video", "document", "audio"}
 
 
@@ -106,6 +107,20 @@ class CreateCategoryBody(BaseModel):
 
 class DeleteCategoryBody(BaseModel):
     remap_to: Optional[str] = None
+
+
+class TicketDetailUpdateBody(BaseModel):
+    priority: Optional[str] = None
+    category: Optional[str] = None
+    end_date: Optional[datetime] = None
+    escalated: Optional[bool] = None
+
+    @field_validator("end_date")
+    @classmethod
+    def normalize_end_date(cls, v: Optional[datetime]) -> Optional[datetime]:
+        if v is not None and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
 
 
 logging.basicConfig(level=logging.INFO)
@@ -443,7 +458,7 @@ async def _handle_text_ingest(
         reporter_phone=reporter_phone,
         message_body=message_body,
         category=classification["category"],
-        severity=classification["severity"],
+        priority=classification["priority"],
         confidence=classification["confidence"],
         status="review",
         received_at=received_at,
@@ -474,17 +489,17 @@ async def _handle_text_ingest(
         logger.error("push_incident failed: %s", exc)
 
     logger.info(
-        "[INCIDENT] property=%s category=%s severity=%s confidence=%.2f",
+        "[INCIDENT] property=%s category=%s priority=%s confidence=%.2f",
         group_name,
         classification["category"],
-        classification["severity"],
+        classification["priority"],
         classification["confidence"],
     )
     return {
         "status": "staged",
         "property": group_name,
         "category": classification["category"],
-        "severity": classification["severity"],
+        "priority": classification["priority"],
     }
 
 
@@ -542,7 +557,7 @@ async def _handle_media_ingest(
                     reporter_phone=reporter_phone,
                     message_body=caption,
                     category=classification["category"],
-                    severity=classification["severity"],
+                    priority=classification["priority"],
                     confidence=classification["confidence"],
                     status="review",
                     received_at=received_at,
@@ -788,7 +803,7 @@ async def list_incidents(
             "reporter_name": i.reporter_name,
             "reporter_phone": i.reporter_phone,
             "category": i.category,
-            "severity": i.severity,
+            "priority": i.priority,
             "confidence": round(i.confidence, 2),
             "status": i.status,
             "message_body": i.message_body,
@@ -887,7 +902,9 @@ async def get_incident_detail(
         "reporter_name": incident.reporter_name,
         "reporter_phone": incident.reporter_phone,
         "category": incident.category,
-        "severity": incident.severity,
+        "priority": incident.priority,
+        "end_date": incident.end_date.isoformat() if incident.end_date else None,
+        "escalated": incident.escalated,
         "confidence": round(incident.confidence, 2),
         "status": incident.status,
         "message_body": incident.message_body,
@@ -945,7 +962,7 @@ async def relink_update(
             reporter_phone=update.reporter_phone,
             message_body=update.message_body,
             category="other",
-            severity="low",
+            priority="low",
             confidence=0.0,
             status="review",
             received_at=update.received_at,
@@ -1040,6 +1057,77 @@ async def update_incident_status(
         ))
     await db.commit()
     return {"id": incident.id, "status": incident.status}
+
+
+@app.patch("/incidents/{incident_id}")
+async def update_incident_fields(
+    incident_id: int,
+    body: TicketDetailUpdateBody,
+    actor: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    fields_set = body.model_fields_set
+    if not fields_set:
+        raise HTTPException(status_code=422, detail="At least one field must be provided")
+
+    result = await db.execute(select(Incident).where(Incident.id == incident_id))
+    incident = result.scalar_one_or_none()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    now = datetime.now(timezone.utc)
+    changes = []
+
+    if "priority" in fields_set:
+        if body.priority not in _VALID_PRIORITIES:
+            raise HTTPException(
+                status_code=422, detail=f"priority must be one of {sorted(_VALID_PRIORITIES)}"
+            )
+        if body.priority != incident.priority:
+            changes.append(f"priority: {incident.priority} → {body.priority}")
+            incident.priority = body.priority
+
+    if "category" in fields_set:
+        cat_result = await db.execute(
+            select(IncidentCategory).where(IncidentCategory.slug == body.category)
+        )
+        if not cat_result.scalar_one_or_none():
+            raise HTTPException(status_code=422, detail=f"Unknown category: {body.category}")
+        if body.category != incident.category:
+            changes.append(f"category: {incident.category} → {body.category}")
+            incident.category = body.category
+
+    if "end_date" in fields_set:
+        if body.end_date != incident.end_date:
+            changes.append(f"end_date: {incident.end_date} → {body.end_date}")
+            incident.end_date = body.end_date
+
+    if "escalated" in fields_set:
+        if body.escalated is None:
+            raise HTTPException(status_code=422, detail="escalated must be a boolean")
+        if body.escalated != incident.escalated:
+            changes.append(f"escalated: {incident.escalated} → {body.escalated}")
+            incident.escalated = body.escalated
+
+    db.add(incident)
+    for change in changes:
+        db.add(AuditLog(
+            username=actor,
+            action="ticket_detail_update",
+            incident_id=incident_id,
+            detail=change,
+            created_at=now,
+        ))
+    await db.commit()
+    await db.refresh(incident)
+
+    return {
+        "id": incident.id,
+        "priority": incident.priority,
+        "category": incident.category,
+        "end_date": incident.end_date.isoformat() if incident.end_date else None,
+        "escalated": incident.escalated,
+    }
 
 
 @app.post("/incidents/{incident_id}/reply")
@@ -1475,6 +1563,7 @@ async def dashboard(
     role = user_obj.role if user_obj else "user"
     cats_result = await db.execute(select(IncidentCategory).order_by(IncidentCategory.label))
     categories = cats_result.scalars().all()
+    categories_json = [{"slug": c.slug, "label": c.label} for c in categories]
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -1486,6 +1575,7 @@ async def dashboard(
             "role": role,
             "mode": "live",
             "categories": categories,
+            "categories_json": categories_json,
         },
     )
 
@@ -1528,6 +1618,7 @@ async def archive_dashboard(
     role = user_obj.role if user_obj else "user"
     cats_result = await db.execute(select(IncidentCategory).order_by(IncidentCategory.label))
     categories = cats_result.scalars().all()
+    categories_json = [{"slug": c.slug, "label": c.label} for c in categories]
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -1539,6 +1630,7 @@ async def archive_dashboard(
             "role": role,
             "mode": "archive",
             "categories": categories,
+            "categories_json": categories_json,
         },
     )
 

@@ -228,3 +228,23 @@ async def init_db():
                     ), {"slug": slug, "label": label, "protected": protected, "now": now})
     except Exception:
         pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE incidents RENAME COLUMN severity TO priority"))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE incidents ADD COLUMN end_date TIMESTAMP"))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE incidents ADD COLUMN escalated BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+    except Exception:
+        pass

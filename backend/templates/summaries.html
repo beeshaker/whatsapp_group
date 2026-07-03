@@ -451,6 +451,7 @@ function renderSummaries(summaries) {
 
   const html = summaries.map(s => {
     const backlog = s.open_backlog || {};
+    const urgent = backlog.urgent || 0;
     const high = backlog.high || 0;
     const medium = backlog.medium || 0;
     const low = backlog.low || 0;
@@ -472,6 +473,7 @@ function renderSummaries(summaries) {
           <div class="severity-section">
             <div class="severity-label">Open backlog by severity</div>
             <div class="severity-bars">
+              <span class="sev-chip urgent"><span class="dot" style="background:#e11d48"></span>Urgent: ${esc(urgent)}</span>
               <span class="sev-chip high"><span class="dot" style="background:#ef4444"></span>High: ${esc(high)}</span>
               <span class="sev-chip medium"><span class="dot" style="background:#f59e0b"></span>Medium: ${esc(medium)}</span>
               <span class="sev-chip low"><span class="dot" style="background:#22c55e"></span>Low: ${esc(low)}</span>

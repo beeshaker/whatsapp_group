@@ -20,7 +20,7 @@ async def test_classifies_incident_correctly():
     mock_resp = MagicMock()
     mock_resp.raise_for_status = MagicMock()
     mock_resp.json.return_value = {
-        "response": '{"is_incident": true, "category": "plumbing", "severity": "high", "confidence": 0.92}'
+        "response": '{"is_incident": true, "category": "plumbing", "priority": "high", "confidence": 0.92}'
     }
     with patch("classifier.httpx.AsyncClient") as mock_client:
         mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_resp)
@@ -28,7 +28,7 @@ async def test_classifies_incident_correctly():
 
     assert result["is_incident"] is True
     assert result["category"] == "plumbing"
-    assert result["severity"] == "high"
+    assert result["priority"] == "high"
     assert result["confidence"] == 0.92
 
 
@@ -62,7 +62,7 @@ async def test_classifies_noise_as_non_incident():
     mock_resp = MagicMock()
     mock_resp.raise_for_status = MagicMock()
     mock_resp.json.return_value = {
-        "response": '{"is_incident": false, "category": "other", "severity": "low", "confidence": 0.95}'
+        "response": '{"is_incident": false, "category": "other", "priority": "low", "confidence": 0.95}'
     }
     with patch("classifier.httpx.AsyncClient") as mock_client:
         mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_resp)
@@ -76,13 +76,39 @@ async def test_unknown_category_falls_back_to_other():
     mock_resp = MagicMock()
     mock_resp.raise_for_status = MagicMock()
     mock_resp.json.return_value = {
-        "response": '{"is_incident": true, "category": "magic", "severity": "high", "confidence": 0.9}'
+        "response": '{"is_incident": true, "category": "magic", "priority": "high", "confidence": 0.9}'
     }
     with patch("classifier.httpx.AsyncClient") as mock_client:
         mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_resp)
         result = await classify_message("Something weird", mock_db)
 
     assert result["category"] == "other"
+
+
+async def test_urgent_priority_is_accepted():
+    mock_db = _make_mock_db()
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.json.return_value = {
+        "response": '{"is_incident": true, "category": "plumbing", "priority": "urgent", "confidence": 0.95}'
+    }
+    with patch("classifier.httpx.AsyncClient") as mock_client:
+        mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_resp)
+        result = await classify_message("Pipe burst, flooding the lobby", mock_db)
+    assert result["priority"] == "urgent"
+
+
+async def test_unknown_priority_falls_back_to_medium():
+    mock_db = _make_mock_db()
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.json.return_value = {
+        "response": '{"is_incident": true, "category": "plumbing", "priority": "critical", "confidence": 0.9}'
+    }
+    with patch("classifier.httpx.AsyncClient") as mock_client:
+        mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_resp)
+        result = await classify_message("Something urgent-ish", mock_db)
+    assert result["priority"] == "medium"
 
 
 async def test_classify_update_or_new_returns_new_when_no_open_tickets():

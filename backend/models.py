@@ -16,12 +16,14 @@ class Incident(Base):
     reporter_phone: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     message_body: Mapped[str] = mapped_column(Text, nullable=False)
     category: Mapped[str] = mapped_column(String(50), nullable=False)
-    severity: Mapped[str] = mapped_column(String(20), nullable=False)
+    priority: Mapped[str] = mapped_column(String(20), nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="review", server_default="review")
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     message_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    end_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    escalated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
 
 class IncidentUpdate(Base):

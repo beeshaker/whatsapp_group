@@ -71,15 +71,16 @@ async def build_summary(
             {
                 "id": i.id,
                 "title": i.message_body[:80],
-                "severity": i.severity,
+                "priority": i.priority,
                 "status": i.status,
             }
             for i in new_incidents
         ],
         "open_backlog": {
-            "high": sum(1 for i in open_incidents if i.severity == "high"),
-            "medium": sum(1 for i in open_incidents if i.severity == "medium"),
-            "low": sum(1 for i in open_incidents if i.severity == "low"),
+            "urgent": sum(1 for i in open_incidents if i.priority == "urgent"),
+            "high": sum(1 for i in open_incidents if i.priority == "high"),
+            "medium": sum(1 for i in open_incidents if i.priority == "medium"),
+            "low": sum(1 for i in open_incidents if i.priority == "low"),
         },
     }
 
@@ -92,14 +93,14 @@ def format_whatsapp_summary(summary: dict, dashboard_url: str) -> str:
         f"New issues: {summary['new_count']}",
     ]
     for inc in summary["new_incidents"]:
-        sev_emoji = {"high": "🔴", "medium": "🟡", "low": "⚪"}.get(inc["severity"], "⚪")
+        sev_emoji = {"urgent": "🟣", "high": "🔴", "medium": "🟡", "low": "⚪"}.get(inc["priority"], "⚪")
         lines.append(f"  {sev_emoji} {inc['title']} ({inc['status']})")
 
     backlog = summary["open_backlog"]
     lines += [
         "",
         f"Still unresolved: {summary['still_open_count']}",
-        f"  {backlog['high']} high · {backlog['medium']} medium · {backlog['low']} low",
+        f"  {backlog.get('urgent', 0)} urgent · {backlog['high']} high · {backlog['medium']} medium · {backlog['low']} low",
         "",
         f"Resolved: {summary['resolved_count']}",
         "",
