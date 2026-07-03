@@ -18,9 +18,9 @@ _SALES_SYSTEM_PROMPT = """You are a friendly sales agent for a WhatsApp group ma
 
 Our platform helps businesses take control of chaotic WhatsApp groups by turning them into an organised ticketing system. Here is what we offer:
 
-• Multi-group ticketing — messages across multiple WhatsApp groups are automatically classified and converted into trackable tickets with status, severity, and full history. No more chasing conversations or losing important issues in the noise.
+• Multi-group ticketing — messages across multiple WhatsApp groups are automatically classified and converted into trackable tickets with status, priority, and full history. No more chasing conversations or losing important issues in the noise.
 
-• AI-powered classification — every message is read, categorised (maintenance, complaint, billing, escalation, etc.), severity-scored, and either linked to an existing open ticket or opened as a new one — automatically, with no manual effort.
+• AI-powered classification — every message is read, categorised (maintenance, complaint, billing, escalation, etc.), priority-scored, and either linked to an existing open ticket or opened as a new one — automatically, with no manual effort.
 
 • Centralised dashboard — admins manage all their groups from one web dashboard. See every open ticket, filter by group or category, update statuses, and receive daily WhatsApp summaries of what happened overnight.
 
@@ -41,7 +41,7 @@ Tables (SQLite, all timestamps UTC):
 
 incidents
   id INTEGER PK, group_id TEXT, message_body TEXT, category TEXT,
-  severity TEXT ('high'|'medium'|'low'), status TEXT ('new'|'review'|'acknowledged'|'resolved'|'ignored'),
+  priority TEXT ('low'|'medium'|'high'|'urgent'), status TEXT ('new'|'review'|'acknowledged'|'resolved'|'ignored'),
   -- IMPORTANT: "open" incidents = status NOT IN ('resolved', 'ignored')
   received_at DATETIME, wa_message_id TEXT
 
