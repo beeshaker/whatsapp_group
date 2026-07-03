@@ -172,3 +172,14 @@ async def test_patch_writes_audit_log_per_field(tdu_client):
         rows = result.scalars().all()
     actions = [r.action for r in rows]
     assert actions.count("ticket_detail_update") == 2
+
+
+async def test_get_incident_detail_includes_new_fields(tdu_client):
+    incident_id = await _seed_incident()
+    await tdu_client.post("/login", data={"username": "ticketadmin", "password": "pass1234"})
+    await tdu_client.patch(f"/incidents/{incident_id}", json={"end_date": "2026-08-01T00:00:00", "escalated": True})
+    resp = await tdu_client.get(f"/incidents/{incident_id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["end_date"].startswith("2026-08-01")
+    assert data["escalated"] is True

@@ -924,6 +924,44 @@
       margin-bottom: 8px;
     }
 
+    .ticket-details-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      align-items: end;
+    }
+    .ticket-details-grid label {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .ticket-details-grid select,
+    .ticket-details-grid input[type="date"] {
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 13px;
+    }
+    .ticket-details-readonly {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      font-size: 13px;
+    }
+    .ticket-details-readonly .label {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      display: block;
+    }
+    .btn-escalate { background: linear-gradient(135deg, #dc2626, #991b1b); }
+    .btn-unescalate { background: linear-gradient(135deg, #334155, #1f2937); }
+
     .update-thread { display: flex; flex-direction: column; gap: 10px; }
 
     .update-row {
@@ -1393,6 +1431,8 @@
 
 <script>
 const CURRENT_USER = {{ username | tojson }};
+const CURRENT_ROLE = {{ role | tojson }};
+const CATEGORIES = {{ categories_json | tojson }};
 const MODE = '{{ mode | default("live") }}';
 const POLL_INTERVAL = 30000;
 
@@ -1433,6 +1473,47 @@ async function openDetailModal(incidentId) {
 
 function closeDetailModal() {
   document.getElementById('detail-modal-overlay').classList.remove('open');
+}
+
+function renderTicketDetailsSection(detail) {
+  const isAdmin = CURRENT_ROLE === 'admin' || CURRENT_ROLE === 'super_admin';
+  const endDateValue = detail.end_date ? detail.end_date.slice(0, 10) : '';
+
+  if (!isAdmin) {
+    const catLabel = (CATEGORIES.find(c => c.slug === detail.category) || {}).label || detail.category;
+    return `
+      <div class="ticket-details-readonly">
+        <div><span class="label">Priority</span>${esc(cap(detail.priority))}</div>
+        <div><span class="label">Category</span>${esc(catLabel)}</div>
+        <div><span class="label">End date</span>${endDateValue || '—'}</div>
+        <div><span class="label">Escalated</span>${detail.escalated ? 'Yes' : 'No'}</div>
+      </div>`;
+  }
+
+  const priorityOptions = ['low', 'medium', 'high', 'urgent'].map(p =>
+    `<option value="${p}" ${p === detail.priority ? 'selected' : ''}>${cap(p)}</option>`
+  ).join('');
+  const categoryOptions = CATEGORIES.map(c =>
+    `<option value="${c.slug}" ${c.slug === detail.category ? 'selected' : ''}>${esc(c.label)}</option>`
+  ).join('');
+
+  return `
+    <div class="ticket-details-grid">
+      <label>Priority
+        <select onchange="updateTicketField(${detail.id}, 'priority', this.value)">${priorityOptions}</select>
+      </label>
+      <label>Category
+        <select onchange="updateTicketField(${detail.id}, 'category', this.value)">${categoryOptions}</select>
+      </label>
+      <label>End date
+        <input type="date" value="${endDateValue}"
+          onchange="updateTicketField(${detail.id}, 'end_date', this.value || null)">
+      </label>
+      <button type="button" class="act-btn ${detail.escalated ? 'btn-unescalate' : 'btn-escalate'}"
+        onclick="updateTicketField(${detail.id}, 'escalated', ${!detail.escalated})">
+        ${detail.escalated ? '✗ Un-escalate' : '⚠ Escalate'}
+      </button>
+    </div>`;
 }
 
 function renderDetailModal(detail) {
@@ -1531,6 +1612,10 @@ function renderDetailModal(detail) {
 
   return `
     <div>
+      <div class="modal-section-label">Ticket details</div>
+      ${renderTicketDetailsSection(detail)}
+    </div>
+    <div>
       <div class="modal-section-label">Original report</div>
       <div class="message-box"><div class="message">${esc(detail.message_body)}</div></div>
     </div>
@@ -1578,6 +1663,23 @@ async function sendReplyFromBar() {
     btn.disabled = false;
     btn.textContent = '↑ Send';
     textarea.disabled = false;
+  }
+}
+
+async function updateTicketField(incidentId, field, value) {
+  try {
+    const r = await fetch(`/incidents/${incidentId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [field]: value }),
+    });
+    if (!r.ok) throw new Error('Update failed');
+    showToast(`Ticket #${incidentId} updated`);
+    if (_currentDetailId === incidentId) {
+      await openDetailModal(incidentId);
+    }
+  } catch (e) {
+    showToast('Could not update ticket. Please try again.');
   }
 }
 

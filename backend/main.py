@@ -903,6 +903,8 @@ async def get_incident_detail(
         "reporter_phone": incident.reporter_phone,
         "category": incident.category,
         "priority": incident.priority,
+        "end_date": incident.end_date.isoformat() if incident.end_date else None,
+        "escalated": incident.escalated,
         "confidence": round(incident.confidence, 2),
         "status": incident.status,
         "message_body": incident.message_body,
