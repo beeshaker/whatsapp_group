@@ -954,6 +954,25 @@ async def get_incident_detail(
         for a in audit_result.scalars().all()
     ]
 
+    sibling_tickets: list[dict] = []
+    if incident.message_id:
+        siblings_result = await db.execute(
+            select(Incident)
+            .where(Incident.message_id == incident.message_id)
+            .where(Incident.id != incident.id)
+            .order_by(Incident.issue_index.asc())
+        )
+        sibling_tickets = [
+            {
+                "id": s.id,
+                "property_name": s.property_name,
+                "category": s.category,
+                "priority": s.priority,
+                "status": s.status,
+            }
+            for s in siblings_result.scalars().all()
+        ]
+
     return {
         "id": incident.id,
         "property_name": incident.property_name,
@@ -972,6 +991,7 @@ async def get_incident_detail(
         "media": media_rows,
         "status_history": history_rows,
         "audit_log": audit_rows,
+        "sibling_tickets": sibling_tickets,
     }
 
 

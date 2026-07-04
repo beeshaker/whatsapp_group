@@ -325,3 +325,45 @@ async def test_relink_sets_relinked_flag(client):
     assert resp.json()["incident_id"] == second_id
     second_detail = (await client.get(f"/incidents/{second_id}")).json()
     assert second_detail["updates"][0]["relinked"] is True
+
+
+async def test_sibling_tickets_empty_for_non_split_ticket(client):
+    with patch("main.classify_message", new=_classify_incident):
+        with patch("main.push_incident", new=AsyncMock()):
+            await client.post("/api/v1/ops/ingest", json=_ORIGINAL, headers={"X-API-Key": "test-secret"})
+    incident_id = (await client.get("/incidents")).json()[0]["id"]
+    detail = (await client.get(f"/incidents/{incident_id}")).json()
+    assert detail["sibling_tickets"] == []
+
+
+async def test_sibling_tickets_returns_other_split_rows_in_order(client):
+    async def _classify_three_issues(message, db):
+        return {"issues": [
+            {"category": "plumbing", "priority": "high", "confidence": 0.9, "message_snippet": "pump leaking"},
+            {"category": "lift", "priority": "urgent", "confidence": 0.95, "message_snippet": "lift stuck"},
+            {"category": "security", "priority": "medium", "confidence": 0.85, "message_snippet": "broken gate"},
+        ]}
+    payload = {
+        "event": "message.received",
+        "data": {
+            "id": "msg-siblings-1", "type": "chat", "isGroup": True,
+            "chatId": "127@g.us", "chat": {"name": "Block J"},
+            "author": "254700000009@c.us", "notifyName": "Ivy",
+            "body": "1. pump leaking 2. lift stuck 3. broken gate",
+            "timestamp": 1782293340,
+        },
+    }
+    with patch("main.classify_message", new=_classify_three_issues):
+        with patch("main.push_incident", new=AsyncMock()):
+            await client.post("/api/v1/ops/ingest", json=payload, headers={"X-API-Key": "test-secret"})
+
+    incidents = (await client.get("/incidents")).json()
+    split_incidents = [i for i in incidents if i["property_name"] == "Block J"]
+    assert len(split_incidents) == 3
+    by_category = {i["category"]: i["id"] for i in split_incidents}
+
+    detail = (await client.get(f"/incidents/{by_category['plumbing']}")).json()
+    assert [s["id"] for s in detail["sibling_tickets"]] == [by_category["lift"], by_category["security"]]
+    assert detail["sibling_tickets"][0]["category"] == "lift"
+    assert detail["sibling_tickets"][1]["category"] == "security"
+    assert all(s["id"] != by_category["plumbing"] for s in detail["sibling_tickets"])
