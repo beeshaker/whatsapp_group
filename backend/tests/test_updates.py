@@ -217,3 +217,90 @@ async def test_media_caption_split_attaches_media_only_to_highest_confidence_iss
     assert len(media_rows) == 1
     lift_incident = next(i for i in incidents if i.category == "lift")
     assert media_rows[0].incident_id == lift_incident.id
+
+
+async def test_media_partial_retry_does_not_reattach_media_to_unrelated_ticket(client, db_session):
+    from datetime import datetime, timezone
+    from sqlalchemy import select
+    from models import Incident, IncidentMedia
+
+    group_id = "131@g.us"
+    retry_message_id = "msg-media-retry-1"
+
+    # Simulate an earlier delivery of this same message that already created the
+    # highest-confidence issue (lift, issue_index=1) and attached the media to it.
+    # This redelivery only needs to create the lower-confidence "pump" issue
+    # (issue_index=0), which is still missing — the lift issue will be skipped as
+    # a duplicate.
+    existing_lift = Incident(
+        group_id=group_id,
+        property_name="Block J",
+        reporter_name="Hana",
+        reporter_phone="254700000009",
+        message_body="lift stuck",
+        category="lift",
+        priority="urgent",
+        confidence=0.95,
+        status="review",
+        received_at=datetime(2026, 7, 3, 10, 0, tzinfo=timezone.utc),
+        message_id=retry_message_id,
+        issue_index=1,
+    )
+    # An unrelated open ticket in the same group, more recently received than the
+    # retry payload, so it would be the misattachment target under the old buggy
+    # fallback (open_tickets[0]).
+    unrelated = Incident(
+        group_id=group_id,
+        property_name="Block J",
+        reporter_name="Someone Else",
+        reporter_phone="254700000010",
+        message_body="unrelated leak issue",
+        category="plumbing",
+        priority="medium",
+        confidence=0.9,
+        status="review",
+        received_at=datetime(2026, 7, 4, 9, 0, tzinfo=timezone.utc),
+        message_id="msg-unrelated-1",
+        issue_index=0,
+    )
+    db_session.add_all([existing_lift, unrelated])
+    await db_session.commit()
+
+    async def _classify_two_issues(caption, db):
+        return {"issues": [
+            {"category": "plumbing", "priority": "high", "confidence": 0.8, "message_snippet": "pump leaking"},
+            {"category": "lift", "priority": "urgent", "confidence": 0.95, "message_snippet": "lift stuck"},
+        ]}
+
+    fake_media = ("retry.jpg", "image/jpeg", "/app/media/retry.jpg")
+    payload = {
+        "event": "message.received",
+        "data": {
+            "id": retry_message_id, "type": "image", "isGroup": True,
+            "chatId": group_id, "chat": {"name": "Block J"},
+            "author": "254700000008@c.us", "notifyName": "Hana",
+            "caption": "1. pump leaking 2. lift stuck",
+            "mediaUrl": "http://fake/media/retry",
+            "timestamp": 1782293340,
+        },
+    }
+    with patch("main.classify_message", new=_classify_two_issues):
+        with patch("main.classify_update_or_new", new=AsyncMock(return_value={"routing": "new"})):
+            with patch("main.push_incident", new=AsyncMock()):
+                with patch("main.download_media", new=AsyncMock(return_value=fake_media)):
+                    r = await client.post(
+                        "/api/v1/ops/ingest", json=payload, headers={"X-API-Key": "test-secret"}
+                    )
+    assert r.json()["status"] == "staged_media"
+
+    # The missing "pump" issue should have been created this call.
+    pump_result = await db_session.execute(
+        select(Incident).where(Incident.message_id == retry_message_id, Incident.issue_index == 0)
+    )
+    assert pump_result.scalar_one_or_none() is not None
+
+    # No media should have been attached anywhere — not on the unrelated ticket,
+    # and not re-attached to the already-existing lift ticket either.
+    media_result = await db_session.execute(select(IncidentMedia))
+    media_rows = media_result.scalars().all()
+    assert len(media_rows) == 0

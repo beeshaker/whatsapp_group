@@ -544,6 +544,7 @@ async def _handle_media_ingest(
     incident_id: Optional[int] = None
     update_id: Optional[int] = None
     _created_incidents: list[Incident] = []
+    caption_had_survivors = False
 
     if caption:
         classification = await classify_message(caption, db)
@@ -552,6 +553,7 @@ async def _handle_media_ingest(
             if issue["confidence"] >= MIN_CONFIDENCE
         ]
         if survivors:
+            caption_had_survivors = True
             open_tickets = await _get_open_tickets(db, group_id)
             highest_idx = max(survivors, key=lambda pair: pair[1]["confidence"])[0]
             tickets_created = 0
@@ -593,17 +595,17 @@ async def _handle_media_ingest(
                         ai_linked=True,
                     )
                     try:
-                        db.add(upd)
-                        parent = await db.get(Incident, parent_id)
-                        if parent:
-                            parent.updated_at = received_at
-                        await db.flush()
+                        async with db.begin_nested():
+                            db.add(upd)
+                            parent = await db.get(Incident, parent_id)
+                            if parent:
+                                parent.updated_at = received_at
+                            await db.flush()
                         updates_created += 1
                         if issue_index == highest_idx:
                             media_target_incident_id = parent_id
                             media_target_update_id = upd.id
                     except IntegrityError:
-                        await db.rollback()
                         duplicates_skipped += 1
                 else:
                     new_inc = Incident(
@@ -621,8 +623,9 @@ async def _handle_media_ingest(
                         issue_index=issue_index,
                     )
                     try:
-                        db.add(new_inc)
-                        await db.flush()
+                        async with db.begin_nested():
+                            db.add(new_inc)
+                            await db.flush()
                         tickets_created += 1
                         open_tickets.append({
                             "id": new_inc.id, "category": new_inc.category, "message_body": new_inc.message_body,
@@ -631,7 +634,6 @@ async def _handle_media_ingest(
                         if issue_index == highest_idx:
                             media_target_incident_id = new_inc.id
                     except IntegrityError:
-                        await db.rollback()
                         duplicates_skipped += 1
 
             if tickets_created == 0 and updates_created == 0 and duplicates_skipped > 0:
@@ -640,7 +642,7 @@ async def _handle_media_ingest(
             incident_id = media_target_incident_id
             update_id = media_target_update_id
 
-    if incident_id is None and media_url:
+    if incident_id is None and media_url and not caption_had_survivors:
         open_tickets = await _get_open_tickets(db, group_id)
         if open_tickets:
             incident_id = open_tickets[0]["id"]
