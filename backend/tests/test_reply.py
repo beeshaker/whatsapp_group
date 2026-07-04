@@ -1,6 +1,8 @@
 from unittest.mock import AsyncMock, patch
 
-_INCIDENT_CLASS = {"is_incident": True, "category": "plumbing", "priority": "high", "confidence": 0.92}
+_INCIDENT_CLASS = {"issues": [{
+    "category": "plumbing", "priority": "high", "confidence": 0.92, "message_snippet": "Pump leaking",
+}]}
 
 _ORIGINAL = {
     "event": "message.received",
@@ -121,7 +123,15 @@ async def test_reply_echo_dedup(client):
             json={"text": "Echo test"},
             headers={"X-API-Key": "test-secret"},
         )
-    # Simulate the echo coming back through the webhook with the same message ID
+    # Simulate the echo coming back through the webhook with the same message ID.
+    # The blanket pre-classifier dedup check is gone (see Task 3 in the plan) —
+    # dedup now happens per-issue, after classification, so classify_message
+    # must be mocked here too. The outbound reply already created an
+    # IncidentUpdate row at (message_id=wa_id, issue_index=0); the per-issue
+    # duplicate check on that pair is what makes this a "duplicate".
+    async def _classify_echo(message, db):
+        return {"issues": [{"category": "other", "priority": "low", "confidence": 0.9, "message_snippet": message}]}
+
     echo_payload = {
         "event": "message.received",
         "data": {
@@ -135,7 +145,8 @@ async def test_reply_echo_dedup(client):
             "timestamp": 1782293400,
         },
     }
-    r = await client.post("/api/v1/ops/ingest", json=echo_payload, headers={"X-API-Key": "test-secret"})
+    with patch("main.classify_message", new=_classify_echo):
+        r = await client.post("/api/v1/ops/ingest", json=echo_payload, headers={"X-API-Key": "test-secret"})
     assert r.json()["status"] == "duplicate"
     detail = (await client.get(f"/incidents/{incident_id}")).json()
     assert len(detail["updates"]) == 1
