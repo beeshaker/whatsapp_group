@@ -382,3 +382,30 @@ async def test_mpesa_callback_marks_group_upgrade_failed(http, grace_client, db_
     await db_session.refresh(grace_client)
     assert req.status == "failed"
     assert grace_client.allowed_ticket_groups == "[]"
+
+
+@pytest.mark.asyncio
+async def test_mpesa_callback_group_upgrade_handles_deleted_client(http, db_session, monkeypatch):
+    monkeypatch.setattr(main, "BILLING_WEBHOOK_SECRET", "test-secret")
+    from models import GroupTierPrice, GroupUpgradeRequest
+    from datetime import datetime, timezone
+    from decimal import Decimal
+    tier2 = GroupTierPrice(min_groups=6, max_groups=10, amount=Decimal("1200"), set_at=datetime.now(timezone.utc), set_by="admin")
+    db_session.add(tier2)
+    await db_session.flush()
+    req = GroupUpgradeRequest(
+        client_id=999999, group_id="g-new@g.us", target_tier_id=tier2.id,
+        phone="254712345678", amount=Decimal("1200"), checkout_request_id="ws_CO_UPGRADE_NOCLIENT",
+        status="pending", created_at=datetime.now(timezone.utc),
+    )
+    db_session.add(req)
+    await db_session.commit()
+
+    r = await http.post("/webhook/mpesa", json={
+        "Body": {"stkCallback": {
+            "CheckoutRequestID": "ws_CO_UPGRADE_NOCLIENT",
+            "ResultCode": 0,
+            "CallbackMetadata": {"Item": [{"Name": "MpesaReceiptNumber", "Value": "QGH8XXXXX"}]},
+        }}
+    })
+    assert r.status_code == 200

@@ -1914,14 +1914,22 @@ async def settings_upgrade_ticket_tier(
         raise HTTPException(status_code=422, detail="group_id doesn't look like a WhatsApp group JID")
     if not BILLING_SERVICE_URL or not CLIENT_SUBDOMAIN:
         raise HTTPException(status_code=503, detail="Billing service not configured")
-    async with httpx.AsyncClient(timeout=8.0) as http:
-        r = await http.post(
-            f"{BILLING_SERVICE_URL}/api/clients/{CLIENT_SUBDOMAIN}/ticket-groups/upgrade",
-            json={"group_id": group_id, "phone": body.phone.strip()},
-            headers={"X-Billing-Secret": BILLING_WEBHOOK_SECRET},
-        )
-        r.raise_for_status()
-        return r.json()
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as http:
+            r = await http.post(
+                f"{BILLING_SERVICE_URL}/api/clients/{CLIENT_SUBDOMAIN}/ticket-groups/upgrade",
+                json={"group_id": group_id, "phone": body.phone.strip()},
+                headers={"X-Billing-Secret": BILLING_WEBHOOK_SECRET},
+            )
+            r.raise_for_status()
+            return r.json()
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.json().get("detail", "Request failed"))
+    except Exception:
+        logger.warning("Ticket-group upgrade proxy to billing failed")
+        raise HTTPException(status_code=502, detail="Could not reach billing service")
 
 
 # ---------------------------------------------------------------------------

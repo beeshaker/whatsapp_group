@@ -687,6 +687,10 @@ async def mpesa_callback(request: Request, db=Depends(get_db)):
             return {"ResultCode": 0, "ResultDesc": "Accepted"}
         if result_code == 0:
             client = await db.get(Client, upgrade_req.client_id)
+            if not client:
+                await db.delete(upgrade_req)
+                await db.commit()
+                return {"ResultCode": 0, "ResultDesc": "Accepted"}
             groups = json.loads(client.allowed_ticket_groups) if client.allowed_ticket_groups else []
             if upgrade_req.group_id not in groups:
                 groups.append(upgrade_req.group_id)

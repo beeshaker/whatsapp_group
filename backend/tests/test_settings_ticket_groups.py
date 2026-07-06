@@ -1,4 +1,5 @@
 import os
+import httpx
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import AsyncClient, ASGITransport
@@ -176,3 +177,67 @@ async def test_settings_ticket_groups_upgrade_proxies_to_billing(admin_client):
     call = mock_billing_client.post.call_args
     assert "ticket-groups/upgrade" in call.args[0]
     assert call.kwargs["json"] == {"group_id": "120363111@g.us", "phone": "0712345678"}
+
+
+@pytest.mark.asyncio
+async def test_settings_ticket_groups_upgrade_forwards_billing_4xx(admin_client):
+    from tests.conftest import _TestSession, _HASHED_TESTPASS
+    from models import User
+    from datetime import datetime, timezone
+
+    async with _TestSession() as session:
+        session.add(User(
+            username="settingsadmin4", hashed_password=_HASHED_TESTPASS,
+            created_at=datetime.now(timezone.utc), created_by=None, role="admin",
+        ))
+        await session.commit()
+
+    mock_billing_client = AsyncMock()
+    mock_billing_client.__aenter__ = AsyncMock(return_value=mock_billing_client)
+    mock_billing_client.__aexit__ = AsyncMock(return_value=None)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 400
+    mock_resp.json = MagicMock(return_value={"detail": "Already on the highest tier"})
+    mock_resp.raise_for_status = MagicMock(
+        side_effect=httpx.HTTPStatusError("Bad Request", request=MagicMock(), response=mock_resp)
+    )
+    mock_billing_client.post = AsyncMock(return_value=mock_resp)
+
+    async with AsyncClient(transport=ASGITransport(app=admin_client.app), base_url="http://test") as c:
+        await c.post("/login", data={"username": "settingsadmin4", "password": "testpass"})
+        with patch("main.httpx.AsyncClient", return_value=mock_billing_client):
+            r = await c.post("/api/settings/ticket-groups/upgrade", json={
+                "group_id": "120363111@g.us", "phone": "0712345678",
+            })
+    admin_client.app.dependency_overrides.clear()
+    assert r.status_code == 400
+    assert r.json()["detail"] == "Already on the highest tier"
+
+
+@pytest.mark.asyncio
+async def test_settings_ticket_groups_upgrade_returns_502_when_billing_unreachable(admin_client):
+    from tests.conftest import _TestSession, _HASHED_TESTPASS
+    from models import User
+    from datetime import datetime, timezone
+
+    async with _TestSession() as session:
+        session.add(User(
+            username="settingsadmin4", hashed_password=_HASHED_TESTPASS,
+            created_at=datetime.now(timezone.utc), created_by=None, role="admin",
+        ))
+        await session.commit()
+
+    mock_billing_client = AsyncMock()
+    mock_billing_client.__aenter__ = AsyncMock(return_value=mock_billing_client)
+    mock_billing_client.__aexit__ = AsyncMock(return_value=None)
+    mock_billing_client.post = AsyncMock(side_effect=Exception("connection refused"))
+
+    async with AsyncClient(transport=ASGITransport(app=admin_client.app), base_url="http://test") as c:
+        await c.post("/login", data={"username": "settingsadmin4", "password": "testpass"})
+        with patch("main.httpx.AsyncClient", return_value=mock_billing_client):
+            r = await c.post("/api/settings/ticket-groups/upgrade", json={
+                "group_id": "120363111@g.us", "phone": "0712345678",
+            })
+    admin_client.app.dependency_overrides.clear()
+    assert r.status_code == 502
+    assert "billing" in r.json()["detail"].lower()
