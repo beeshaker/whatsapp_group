@@ -1043,7 +1043,14 @@ async def client_self_service_add_ticket_group(subdomain: str, request: Request,
     if group_id in groups:
         return {"status": "ok", "added": False}
 
-    tier = await db.get(GroupTierPrice, client.ticket_group_tier_id) if client.ticket_group_tier_id else None
+    if client.ticket_group_tier_id is None:
+        # _get_or_seed_group_tiers (Task 2) guarantees the 3 fixed tiers exist —
+        # a client may reach this self-service route before anyone has opened
+        # /prices, so the lookup can't assume the rows are already there.
+        base_tier = (await _get_or_seed_group_tiers(db))[0]
+        client.ticket_group_tier_id = base_tier.id
+
+    tier = await db.get(GroupTierPrice, client.ticket_group_tier_id)
     limit = tier.max_groups if tier else None
     if limit is not None and len(groups) + 1 > limit:
         next_tier = await db.scalar(
@@ -1052,6 +1059,7 @@ async def client_self_service_add_ticket_group(subdomain: str, request: Request,
             .order_by(GroupTierPrice.min_groups)
             .limit(1)
         )
+        await db.commit()
         return {
             "status": "limit_reached",
             "next_tier_amount": str(next_tier.amount) if next_tier else None,

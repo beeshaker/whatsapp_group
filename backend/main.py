@@ -1883,14 +1883,20 @@ async def settings_add_ticket_group(
         raise HTTPException(status_code=422, detail="group_id doesn't look like a WhatsApp group JID")
     if not BILLING_SERVICE_URL or not CLIENT_SUBDOMAIN:
         raise HTTPException(status_code=503, detail="Billing service not configured")
-    async with httpx.AsyncClient(timeout=8.0) as http:
-        r = await http.post(
-            f"{BILLING_SERVICE_URL}/api/clients/{CLIENT_SUBDOMAIN}/ticket-groups/add",
-            json={"group_id": group_id},
-            headers={"X-Billing-Secret": BILLING_WEBHOOK_SECRET},
-        )
-        r.raise_for_status()
-        return r.json()
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as http:
+            r = await http.post(
+                f"{BILLING_SERVICE_URL}/api/clients/{CLIENT_SUBDOMAIN}/ticket-groups/add",
+                json={"group_id": group_id},
+                headers={"X-Billing-Secret": BILLING_WEBHOOK_SECRET},
+            )
+            r.raise_for_status()
+            return r.json()
+    except HTTPException:
+        raise
+    except Exception:
+        logger.warning("Ticket-group add proxy to billing failed")
+        raise HTTPException(status_code=502, detail="Could not reach billing service")
 
 
 # ---------------------------------------------------------------------------

@@ -340,3 +340,28 @@ async def test_self_service_add_beyond_limit_returns_limit_reached(auth_http, db
     await db_session.refresh(client)
     import json as _json
     assert len(_json.loads(client.allowed_ticket_groups)) == 5  # not added
+
+
+@pytest.mark.asyncio
+async def test_self_service_only_bootstraps_tier_id(auth_http, db_session, monkeypatch):
+    monkeypatch.setattr(main, "BILLING_WEBHOOK_SECRET", "test-secret")
+    await auth_http.post("/clients", data={"name": "Acme", "subdomain": "acme-self4", "plan": "monthly"})
+    from models import Client, GroupTierPrice
+    from sqlalchemy import select
+    client = await db_session.scalar(select(Client).where(Client.subdomain == "acme-self4"))
+    assert client.ticket_group_tier_id is None
+
+    r = await auth_http.post(
+        "/api/clients/acme-self4/ticket-groups/add",
+        json={"group_id": "g1@g.us"},
+        headers={"X-Billing-Secret": "test-secret"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["added"] is True
+
+    await db_session.refresh(client)
+    assert client.ticket_group_tier_id is not None
+    tier = await db_session.get(GroupTierPrice, client.ticket_group_tier_id)
+    assert tier.min_groups == 1
