@@ -13,6 +13,7 @@ from typing import Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -258,6 +259,7 @@ async def lifespan(app: FastAPI):
                 timezone=SUMMARY_TIMEZONE,
             ),
         )
+        scheduler.add_job(_check_ticket_reminders, IntervalTrigger(minutes=15))
         scheduler.start()
         logger.info("Summary scheduler started (hour=%s, tz=%s)", SUMMARY_SCHEDULE_HOUR, SUMMARY_TIMEZONE)
 
@@ -389,6 +391,56 @@ async def _push_summaries():
                     logger.info("Summary sent to %s for group %s", profile.whatsapp_phone, gid)
                 except Exception as exc:
                     logger.error("Summary push failed for %s group %s: %s", profile.whatsapp_phone, gid, exc)
+
+
+async def _check_ticket_reminders():
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Incident).where(
+                ~Incident.status.in_(["resolved", "ignored"]),
+                Incident.end_date.isnot(None),
+            )
+        )
+        tickets = result.scalars().all()
+
+        for ticket in tickets:
+            # SQLite (used in tests / lightweight deployments) drops tzinfo on
+            # read-back even for DateTime(timezone=True) columns; normalize to
+            # UTC-aware here so the comparisons below are always apples-to-apples.
+            end_date = ticket.end_date
+            if end_date.tzinfo is None:
+                end_date = end_date.replace(tzinfo=timezone.utc)
+
+            try:
+                if (
+                    ticket.reminder_offset_hours is not None
+                    and ticket.reminder_sent_at is None
+                    and now >= end_date - timedelta(hours=ticket.reminder_offset_hours)
+                ):
+                    await send_group_message(
+                        ticket.group_id,
+                        f"⏰ Reminder: Ticket #{ticket.id} ({ticket.property_name}) is "
+                        f"approaching its deadline.\n{ticket.message_body[:200]}",
+                    )
+                    ticket.reminder_sent_at = now
+                    db.add(ticket)
+                    await db.commit()
+            except Exception as exc:
+                logger.error("Reminder check failed for incident %s: %s", ticket.id, exc)
+
+            try:
+                if not ticket.escalated and now >= end_date:
+                    await send_group_message(
+                        ticket.group_id,
+                        f"🚨 Ticket #{ticket.id} ({ticket.property_name}) has passed its "
+                        f"deadline and has been escalated.\n{ticket.message_body[:200]}",
+                    )
+                    ticket.escalated = True
+                    db.add(ticket)
+                    await db.commit()
+            except Exception as exc:
+                logger.error("Escalation check failed for incident %s: %s", ticket.id, exc)
 
 
 async def _get_allowed_groups(username: str, db: AsyncSession) -> Optional[list[str]]:
