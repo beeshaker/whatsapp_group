@@ -141,3 +141,38 @@ async def test_settings_ticket_groups_add_returns_502_when_billing_unreachable(a
     admin_client.app.dependency_overrides.clear()
     assert r.status_code == 502
     assert "billing" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_settings_ticket_groups_upgrade_proxies_to_billing(admin_client):
+    from tests.conftest import _TestSession, _HASHED_TESTPASS
+    from models import User
+    from datetime import datetime, timezone
+
+    async with _TestSession() as session:
+        session.add(User(
+            username="settingsadmin4", hashed_password=_HASHED_TESTPASS,
+            created_at=datetime.now(timezone.utc), created_by=None, role="admin",
+        ))
+        await session.commit()
+
+    mock_billing_client = AsyncMock()
+    mock_billing_client.__aenter__ = AsyncMock(return_value=mock_billing_client)
+    mock_billing_client.__aexit__ = AsyncMock(return_value=None)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json = MagicMock(return_value={"status": "stk_sent"})
+    mock_billing_client.post = AsyncMock(return_value=mock_resp)
+
+    async with AsyncClient(transport=ASGITransport(app=admin_client.app), base_url="http://test") as c:
+        await c.post("/login", data={"username": "settingsadmin4", "password": "testpass"})
+        with patch("main.httpx.AsyncClient", return_value=mock_billing_client):
+            r = await c.post("/api/settings/ticket-groups/upgrade", json={
+                "group_id": "120363111@g.us", "phone": "0712345678",
+            })
+    admin_client.app.dependency_overrides.clear()
+    assert r.status_code == 200
+    assert r.json() == {"status": "stk_sent"}
+    call = mock_billing_client.post.call_args
+    assert "ticket-groups/upgrade" in call.args[0]
+    assert call.kwargs["json"] == {"group_id": "120363111@g.us", "phone": "0712345678"}

@@ -680,6 +680,22 @@ async def mpesa_callback(request: Request, db=Depends(get_db)):
         select(PaymentSession).where(PaymentSession.checkout_request_id == checkout_id)
     )
     if not session:
+        upgrade_req = await db.scalar(
+            select(GroupUpgradeRequest).where(GroupUpgradeRequest.checkout_request_id == checkout_id)
+        )
+        if not upgrade_req:
+            return {"ResultCode": 0, "ResultDesc": "Accepted"}
+        if result_code == 0:
+            client = await db.get(Client, upgrade_req.client_id)
+            groups = json.loads(client.allowed_ticket_groups) if client.allowed_ticket_groups else []
+            if upgrade_req.group_id not in groups:
+                groups.append(upgrade_req.group_id)
+            client.allowed_ticket_groups = json.dumps(groups)
+            client.ticket_group_tier_id = upgrade_req.target_tier_id
+            upgrade_req.status = "confirmed"
+        else:
+            upgrade_req.status = "failed"
+        await db.commit()
         return {"ResultCode": 0, "ResultDesc": "Accepted"}
 
     client = await db.get(Client, session.client_id)
@@ -1070,6 +1086,68 @@ async def client_self_service_add_ticket_group(subdomain: str, request: Request,
     client.allowed_ticket_groups = json.dumps(groups)
     await db.commit()
     return {"status": "ok", "added": True}
+
+
+@app.post("/api/clients/{subdomain}/ticket-groups/upgrade")
+async def client_self_service_upgrade_tier(subdomain: str, request: Request, db=Depends(get_db)):
+    secret = request.headers.get("X-Billing-Secret", "")
+    if BILLING_WEBHOOK_SECRET and secret != BILLING_WEBHOOK_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    client = await db.scalar(select(Client).where(Client.subdomain == subdomain))
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    body = await request.json()
+    group_id = (body.get("group_id") or "").strip()
+    phone = _normalize_phone(body.get("phone") or "")
+    if not group_id or not phone:
+        raise HTTPException(status_code=400, detail="group_id and a valid phone are required")
+
+    pending = await db.scalar(
+        select(GroupUpgradeRequest).where(
+            GroupUpgradeRequest.client_id == client.id,
+            GroupUpgradeRequest.status == "pending",
+        )
+    )
+    if pending:
+        return {"status": "pending_exists", "checkout_request_id": pending.checkout_request_id}
+
+    groups = json.loads(client.allowed_ticket_groups) if client.allowed_ticket_groups else []
+    current_tier = await db.get(GroupTierPrice, client.ticket_group_tier_id) if client.ticket_group_tier_id else None
+    if current_tier and current_tier.max_groups is None:
+        raise HTTPException(status_code=400, detail="Already on the highest tier")
+    current_limit = current_tier.max_groups if current_tier else 0
+    next_tier = await db.scalar(
+        select(GroupTierPrice)
+        .where(GroupTierPrice.min_groups > current_limit)
+        .order_by(GroupTierPrice.min_groups)
+        .limit(1)
+    )
+    if not next_tier:
+        raise HTTPException(status_code=400, detail="Already on the highest tier")
+
+    upgrade_req = GroupUpgradeRequest(
+        client_id=client.id, group_id=group_id, target_tier_id=next_tier.id,
+        phone=phone, amount=next_tier.amount, created_at=datetime.now(timezone.utc),
+    )
+    db.add(upgrade_req)
+    await db.flush()
+
+    try:
+        stk = await initiate_stk_push(
+            phone=phone, amount=next_tier.amount,
+            account_ref=f"{client.subdomain}-tier-upgrade",
+            callback_url=f"{MPESA_CALLBACK_BASE_URL}/webhook/mpesa",
+        )
+    except Exception as exc:
+        import logging as _log
+        _log.getLogger(__name__).error("Tier-upgrade STK Push failed for %s: %s", client.subdomain, exc)
+        upgrade_req.status = "failed"
+        await db.commit()
+        raise HTTPException(status_code=502, detail="M-Pesa payment request failed")
+
+    upgrade_req.checkout_request_id = stk.get("CheckoutRequestID")
+    await db.commit()
+    return {"status": "stk_sent"}
 
 
 # ---------------------------------------------------------------------------

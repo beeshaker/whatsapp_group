@@ -322,7 +322,22 @@ async function addTicketGroup() {
     }
     if (data.status === 'limit_reached') {
       msg.style.color = 'var(--amber)';
-      msg.textContent = `You've reached your plan's limit (${data.next_tier_max ?? 'current'} groups) — upgrade for KES ${data.next_tier_amount} to add more.`;
+      const phone = prompt(`You've reached your plan's limit (${data.next_tier_max ?? 'current'} groups). Upgrade for KES ${data.next_tier_amount}? Enter your M-Pesa number to pay:`);
+      if (!phone) { msg.textContent = 'Upgrade cancelled.'; return; }
+      const upRes = await fetch('/api/settings/ticket-groups/upgrade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ group_id: groupId, phone }),
+      });
+      const upData = await upRes.json();
+      if (!upRes.ok) {
+        msg.textContent = upData.detail || 'Upgrade request failed.';
+        return;
+      }
+      msg.style.color = upData.status === 'pending_exists' ? 'var(--amber)' : 'var(--green)';
+      msg.textContent = upData.status === 'pending_exists'
+        ? 'An upgrade payment is already in progress — check your phone.'
+        : 'STK push sent — enter your M-Pesa PIN to complete the upgrade.';
       return;
     }
     msg.style.color = 'var(--green)';

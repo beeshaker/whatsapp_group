@@ -65,6 +65,11 @@ class TicketGroupAddBody(BaseModel):
     group_id: str
 
 
+class TicketGroupUpgradeBody(BaseModel):
+    group_id: str
+    phone: str
+
+
 class AdminProfileBody(BaseModel):
     whatsapp_phone: Optional[str] = None
 
@@ -1897,6 +1902,26 @@ async def settings_add_ticket_group(
     except Exception:
         logger.warning("Ticket-group add proxy to billing failed")
         raise HTTPException(status_code=502, detail="Could not reach billing service")
+
+
+@app.post("/api/settings/ticket-groups/upgrade")
+async def settings_upgrade_ticket_tier(
+    body: TicketGroupUpgradeBody,
+    username: str = Depends(require_admin),
+):
+    group_id = body.group_id.strip()
+    if not _GROUP_JID_RE.fullmatch(group_id):
+        raise HTTPException(status_code=422, detail="group_id doesn't look like a WhatsApp group JID")
+    if not BILLING_SERVICE_URL or not CLIENT_SUBDOMAIN:
+        raise HTTPException(status_code=503, detail="Billing service not configured")
+    async with httpx.AsyncClient(timeout=8.0) as http:
+        r = await http.post(
+            f"{BILLING_SERVICE_URL}/api/clients/{CLIENT_SUBDOMAIN}/ticket-groups/upgrade",
+            json={"group_id": group_id, "phone": body.phone.strip()},
+            headers={"X-Billing-Secret": BILLING_WEBHOOK_SECRET},
+        )
+        r.raise_for_status()
+        return r.json()
 
 
 # ---------------------------------------------------------------------------
