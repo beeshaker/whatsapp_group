@@ -286,10 +286,59 @@ async def send_invite(
     return RedirectResponse(f"/clients/{client_id}?invited=1", status_code=303)
 
 
+async def _get_or_seed_group_tiers(db) -> list[GroupTierPrice]:
+    tiers = (await db.execute(select(GroupTierPrice).order_by(GroupTierPrice.min_groups))).scalars().all()
+    if tiers:
+        return list(tiers)
+    now = datetime.now(timezone.utc)
+    tiers = [
+        GroupTierPrice(min_groups=1, max_groups=5, amount=Decimal("0"), set_at=now, set_by="system"),
+        GroupTierPrice(min_groups=6, max_groups=10, amount=Decimal("0"), set_at=now, set_by="system"),
+        GroupTierPrice(min_groups=11, max_groups=None, amount=Decimal("0"), set_at=now, set_by="system"),
+    ]
+    db.add_all(tiers)
+    await db.commit()
+    for t in tiers:
+        await db.refresh(t)
+    return tiers
+
+
 @app.get("/prices", response_class=HTMLResponse)
 async def prices_page(request: Request, username: str = Depends(require_login), db=Depends(get_db)):
     prices = {p.plan_type: p for p in (await db.execute(select(PlanPrice))).scalars().all()}
-    return templates.TemplateResponse(request, "prices.html", {"request": request, "prices": prices, "username": username})
+    group_tiers = await _get_or_seed_group_tiers(db)
+    return templates.TemplateResponse(request, "prices.html", {
+        "request": request, "prices": prices, "group_tiers": group_tiers, "username": username,
+    })
+
+
+@app.post("/prices/group-tiers", response_class=HTMLResponse)
+async def set_group_tier_prices(
+    request: Request,
+    tier1_amount: str = Form(...),
+    tier2_amount: str = Form(...),
+    tier3_amount: str = Form(...),
+    username: str = Depends(require_login),
+    db=Depends(get_db),
+):
+    now = datetime.now(timezone.utc)
+    group_tiers = await _get_or_seed_group_tiers(db)
+    try:
+        amounts = [Decimal(tier1_amount), Decimal(tier2_amount), Decimal(tier3_amount)]
+        if any(v < 0 for v in amounts):
+            raise ValueError("Amount must be non-negative")
+    except Exception as e:
+        prices = {p.plan_type: p for p in (await db.execute(select(PlanPrice))).scalars().all()}
+        return templates.TemplateResponse(request, "prices.html", {
+            "prices": prices, "group_tiers": group_tiers, "username": username,
+            "error": f"Invalid amount: {e}",
+        })
+    for tier, amount in zip(group_tiers, amounts):
+        tier.amount = amount
+        tier.set_at = now
+        tier.set_by = username
+    await db.commit()
+    return RedirectResponse("/prices", status_code=303)
 
 
 @app.post("/prices", response_class=HTMLResponse)

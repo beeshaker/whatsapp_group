@@ -26,5 +26,22 @@ button{padding:.6rem 1.2rem;background:#075e54;color:white;border:none;border-ra
   {% endif %}
   <button type="submit">Save Prices</button>
 </form>
+<form method="post" action="/prices/group-tiers" style="margin-top:1.5rem">
+  <h2>Ticket-Raising Group Tiers (KES)</h2>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <label>Tier 1 (1&ndash;5 groups)</label>
+  <input name="tier1_amount" type="number" step="0.01" min="0"
+    value="{{ group_tiers[0].amount if group_tiers else '' }}" required>
+  <label>Tier 2 (6&ndash;10 groups)</label>
+  <input name="tier2_amount" type="number" step="0.01" min="0"
+    value="{{ group_tiers[1].amount if group_tiers|length > 1 else '' }}" required>
+  <label>Tier 3 (11+ groups)</label>
+  <input name="tier3_amount" type="number" step="0.01" min="0"
+    value="{{ group_tiers[2].amount if group_tiers|length > 2 else '' }}" required>
+  {% if group_tiers %}
+  <p class="note">Last updated {{ group_tiers[0].set_at.strftime('%Y-%m-%d') }} by {{ group_tiers[0].set_by }}</p>
+  {% endif %}
+  <button type="submit">Save Tier Prices</button>
+</form>
 </body>
 </html>

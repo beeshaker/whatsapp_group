@@ -143,3 +143,25 @@ async def test_auth_check_blocks_grace(auth_http, db_session):
     await db_session.commit()
     r = await auth_http.get("/internal/auth-check", headers={"X-Client-Subdomain": "graceclient"})
     assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_prices_page_shows_group_tiers(auth_http):
+    r = await auth_http.get("/prices")
+    assert r.status_code == 200
+    assert b"1" in r.content and b"5" in r.content  # tier boundaries rendered
+
+
+@pytest.mark.asyncio
+async def test_set_group_tier_prices(auth_http, db_session):
+    r = await auth_http.post("/prices/group-tiers", data={
+        "tier1_amount": "500.00", "tier2_amount": "1200.00", "tier3_amount": "2500.00",
+    })
+    assert r.status_code in (200, 303)
+    from models import GroupTierPrice
+    from sqlalchemy import select
+    tiers = (await db_session.execute(
+        select(GroupTierPrice).order_by(GroupTierPrice.min_groups)
+    )).scalars().all()
+    assert [str(t.amount) for t in tiers] == ["500.00", "1200.00", "2500.00"]
+    assert all(t.set_by == "admin" for t in tiers)
