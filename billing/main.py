@@ -18,7 +18,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from auth import hash_password, verify_password, require_login
 from database import get_db, init_db, AsyncSessionLocal, engine
 from docker_manager import start_client, stop_client
-from models import AdminUser, Client, Payment, PaymentSession, PlanPrice
+from models import AdminUser, Client, GroupTierPrice, GroupUpgradeRequest, Payment, PaymentSession, PlanPrice
 from mpesa import initiate_stk_push
 from scheduler import start_scheduler
 from nginx_manager import add_client_port, remove_client_port
@@ -32,6 +32,21 @@ templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "t
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "changeme")
 SECRET_KEY = os.getenv("SECRET_KEY", "billing-secret-change-in-prod")
+
+
+async def _seed_group_tier_prices():
+    """Seed the three fixed, non-overlapping group-count tiers if absent."""
+    async with AsyncSessionLocal() as db:
+        existing = (await db.execute(select(GroupTierPrice))).scalars().all()
+        if existing:
+            return
+        now = datetime.now(timezone.utc)
+        db.add_all([
+            GroupTierPrice(min_groups=1, max_groups=5, amount=Decimal("0"), set_at=now, set_by="system"),
+            GroupTierPrice(min_groups=6, max_groups=10, amount=Decimal("0"), set_at=now, set_by="system"),
+            GroupTierPrice(min_groups=11, max_groups=None, amount=Decimal("0"), set_at=now, set_by="system"),
+        ])
+        await db.commit()
 
 
 async def _seed_admin():
@@ -61,6 +76,8 @@ async def _migrate_db():
             ("clients", "data_retention_days INTEGER DEFAULT 90"),
             ("clients", "pre_expiry_14_warned BOOLEAN DEFAULT 0"),
             ("clients", "pre_expiry_2_warned BOOLEAN DEFAULT 0"),
+            ("clients", "allowed_ticket_groups TEXT"),
+            ("clients", "ticket_group_tier_id INTEGER"),
         ]
         for table, col_def in migrations:
             try:
@@ -73,6 +90,7 @@ async def _migrate_db():
 async def lifespan(app: FastAPI):
     await init_db()
     await _migrate_db()
+    await _seed_group_tier_prices()
     await _seed_admin()
     import logging as _log
     if SECRET_KEY == "billing-secret-change-in-prod":
