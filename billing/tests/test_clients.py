@@ -227,3 +227,25 @@ async def test_admin_remove_ticket_group(auth_http, db_session):
     await db_session.refresh(client)
     import json
     assert json.loads(client.allowed_ticket_groups) == ["g2@g.us"]
+
+
+@pytest.mark.asyncio
+async def test_admin_remove_ticket_group_never_opted_in_is_noop(auth_http, db_session):
+    """Removing a group from a client that never opted in must not opt them in.
+
+    Regression test: allowed_ticket_groups must stay None (not flip to "[]"),
+    and ticket_group_tier_id must stay None, preserving the invariant that
+    once allowed_ticket_groups is non-None the client has a tier assigned.
+    """
+    await auth_http.post("/clients", data={"name": "Acme", "subdomain": "acme-rm-noop", "plan": "monthly"})
+    from models import Client
+    from sqlalchemy import select
+    client = await db_session.scalar(select(Client).where(Client.subdomain == "acme-rm-noop"))
+    assert client.allowed_ticket_groups is None
+    assert client.ticket_group_tier_id is None
+
+    r = await auth_http.post(f"/clients/{client.id}/ticket-groups/remove", data={"group_id": "g1@g.us"})
+    assert r.status_code in (200, 303)
+    await db_session.refresh(client)
+    assert client.allowed_ticket_groups is None
+    assert client.ticket_group_tier_id is None

@@ -118,7 +118,7 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
 
 <div class="card">
   <h3 style="margin-top:0">Ticket-Raising Groups</h3>
-  {% if client.allowed_ticket_groups %}
+  {% if client.allowed_ticket_groups and (client.allowed_ticket_groups | fromjson) %}
   <table>
     <tr><th>Group ID</th><th></th></tr>
     {% for gid in client.allowed_ticket_groups | fromjson %}

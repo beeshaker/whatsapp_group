@@ -269,17 +269,18 @@ async def admin_add_ticket_group(
     if not client:
         return HTMLResponse("Not found", status_code=404)
     group_id = group_id.strip()
-    groups = json.loads(client.allowed_ticket_groups) if client.allowed_ticket_groups else []
-    if client.ticket_group_tier_id is None:
-        # _get_or_seed_group_tiers (Task 2) guarantees the 3 fixed tiers exist —
-        # a fresh install may reach this admin route before anyone has opened
-        # /prices, so the lookup can't assume the rows are already there.
-        base_tier = (await _get_or_seed_group_tiers(db))[0]
-        client.ticket_group_tier_id = base_tier.id
-    if group_id and group_id not in groups:
-        groups.append(group_id)
-    client.allowed_ticket_groups = json.dumps(groups)
-    await db.commit()
+    if group_id:
+        groups = json.loads(client.allowed_ticket_groups) if client.allowed_ticket_groups else []
+        if client.ticket_group_tier_id is None:
+            # _get_or_seed_group_tiers (Task 2) guarantees the 3 fixed tiers exist —
+            # a fresh install may reach this admin route before anyone has opened
+            # /prices, so the lookup can't assume the rows are already there.
+            base_tier = (await _get_or_seed_group_tiers(db))[0]
+            client.ticket_group_tier_id = base_tier.id
+        if group_id not in groups:
+            groups.append(group_id)
+        client.allowed_ticket_groups = json.dumps(groups)
+        await db.commit()
     return RedirectResponse(f"/clients/{client_id}", status_code=303)
 
 
@@ -293,10 +294,11 @@ async def admin_remove_ticket_group(
     client = await db.get(Client, client_id)
     if not client:
         return HTMLResponse("Not found", status_code=404)
-    groups = json.loads(client.allowed_ticket_groups) if client.allowed_ticket_groups else []
-    groups = [g for g in groups if g != group_id.strip()]
-    client.allowed_ticket_groups = json.dumps(groups)
-    await db.commit()
+    if client.allowed_ticket_groups is not None:
+        groups = json.loads(client.allowed_ticket_groups)
+        groups = [g for g in groups if g != group_id.strip()]
+        client.allowed_ticket_groups = json.dumps(groups)
+        await db.commit()
     return RedirectResponse(f"/clients/{client_id}", status_code=303)
 
 
