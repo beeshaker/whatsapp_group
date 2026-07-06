@@ -165,3 +165,65 @@ async def test_set_group_tier_prices(auth_http, db_session):
     )).scalars().all()
     assert [str(t.amount) for t in tiers] == ["500.00", "1200.00", "2500.00"]
     assert all(t.set_by == "admin" for t in tiers)
+
+
+@pytest.mark.asyncio
+async def test_admin_add_ticket_group_opts_in_and_sets_base_tier(auth_http, db_session):
+    await auth_http.post("/clients", data={"name": "Acme", "subdomain": "acme-groups", "plan": "monthly"})
+    from models import Client
+    from sqlalchemy import select
+    client = await db_session.scalar(select(Client).where(Client.subdomain == "acme-groups"))
+    assert client.allowed_ticket_groups is None
+
+    r = await auth_http.post(f"/clients/{client.id}/ticket-groups/add", data={"group_id": "120363111@g.us"})
+    assert r.status_code in (200, 303)
+    await db_session.refresh(client)
+    import json
+    assert json.loads(client.allowed_ticket_groups) == ["120363111@g.us"]
+    assert client.ticket_group_tier_id is not None
+    from models import GroupTierPrice
+    tier = await db_session.get(GroupTierPrice, client.ticket_group_tier_id)
+    assert tier.min_groups == 1
+
+
+@pytest.mark.asyncio
+async def test_admin_add_duplicate_group_is_noop(auth_http, db_session):
+    await auth_http.post("/clients", data={"name": "Acme", "subdomain": "acme-dup", "plan": "monthly"})
+    from models import Client
+    from sqlalchemy import select
+    client = await db_session.scalar(select(Client).where(Client.subdomain == "acme-dup"))
+    await auth_http.post(f"/clients/{client.id}/ticket-groups/add", data={"group_id": "g1@g.us"})
+    await auth_http.post(f"/clients/{client.id}/ticket-groups/add", data={"group_id": "g1@g.us"})
+    await db_session.refresh(client)
+    import json
+    assert json.loads(client.allowed_ticket_groups) == ["g1@g.us"]
+
+
+@pytest.mark.asyncio
+async def test_admin_add_beyond_tier_limit_is_unrestricted(auth_http, db_session):
+    """Billing admin bypasses the tier limit entirely — 6 groups on a 1-5 tier is allowed."""
+    await auth_http.post("/clients", data={"name": "Acme", "subdomain": "acme-many", "plan": "monthly"})
+    from models import Client
+    from sqlalchemy import select
+    client = await db_session.scalar(select(Client).where(Client.subdomain == "acme-many"))
+    for i in range(6):
+        r = await auth_http.post(f"/clients/{client.id}/ticket-groups/add", data={"group_id": f"g{i}@g.us"})
+        assert r.status_code in (200, 303)
+    await db_session.refresh(client)
+    import json
+    assert len(json.loads(client.allowed_ticket_groups)) == 6
+
+
+@pytest.mark.asyncio
+async def test_admin_remove_ticket_group(auth_http, db_session):
+    await auth_http.post("/clients", data={"name": "Acme", "subdomain": "acme-rm", "plan": "monthly"})
+    from models import Client
+    from sqlalchemy import select
+    client = await db_session.scalar(select(Client).where(Client.subdomain == "acme-rm"))
+    await auth_http.post(f"/clients/{client.id}/ticket-groups/add", data={"group_id": "g1@g.us"})
+    await auth_http.post(f"/clients/{client.id}/ticket-groups/add", data={"group_id": "g2@g.us"})
+    r = await auth_http.post(f"/clients/{client.id}/ticket-groups/remove", data={"group_id": "g1@g.us"})
+    assert r.status_code in (200, 303)
+    await db_session.refresh(client)
+    import json
+    assert json.loads(client.allowed_ticket_groups) == ["g2@g.us"]

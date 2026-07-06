@@ -28,6 +28,7 @@ BILLING_WEBHOOK_SECRET = os.getenv("BILLING_WEBHOOK_SECRET", "")
 MPESA_CALLBACK_BASE_URL = os.getenv("MPESA_CALLBACK_BASE_URL", "https://whats2eat.com/billing")
 
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
+templates.env.filters["fromjson"] = json.loads
 
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "changeme")
@@ -254,6 +255,48 @@ async def update_client(
         await asyncio.get_event_loop().run_in_executor(
             None, add_client_port, client.subdomain, new_port
         )
+    return RedirectResponse(f"/clients/{client_id}", status_code=303)
+
+
+@app.post("/clients/{client_id}/ticket-groups/add", response_class=HTMLResponse)
+async def admin_add_ticket_group(
+    request: Request, client_id: int,
+    group_id: str = Form(...),
+    username: str = Depends(require_login),
+    db=Depends(get_db),
+):
+    client = await db.get(Client, client_id)
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+    group_id = group_id.strip()
+    groups = json.loads(client.allowed_ticket_groups) if client.allowed_ticket_groups else []
+    if client.ticket_group_tier_id is None:
+        # _get_or_seed_group_tiers (Task 2) guarantees the 3 fixed tiers exist —
+        # a fresh install may reach this admin route before anyone has opened
+        # /prices, so the lookup can't assume the rows are already there.
+        base_tier = (await _get_or_seed_group_tiers(db))[0]
+        client.ticket_group_tier_id = base_tier.id
+    if group_id and group_id not in groups:
+        groups.append(group_id)
+    client.allowed_ticket_groups = json.dumps(groups)
+    await db.commit()
+    return RedirectResponse(f"/clients/{client_id}", status_code=303)
+
+
+@app.post("/clients/{client_id}/ticket-groups/remove", response_class=HTMLResponse)
+async def admin_remove_ticket_group(
+    request: Request, client_id: int,
+    group_id: str = Form(...),
+    username: str = Depends(require_login),
+    db=Depends(get_db),
+):
+    client = await db.get(Client, client_id)
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+    groups = json.loads(client.allowed_ticket_groups) if client.allowed_ticket_groups else []
+    groups = [g for g in groups if g != group_id.strip()]
+    client.allowed_ticket_groups = json.dumps(groups)
+    await db.commit()
     return RedirectResponse(f"/clients/{client_id}", status_code=303)
 
 
