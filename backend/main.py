@@ -403,7 +403,13 @@ async def _check_ticket_reminders():
             )
         )
         tickets = result.scalars().all()
-
+        # Snapshot everything the checks below need from one read-only pass.
+        # Each ticket's writes then happen on their own short-lived session
+        # (below): a session-level rollback expires every object still
+        # attached to that session, so writing on a session shared across
+        # the whole batch would let one ticket's failed commit break the
+        # tickets processed after it in the same run.
+        ticket_snapshots = []
         for ticket in tickets:
             # SQLite (used in tests / lightweight deployments) drops tzinfo on
             # read-back even for DateTime(timezone=True) columns; normalize to
@@ -411,48 +417,49 @@ async def _check_ticket_reminders():
             end_date = ticket.end_date
             if end_date.tzinfo is None:
                 end_date = end_date.replace(tzinfo=timezone.utc)
-            # Cache ticket attributes before try blocks to avoid lazy-load issues after rollback
-            ticket_id = ticket.id
-            group_id = ticket.group_id
-            property_name = ticket.property_name
-            message_body = ticket.message_body
-            reminder_offset_hours = ticket.reminder_offset_hours
-            reminder_sent_at = ticket.reminder_sent_at
-            escalated = ticket.escalated
+            ticket_snapshots.append({
+                "id": ticket.id,
+                "group_id": ticket.group_id,
+                "property_name": ticket.property_name,
+                "message_body": ticket.message_body,
+                "end_date": end_date,
+                "reminder_offset_hours": ticket.reminder_offset_hours,
+                "reminder_sent_at": ticket.reminder_sent_at,
+                "escalated": ticket.escalated,
+            })
 
-            try:
-                if (
-                    reminder_offset_hours is not None
-                    and reminder_sent_at is None
-                    and now >= end_date - timedelta(hours=reminder_offset_hours)
-                ):
-                    await send_group_message(
-                        group_id,
-                        f"⏰ Reminder: Ticket #{ticket_id} ({property_name}) is "
-                        f"approaching its deadline.\n{message_body[:200]}",
-                    )
+    for snap in ticket_snapshots:
+        try:
+            if (
+                snap["reminder_offset_hours"] is not None
+                and snap["reminder_sent_at"] is None
+                and now >= snap["end_date"] - timedelta(hours=snap["reminder_offset_hours"])
+            ):
+                await send_group_message(
+                    snap["group_id"],
+                    f"⏰ Reminder: Ticket #{snap['id']} ({snap['property_name']}) is "
+                    f"approaching its deadline.\n{snap['message_body'][:200]}",
+                )
+                async with AsyncSessionLocal() as db:
+                    ticket = await db.get(Incident, snap["id"])
                     ticket.reminder_sent_at = now
-                    db.add(ticket)
                     await db.commit()
-            except Exception as exc:
-                if db.in_transaction():
-                    await db.rollback()
-                logger.error("Reminder check failed for incident %s: %s", ticket_id, exc)
+        except Exception as exc:
+            logger.error("Reminder check failed for incident %s: %s", snap["id"], exc)
 
-            try:
-                if not escalated and now >= end_date:
-                    await send_group_message(
-                        group_id,
-                        f"🚨 Ticket #{ticket_id} ({property_name}) has passed its "
-                        f"deadline and has been escalated.\n{message_body[:200]}",
-                    )
+        try:
+            if not snap["escalated"] and now >= snap["end_date"]:
+                await send_group_message(
+                    snap["group_id"],
+                    f"🚨 Ticket #{snap['id']} ({snap['property_name']}) has passed its "
+                    f"deadline and has been escalated.\n{snap['message_body'][:200]}",
+                )
+                async with AsyncSessionLocal() as db:
+                    ticket = await db.get(Incident, snap["id"])
                     ticket.escalated = True
-                    db.add(ticket)
                     await db.commit()
-            except Exception as exc:
-                if db.in_transaction():
-                    await db.rollback()
-                logger.error("Escalation check failed for incident %s: %s", ticket_id, exc)
+        except Exception as exc:
+            logger.error("Escalation check failed for incident %s: %s", snap["id"], exc)
 
 
 async def _get_allowed_groups(username: str, db: AsyncSession) -> Optional[list[str]]:
