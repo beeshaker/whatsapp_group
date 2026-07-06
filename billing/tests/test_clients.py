@@ -249,3 +249,25 @@ async def test_admin_remove_ticket_group_never_opted_in_is_noop(auth_http, db_se
     await db_session.refresh(client)
     assert client.allowed_ticket_groups is None
     assert client.ticket_group_tier_id is None
+
+
+@pytest.mark.asyncio
+async def test_ticket_groups_endpoint_unrestricted_client(auth_http, db_session):
+    await auth_http.post("/clients", data={"name": "Acme", "subdomain": "acme-unrestricted", "plan": "monthly"})
+    r = await auth_http.get("/api/clients/acme-unrestricted/ticket-groups")
+    assert r.status_code == 200
+    assert r.json() == {"allowed_groups": None, "tier_limit": None}
+
+
+@pytest.mark.asyncio
+async def test_ticket_groups_endpoint_restricted_client(auth_http, db_session):
+    await auth_http.post("/clients", data={"name": "Acme", "subdomain": "acme-restricted", "plan": "monthly"})
+    from models import Client
+    from sqlalchemy import select
+    client = await db_session.scalar(select(Client).where(Client.subdomain == "acme-restricted"))
+    await auth_http.post(f"/clients/{client.id}/ticket-groups/add", data={"group_id": "g1@g.us"})
+    r = await auth_http.get("/api/clients/acme-restricted/ticket-groups")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["allowed_groups"] == ["g1@g.us"]
+    assert body["tier_limit"] == 5

@@ -273,3 +273,167 @@ async def test_billing_gate_fails_open_on_error(monkeypatch):
     backend_main.app.dependency_overrides.clear()
     assert r.status_code == 202
     assert r.json().get("status") != "billing_only_drop"
+
+
+@pytest.mark.asyncio
+async def test_group_not_licensed_blocks_non_allowed_group(monkeypatch):
+    monkeypatch.setenv("BILLING_SERVICE_URL", "http://billing:9000")
+    monkeypatch.setenv("BILLING_WEBHOOK_SECRET", "test-secret")
+    monkeypatch.setenv("CLIENT_SUBDOMAIN", "acme")
+    monkeypatch.setenv("GATEWAY_SECRET_TOKEN", GATEWAY_TOKEN)
+    import importlib, main as backend_main
+    from tests.conftest import _TestSession
+    from database import get_db
+    importlib.reload(backend_main)
+    backend_main._billing_status_cache = None
+    backend_main._ticket_groups_cache = None
+
+    async def _override_get_db():
+        async with _TestSession() as session:
+            yield session
+
+    backend_main.app.dependency_overrides[get_db] = _override_get_db
+
+    async with AsyncClient(transport=ASGITransport(app=backend_main.app), base_url="http://test") as c:
+        mock_billing_client = AsyncMock()
+        mock_billing_client.__aenter__ = AsyncMock(return_value=mock_billing_client)
+        mock_billing_client.__aexit__ = AsyncMock(return_value=None)
+
+        def fake_get(url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            if "ticket-groups" in url:
+                resp.json = MagicMock(return_value={"allowed_groups": ["allowed@g.us"], "tier_limit": 5})
+            else:
+                resp.json = MagicMock(return_value={"status": "active"})
+            return resp
+
+        mock_billing_client.get = AsyncMock(side_effect=fake_get)
+        mock_billing_client.post = AsyncMock(return_value=MagicMock(status_code=200))
+
+        with patch("main.httpx.AsyncClient", return_value=mock_billing_client):
+            r = await c.post(
+                "/api/v1/ops/ingest",
+                headers={"X-API-Key": GATEWAY_TOKEN},
+                json={
+                    "event": "message.received",
+                    "data": {
+                        "chatId": "not-allowed@g.us",
+                        "isGroup": True,
+                        "type": "chat",
+                        "body": "Pipes are leaking",
+                        "fromMe": False,
+                        "id": "msg-gnl-1",
+                        "timestamp": 1700000020,
+                    },
+                },
+            )
+    backend_main.app.dependency_overrides.clear()
+    assert r.status_code == 202
+    assert r.json().get("status") == "group_not_licensed"
+
+
+@pytest.mark.asyncio
+async def test_allowed_group_passes_through_gate(monkeypatch):
+    monkeypatch.setenv("BILLING_SERVICE_URL", "http://billing:9000")
+    monkeypatch.setenv("BILLING_WEBHOOK_SECRET", "test-secret")
+    monkeypatch.setenv("CLIENT_SUBDOMAIN", "acme")
+    monkeypatch.setenv("GATEWAY_SECRET_TOKEN", GATEWAY_TOKEN)
+    import importlib, main as backend_main
+    from tests.conftest import _TestSession
+    from database import get_db
+    importlib.reload(backend_main)
+    backend_main._billing_status_cache = None
+    backend_main._ticket_groups_cache = None
+
+    async def _override_get_db():
+        async with _TestSession() as session:
+            yield session
+
+    backend_main.app.dependency_overrides[get_db] = _override_get_db
+
+    async with AsyncClient(transport=ASGITransport(app=backend_main.app), base_url="http://test") as c:
+        mock_billing_client = AsyncMock()
+        mock_billing_client.__aenter__ = AsyncMock(return_value=mock_billing_client)
+        mock_billing_client.__aexit__ = AsyncMock(return_value=None)
+
+        def fake_get(url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            if "ticket-groups" in url:
+                resp.json = MagicMock(return_value={"allowed_groups": ["allowed@g.us"], "tier_limit": 5})
+            else:
+                resp.json = MagicMock(return_value={"status": "active"})
+            return resp
+
+        mock_billing_client.get = AsyncMock(side_effect=fake_get)
+        mock_billing_client.post = AsyncMock(return_value=MagicMock(status_code=200))
+
+        with patch("main.httpx.AsyncClient", return_value=mock_billing_client):
+            r = await c.post(
+                "/api/v1/ops/ingest",
+                headers={"X-API-Key": GATEWAY_TOKEN},
+                json={
+                    "event": "message.received",
+                    "data": {
+                        "chatId": "allowed@g.us",
+                        "isGroup": True,
+                        "type": "chat",
+                        "body": "Pipes are leaking badly in block A",
+                        "fromMe": False,
+                        "id": "msg-gnl-2",
+                        "timestamp": 1700000021,
+                    },
+                },
+            )
+    backend_main.app.dependency_overrides.clear()
+    assert r.status_code == 202
+    assert r.json().get("status") != "group_not_licensed"
+
+
+@pytest.mark.asyncio
+async def test_ticket_groups_gate_fails_open_on_error(monkeypatch):
+    monkeypatch.setenv("BILLING_SERVICE_URL", "http://billing:9000")
+    monkeypatch.setenv("BILLING_WEBHOOK_SECRET", "test-secret")
+    monkeypatch.setenv("CLIENT_SUBDOMAIN", "acme")
+    monkeypatch.setenv("GATEWAY_SECRET_TOKEN", GATEWAY_TOKEN)
+    import importlib, main as backend_main
+    from tests.conftest import _TestSession
+    from database import get_db
+    importlib.reload(backend_main)
+    backend_main._billing_status_cache = None
+    backend_main._ticket_groups_cache = None
+
+    async def _override_get_db():
+        async with _TestSession() as session:
+            yield session
+
+    backend_main.app.dependency_overrides[get_db] = _override_get_db
+
+    async with AsyncClient(transport=ASGITransport(app=backend_main.app), base_url="http://test") as c:
+        mock_billing_client = AsyncMock()
+        mock_billing_client.__aenter__ = AsyncMock(return_value=mock_billing_client)
+        mock_billing_client.__aexit__ = AsyncMock(return_value=None)
+        mock_billing_client.get = AsyncMock(side_effect=Exception("Connection refused"))
+        mock_billing_client.post = AsyncMock(return_value=MagicMock(status_code=200))
+
+        with patch("main.httpx.AsyncClient", return_value=mock_billing_client):
+            r = await c.post(
+                "/api/v1/ops/ingest",
+                headers={"X-API-Key": GATEWAY_TOKEN},
+                json={
+                    "event": "message.received",
+                    "data": {
+                        "chatId": "anygroup@g.us",
+                        "isGroup": True,
+                        "type": "chat",
+                        "body": "water leak in room 3",
+                        "fromMe": False,
+                        "id": "msg-gnl-3",
+                        "timestamp": 1700000022,
+                    },
+                },
+            )
+    backend_main.app.dependency_overrides.clear()
+    assert r.status_code == 202
+    assert r.json().get("status") != "group_not_licensed"

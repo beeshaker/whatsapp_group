@@ -1011,6 +1011,21 @@ async def client_billing_status(subdomain: str, request: Request, db=Depends(get
     return {"status": client.status}
 
 
+@app.get("/api/clients/{subdomain}/ticket-groups")
+async def client_ticket_groups(subdomain: str, request: Request, db=Depends(get_db)):
+    secret = request.headers.get("X-Billing-Secret", "")
+    if BILLING_WEBHOOK_SECRET and secret != BILLING_WEBHOOK_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    client = await db.scalar(select(Client).where(Client.subdomain == subdomain))
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    tier = await db.get(GroupTierPrice, client.ticket_group_tier_id) if client.ticket_group_tier_id else None
+    return {
+        "allowed_groups": json.loads(client.allowed_ticket_groups) if client.allowed_ticket_groups else None,
+        "tier_limit": tier.max_groups if tier else None,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Nginx auth-check gate
 # ---------------------------------------------------------------------------

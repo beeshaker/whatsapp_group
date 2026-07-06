@@ -140,6 +140,7 @@ except ValueError:
 DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://localhost:8000")
 
 _billing_status_cache: dict | None = None
+_ticket_groups_cache: dict | None = None
 _CACHE_TTL_SECONDS = 60
 
 SECRET_KEY = os.getenv("SECRET_KEY", "")
@@ -171,6 +172,33 @@ async def _get_client_billing_status() -> str:
         return "active"
     _billing_status_cache = {"status": status, "fetched_at": now}
     return status
+
+
+async def _get_allowed_ticket_groups() -> Optional[list[str]]:
+    """Returns the client's allowed ticket-raising group IDs, or None if unrestricted
+    (today's default) or the billing service is unreachable/unconfigured (fail open)."""
+    global _ticket_groups_cache
+    if not BILLING_SERVICE_URL or not CLIENT_SUBDOMAIN:
+        return None
+    now = datetime.now(timezone.utc)
+    if (
+        _ticket_groups_cache is not None
+        and (now - _ticket_groups_cache["fetched_at"]).total_seconds() < _CACHE_TTL_SECONDS
+    ):
+        return _ticket_groups_cache["allowed_groups"]
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as http:
+            r = await http.get(
+                f"{BILLING_SERVICE_URL}/api/clients/{CLIENT_SUBDOMAIN}/ticket-groups",
+                headers={"X-Billing-Secret": BILLING_WEBHOOK_SECRET},
+            )
+            r.raise_for_status()
+            allowed_groups = r.json().get("allowed_groups")
+    except Exception:
+        logger.warning("Ticket-groups check failed — defaulting to unrestricted")
+        return None
+    _ticket_groups_cache = {"allowed_groups": allowed_groups, "fetched_at": now}
+    return allowed_groups
 
 
 async def require_write_auth(
@@ -712,6 +740,11 @@ async def ingest(
                 except Exception as exc:
                     logger.error("Sales agent reply failed: %s", exc)
         return JSONResponse({"status": "sales_handled"}, status_code=status.HTTP_202_ACCEPTED)
+
+    allowed_groups = await _get_allowed_ticket_groups()
+    if allowed_groups is not None and group_id not in allowed_groups:
+        return {"status": "group_not_licensed"}
+
     group_name = (
         data.get("chatName")
         or (data.get("chat") or {}).get("name")
