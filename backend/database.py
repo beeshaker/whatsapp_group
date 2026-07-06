@@ -248,3 +248,15 @@ async def init_db():
             ))
     except Exception:
         pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE incidents ADD COLUMN reminder_offset_hours INTEGER"))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE incidents ADD COLUMN reminder_sent_at TIMESTAMP"))
+    except Exception:
+        pass

@@ -241,3 +241,38 @@ async def test_severity_rename_preserves_existing_data():
         assert "end_date" in columns
         assert "escalated" in columns
     await upgrade_engine.dispose()
+
+
+async def test_incidents_table_has_reminder_offset_hours_column(migrated_engine):
+    async with migrated_engine.connect() as conn:
+        result = await conn.execute(text("PRAGMA table_info(incidents)"))
+        columns = [row[1] for row in result.all()]
+        assert "reminder_offset_hours" in columns
+
+
+async def test_incidents_table_has_reminder_sent_at_column(migrated_engine):
+    async with migrated_engine.connect() as conn:
+        result = await conn.execute(text("PRAGMA table_info(incidents)"))
+        columns = [row[1] for row in result.all()]
+        assert "reminder_sent_at" in columns
+
+
+async def test_reminder_fields_default_to_null(db_session):
+    from models import Incident
+    now = datetime.now(timezone.utc)
+    incident = Incident(
+        group_id="g1@g.us",
+        property_name="Block A",
+        reporter_name="Alice",
+        message_body="Pump leaking",
+        category="plumbing",
+        priority="high",
+        confidence=0.9,
+        status="review",
+        received_at=now,
+    )
+    db_session.add(incident)
+    await db_session.commit()
+    await db_session.refresh(incident)
+    assert incident.reminder_offset_hours is None
+    assert incident.reminder_sent_at is None

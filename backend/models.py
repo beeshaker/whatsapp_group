@@ -24,6 +24,8 @@ class Incident(Base):
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     end_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     escalated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    reminder_offset_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    reminder_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class IncidentUpdate(Base):
