@@ -411,36 +411,48 @@ async def _check_ticket_reminders():
             end_date = ticket.end_date
             if end_date.tzinfo is None:
                 end_date = end_date.replace(tzinfo=timezone.utc)
+            # Cache ticket attributes before try blocks to avoid lazy-load issues after rollback
+            ticket_id = ticket.id
+            group_id = ticket.group_id
+            property_name = ticket.property_name
+            message_body = ticket.message_body
+            reminder_offset_hours = ticket.reminder_offset_hours
+            reminder_sent_at = ticket.reminder_sent_at
+            escalated = ticket.escalated
 
             try:
                 if (
-                    ticket.reminder_offset_hours is not None
-                    and ticket.reminder_sent_at is None
-                    and now >= end_date - timedelta(hours=ticket.reminder_offset_hours)
+                    reminder_offset_hours is not None
+                    and reminder_sent_at is None
+                    and now >= end_date - timedelta(hours=reminder_offset_hours)
                 ):
                     await send_group_message(
-                        ticket.group_id,
-                        f"⏰ Reminder: Ticket #{ticket.id} ({ticket.property_name}) is "
-                        f"approaching its deadline.\n{ticket.message_body[:200]}",
+                        group_id,
+                        f"⏰ Reminder: Ticket #{ticket_id} ({property_name}) is "
+                        f"approaching its deadline.\n{message_body[:200]}",
                     )
                     ticket.reminder_sent_at = now
                     db.add(ticket)
                     await db.commit()
             except Exception as exc:
-                logger.error("Reminder check failed for incident %s: %s", ticket.id, exc)
+                if db.in_transaction():
+                    await db.rollback()
+                logger.error("Reminder check failed for incident %s: %s", ticket_id, exc)
 
             try:
-                if not ticket.escalated and now >= end_date:
+                if not escalated and now >= end_date:
                     await send_group_message(
-                        ticket.group_id,
-                        f"🚨 Ticket #{ticket.id} ({ticket.property_name}) has passed its "
-                        f"deadline and has been escalated.\n{ticket.message_body[:200]}",
+                        group_id,
+                        f"🚨 Ticket #{ticket_id} ({property_name}) has passed its "
+                        f"deadline and has been escalated.\n{message_body[:200]}",
                     )
                     ticket.escalated = True
                     db.add(ticket)
                     await db.commit()
             except Exception as exc:
-                logger.error("Escalation check failed for incident %s: %s", ticket.id, exc)
+                if db.in_transaction():
+                    await db.rollback()
+                logger.error("Escalation check failed for incident %s: %s", ticket_id, exc)
 
 
 async def _get_allowed_groups(username: str, db: AsyncSession) -> Optional[list[str]]:
