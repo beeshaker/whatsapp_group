@@ -197,6 +197,12 @@ async def _get_allowed_ticket_groups() -> Optional[list[str]]:
     except Exception:
         logger.warning("Ticket-groups check failed — defaulting to unrestricted")
         return None
+    if allowed_groups is not None and not isinstance(allowed_groups, list):
+        logger.warning(
+            "Ticket-groups response had unexpected shape (%r) — defaulting to unrestricted",
+            allowed_groups,
+        )
+        return None
     _ticket_groups_cache = {"allowed_groups": allowed_groups, "fetched_at": now}
     return allowed_groups
 
