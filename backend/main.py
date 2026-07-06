@@ -61,6 +61,10 @@ class GroupAssignBody(BaseModel):
     group_ids: list[str]
 
 
+class TicketGroupAddBody(BaseModel):
+    group_id: str
+
+
 class AdminProfileBody(BaseModel):
     whatsapp_phone: Optional[str] = None
 
@@ -1844,6 +1848,49 @@ async def api_whatsapp_qr(_: str = Depends(require_admin)):
             return JSONResponse({"status": sr.json().get("status", "UNKNOWN")})
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+_GROUP_JID_RE = re.compile(r"[\w-]+@g\.us")
+
+
+@app.get("/api/settings/ticket-groups")
+async def settings_ticket_groups(
+    username: str = Depends(require_admin),
+):
+    allowed_groups = await _get_allowed_ticket_groups()
+    tier_limit = None
+    if BILLING_SERVICE_URL and CLIENT_SUBDOMAIN:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as http:
+                r = await http.get(
+                    f"{BILLING_SERVICE_URL}/api/clients/{CLIENT_SUBDOMAIN}/ticket-groups",
+                    headers={"X-Billing-Secret": BILLING_WEBHOOK_SECRET},
+                )
+                r.raise_for_status()
+                tier_limit = r.json().get("tier_limit")
+        except Exception:
+            logger.warning("Ticket-groups tier-limit fetch failed")
+    return {"allowed_groups": allowed_groups, "tier_limit": tier_limit}
+
+
+@app.post("/api/settings/ticket-groups/add")
+async def settings_add_ticket_group(
+    body: TicketGroupAddBody,
+    username: str = Depends(require_admin),
+):
+    group_id = body.group_id.strip()
+    if not _GROUP_JID_RE.fullmatch(group_id):
+        raise HTTPException(status_code=422, detail="group_id doesn't look like a WhatsApp group JID")
+    if not BILLING_SERVICE_URL or not CLIENT_SUBDOMAIN:
+        raise HTTPException(status_code=503, detail="Billing service not configured")
+    async with httpx.AsyncClient(timeout=8.0) as http:
+        r = await http.post(
+            f"{BILLING_SERVICE_URL}/api/clients/{CLIENT_SUBDOMAIN}/ticket-groups/add",
+            json={"group_id": group_id},
+            headers={"X-Billing-Secret": BILLING_WEBHOOK_SECRET},
+        )
+        r.raise_for_status()
+        return r.json()
 
 
 # ---------------------------------------------------------------------------

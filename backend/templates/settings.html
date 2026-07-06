@@ -175,6 +175,17 @@
       </button>
     </div>
   </div>
+
+  <div class="section">
+    <div class="section-title">Ticket-Raising Groups</div>
+    <div id="ticket-groups-list" style="font-size:.875rem;color:var(--muted)">Loading&hellip;</div>
+    <div style="margin-top:1rem;display:flex;gap:.5rem;flex-wrap:wrap">
+      <input id="new-group-id" placeholder="120363XXXXXXXXXX@g.us"
+        style="flex:1;min-width:220px;padding:.5rem .75rem;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--text)">
+      <button class="btn btn-primary" onclick="addTicketGroup()">Add Group</button>
+    </div>
+    <div id="ticket-groups-msg" style="margin-top:.75rem;font-size:.85rem"></div>
+  </div>
 </div>
 
 <script>
@@ -274,6 +285,57 @@ async function pollQr() {
   } catch(e) {}
 }
 
+async function loadTicketGroups() {
+  const el = document.getElementById('ticket-groups-list');
+  try {
+    const data = await fetch('/api/settings/ticket-groups').then(r => r.json());
+    if (data.allowed_groups === null) {
+      el.textContent = 'Unrestricted — any group can raise tickets.';
+      return;
+    }
+    const limit = data.tier_limit != null ? ` (limit: ${data.tier_limit})` : '';
+    el.innerHTML = data.allowed_groups.length
+      ? `<ul style="margin:0;padding-left:1.25rem">${data.allowed_groups.map(g => `<li>${g}</li>`).join('')}</ul>${limit}`
+      : `No groups configured yet${limit}`;
+  } catch(e) {
+    el.textContent = 'Could not load ticket-raising groups.';
+  }
+}
+
+async function addTicketGroup() {
+  const input = document.getElementById('new-group-id');
+  const msg = document.getElementById('ticket-groups-msg');
+  const groupId = input.value.trim();
+  if (!groupId) return;
+  msg.textContent = '';
+  try {
+    const res = await fetch('/api/settings/ticket-groups/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group_id: groupId }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      msg.style.color = 'var(--red)';
+      msg.textContent = data.detail || 'Could not add group.';
+      return;
+    }
+    if (data.status === 'limit_reached') {
+      msg.style.color = 'var(--amber)';
+      msg.textContent = `You've reached your plan's limit (${data.next_tier_max ?? 'current'} groups) — upgrade for KES ${data.next_tier_amount} to add more.`;
+      return;
+    }
+    msg.style.color = 'var(--green)';
+    msg.textContent = data.added ? 'Group added.' : 'Group already on your list.';
+    input.value = '';
+    loadTicketGroups();
+  } catch(e) {
+    msg.style.color = 'var(--red)';
+    msg.textContent = 'Request failed.';
+  }
+}
+
+loadTicketGroups();
 checkStatus();
 setInterval(checkStatus, 30000);
 </script>

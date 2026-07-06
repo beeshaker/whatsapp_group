@@ -1026,6 +1026,44 @@ async def client_ticket_groups(subdomain: str, request: Request, db=Depends(get_
     }
 
 
+@app.post("/api/clients/{subdomain}/ticket-groups/add")
+async def client_self_service_add_ticket_group(subdomain: str, request: Request, db=Depends(get_db)):
+    secret = request.headers.get("X-Billing-Secret", "")
+    if BILLING_WEBHOOK_SECRET and secret != BILLING_WEBHOOK_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    client = await db.scalar(select(Client).where(Client.subdomain == subdomain))
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    body = await request.json()
+    group_id = (body.get("group_id") or "").strip()
+    if not group_id:
+        raise HTTPException(status_code=400, detail="group_id required")
+
+    groups = json.loads(client.allowed_ticket_groups) if client.allowed_ticket_groups else []
+    if group_id in groups:
+        return {"status": "ok", "added": False}
+
+    tier = await db.get(GroupTierPrice, client.ticket_group_tier_id) if client.ticket_group_tier_id else None
+    limit = tier.max_groups if tier else None
+    if limit is not None and len(groups) + 1 > limit:
+        next_tier = await db.scalar(
+            select(GroupTierPrice)
+            .where(GroupTierPrice.min_groups > limit)
+            .order_by(GroupTierPrice.min_groups)
+            .limit(1)
+        )
+        return {
+            "status": "limit_reached",
+            "next_tier_amount": str(next_tier.amount) if next_tier else None,
+            "next_tier_max": next_tier.max_groups if next_tier else None,
+        }
+
+    groups.append(group_id)
+    client.allowed_ticket_groups = json.dumps(groups)
+    await db.commit()
+    return {"status": "ok", "added": True}
+
+
 # ---------------------------------------------------------------------------
 # Nginx auth-check gate
 # ---------------------------------------------------------------------------

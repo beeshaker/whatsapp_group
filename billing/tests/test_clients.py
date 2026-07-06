@@ -271,3 +271,72 @@ async def test_ticket_groups_endpoint_restricted_client(auth_http, db_session):
     body = r.json()
     assert body["allowed_groups"] == ["g1@g.us"]
     assert body["tier_limit"] == 5
+
+
+@pytest.mark.asyncio
+async def test_self_service_add_under_limit_succeeds(auth_http, db_session, monkeypatch):
+    monkeypatch.setattr(main, "BILLING_WEBHOOK_SECRET", "test-secret")
+    await auth_http.post("/clients", data={"name": "Acme", "subdomain": "acme-self1", "plan": "monthly"})
+    from models import Client
+    from sqlalchemy import select
+    client = await db_session.scalar(select(Client).where(Client.subdomain == "acme-self1"))
+    await auth_http.post(f"/clients/{client.id}/ticket-groups/add", data={"group_id": "g1@g.us"})
+
+    r = await auth_http.post(
+        "/api/clients/acme-self1/ticket-groups/add",
+        json={"group_id": "g2@g.us"},
+        headers={"X-Billing-Secret": "test-secret"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["added"] is True
+    await db_session.refresh(client)
+    import json as _json
+    assert "g2@g.us" in _json.loads(client.allowed_ticket_groups)
+
+
+@pytest.mark.asyncio
+async def test_self_service_add_duplicate_is_noop(auth_http, db_session, monkeypatch):
+    monkeypatch.setattr(main, "BILLING_WEBHOOK_SECRET", "test-secret")
+    await auth_http.post("/clients", data={"name": "Acme", "subdomain": "acme-self2", "plan": "monthly"})
+    from models import Client
+    from sqlalchemy import select
+    client = await db_session.scalar(select(Client).where(Client.subdomain == "acme-self2"))
+    await auth_http.post(f"/clients/{client.id}/ticket-groups/add", data={"group_id": "g1@g.us"})
+
+    r = await auth_http.post(
+        "/api/clients/acme-self2/ticket-groups/add",
+        json={"group_id": "g1@g.us"},
+        headers={"X-Billing-Secret": "test-secret"},
+    )
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok", "added": False}
+
+
+@pytest.mark.asyncio
+async def test_self_service_add_beyond_limit_returns_limit_reached(auth_http, db_session, monkeypatch):
+    monkeypatch.setattr(main, "BILLING_WEBHOOK_SECRET", "test-secret")
+    await auth_http.post("/clients", data={"name": "Acme", "subdomain": "acme-self3", "plan": "monthly"})
+    from models import Client
+    from sqlalchemy import select
+    client = await db_session.scalar(select(Client).where(Client.subdomain == "acme-self3"))
+    for i in range(5):
+        await auth_http.post(f"/clients/{client.id}/ticket-groups/add", data={"group_id": f"g{i}@g.us"})
+    await auth_http.post("/prices/group-tiers", data={
+        "tier1_amount": "500.00", "tier2_amount": "1200.00", "tier3_amount": "2500.00",
+    })
+
+    r = await auth_http.post(
+        "/api/clients/acme-self3/ticket-groups/add",
+        json={"group_id": "g-extra@g.us"},
+        headers={"X-Billing-Secret": "test-secret"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "limit_reached"
+    assert body["next_tier_amount"] == "1200.00"
+    assert body["next_tier_max"] == 10
+    await db_session.refresh(client)
+    import json as _json
+    assert len(_json.loads(client.allowed_ticket_groups)) == 5  # not added
