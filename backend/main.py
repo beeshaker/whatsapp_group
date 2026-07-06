@@ -35,6 +35,7 @@ from whatsapp import reply_to_message, send_group_message
 
 _VALID_STATUSES = {"new", "review", "acknowledged", "resolved", "ignored"}
 _VALID_PRIORITIES = {"low", "medium", "high", "urgent"}
+_VALID_REMINDER_OFFSETS = {0, 1, 6, 24}
 _MEDIA_TYPES = {"image", "video", "document", "audio"}
 
 
@@ -114,6 +115,7 @@ class TicketDetailUpdateBody(BaseModel):
     category: Optional[str] = None
     end_date: Optional[datetime] = None
     escalated: Optional[bool] = None
+    reminder_offset_hours: Optional[int] = None
 
     @field_validator("end_date")
     @classmethod
@@ -905,6 +907,8 @@ async def get_incident_detail(
         "priority": incident.priority,
         "end_date": incident.end_date.isoformat() if incident.end_date else None,
         "escalated": incident.escalated,
+        "reminder_offset_hours": incident.reminder_offset_hours,
+        "reminder_sent_at": incident.reminder_sent_at.isoformat() if incident.reminder_sent_at else None,
         "confidence": round(incident.confidence, 2),
         "status": incident.status,
         "message_body": incident.message_body,
@@ -1101,6 +1105,13 @@ async def update_incident_fields(
         if body.end_date != incident.end_date:
             changes.append(f"end_date: {incident.end_date} → {body.end_date}")
             incident.end_date = body.end_date
+            if incident.reminder_sent_at is not None:
+                changes.append(f"reminder_sent_at: {incident.reminder_sent_at} → None (end_date changed)")
+                incident.reminder_sent_at = None
+            if body.end_date is not None and body.end_date > now:
+                if incident.escalated:
+                    changes.append(f"escalated: {incident.escalated} → False (end_date changed)")
+                    incident.escalated = False
 
     if "escalated" in fields_set:
         if body.escalated is None:
@@ -1108,6 +1119,18 @@ async def update_incident_fields(
         if body.escalated != incident.escalated:
             changes.append(f"escalated: {incident.escalated} → {body.escalated}")
             incident.escalated = body.escalated
+
+    if "reminder_offset_hours" in fields_set:
+        if body.reminder_offset_hours is not None and body.reminder_offset_hours not in _VALID_REMINDER_OFFSETS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"reminder_offset_hours must be one of {sorted(_VALID_REMINDER_OFFSETS)} or null",
+            )
+        if body.reminder_offset_hours != incident.reminder_offset_hours:
+            changes.append(
+                f"reminder_offset_hours: {incident.reminder_offset_hours} → {body.reminder_offset_hours}"
+            )
+            incident.reminder_offset_hours = body.reminder_offset_hours
 
     db.add(incident)
     for change in changes:
@@ -1127,6 +1150,8 @@ async def update_incident_fields(
         "category": incident.category,
         "end_date": incident.end_date.isoformat() if incident.end_date else None,
         "escalated": incident.escalated,
+        "reminder_offset_hours": incident.reminder_offset_hours,
+        "reminder_sent_at": incident.reminder_sent_at.isoformat() if incident.reminder_sent_at else None,
     }
 
 

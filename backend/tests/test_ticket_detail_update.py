@@ -183,3 +183,77 @@ async def test_get_incident_detail_includes_new_fields(tdu_client):
     data = resp.json()
     assert data["end_date"].startswith("2026-08-01")
     assert data["escalated"] is True
+
+
+async def _set_incident_fields(incident_id, **fields):
+    async with _Session() as session:
+        incident = await session.get(Incident, incident_id)
+        for k, v in fields.items():
+            setattr(incident, k, v)
+        session.add(incident)
+        await session.commit()
+
+
+async def test_patch_sets_reminder_offset_hours(tdu_client):
+    incident_id = await _seed_incident()
+    await tdu_client.post("/login", data={"username": "ticketadmin", "password": "pass1234"})
+    resp = await tdu_client.patch(f"/incidents/{incident_id}", json={"reminder_offset_hours": 6})
+    assert resp.status_code == 200
+    assert resp.json()["reminder_offset_hours"] == 6
+
+
+async def test_patch_clears_reminder_offset_hours(tdu_client):
+    incident_id = await _seed_incident()
+    await tdu_client.post("/login", data={"username": "ticketadmin", "password": "pass1234"})
+    await tdu_client.patch(f"/incidents/{incident_id}", json={"reminder_offset_hours": 6})
+    resp = await tdu_client.patch(f"/incidents/{incident_id}", json={"reminder_offset_hours": None})
+    assert resp.status_code == 200
+    assert resp.json()["reminder_offset_hours"] is None
+
+
+async def test_patch_rejects_invalid_reminder_offset_hours(tdu_client):
+    incident_id = await _seed_incident()
+    await tdu_client.post("/login", data={"username": "ticketadmin", "password": "pass1234"})
+    resp = await tdu_client.patch(f"/incidents/{incident_id}", json={"reminder_offset_hours": 12})
+    assert resp.status_code == 422
+
+
+async def test_patch_end_date_change_resets_reminder_sent_at(tdu_client):
+    incident_id = await _seed_incident()
+    await tdu_client.post("/login", data={"username": "ticketadmin", "password": "pass1234"})
+    await tdu_client.patch(f"/incidents/{incident_id}", json={"end_date": "2026-08-01T00:00:00"})
+    await _set_incident_fields(incident_id, reminder_sent_at=datetime(2026, 7, 1, tzinfo=timezone.utc))
+    resp = await tdu_client.patch(f"/incidents/{incident_id}", json={"end_date": "2026-09-01T00:00:00"})
+    assert resp.status_code == 200
+    assert resp.json()["reminder_sent_at"] is None
+
+
+async def test_patch_future_end_date_resets_escalated(tdu_client):
+    incident_id = await _seed_incident()
+    await tdu_client.post("/login", data={"username": "ticketadmin", "password": "pass1234"})
+    await tdu_client.patch(f"/incidents/{incident_id}", json={"end_date": "2020-01-01T00:00:00"})
+    await tdu_client.patch(f"/incidents/{incident_id}", json={"escalated": True})
+    resp = await tdu_client.patch(f"/incidents/{incident_id}", json={"end_date": "2099-01-01T00:00:00"})
+    assert resp.status_code == 200
+    assert resp.json()["escalated"] is False
+
+
+async def test_patch_past_end_date_leaves_escalated_untouched(tdu_client):
+    incident_id = await _seed_incident()
+    await tdu_client.post("/login", data={"username": "ticketadmin", "password": "pass1234"})
+    await tdu_client.patch(f"/incidents/{incident_id}", json={"end_date": "2020-01-01T00:00:00"})
+    await tdu_client.patch(f"/incidents/{incident_id}", json={"escalated": True})
+    resp = await tdu_client.patch(f"/incidents/{incident_id}", json={"end_date": "2020-06-01T00:00:00"})
+    assert resp.status_code == 200
+    assert resp.json()["escalated"] is True
+
+
+async def test_get_incident_detail_includes_reminder_fields(tdu_client):
+    incident_id = await _seed_incident()
+    await tdu_client.post("/login", data={"username": "ticketadmin", "password": "pass1234"})
+    await tdu_client.patch(f"/incidents/{incident_id}", json={"reminder_offset_hours": 1})
+    resp = await tdu_client.get(f"/incidents/{incident_id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["reminder_offset_hours"] == 1
+    assert data["reminder_sent_at"] is None
