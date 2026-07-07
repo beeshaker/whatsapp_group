@@ -321,6 +321,32 @@ async def test_upgrade_endpoint_reuses_pending_request(http, grace_client, db_se
 
 
 @pytest.mark.asyncio
+async def test_upgrade_endpoint_rejected_for_unrestricted_client(http, grace_client, db_session, monkeypatch):
+    """Regression (Finding A, re-review): the same None-vs-empty-list bug fixed
+    in the self-service add endpoint also existed here — an unrestricted client
+    (allowed_ticket_groups is None) must not be able to kick off a tier-upgrade
+    M-Pesa charge, since that would silently convert them to restricted once
+    the callback lands."""
+    monkeypatch.setattr(main, "BILLING_WEBHOOK_SECRET", "test-secret")
+    from models import GroupUpgradeRequest
+    from sqlalchemy import select
+    assert grace_client.allowed_ticket_groups is None
+
+    r = await http.post(
+        "/api/clients/acme/ticket-groups/upgrade",
+        json={"group_id": "g-new@g.us", "phone": "0712345678"},
+        headers={"X-Billing-Secret": "test-secret"},
+    )
+    assert r.status_code == 403
+    main.initiate_stk_push.assert_not_called()
+    reqs = (await db_session.execute(select(GroupUpgradeRequest))).scalars().all()
+    assert reqs == []
+    await db_session.refresh(grace_client)
+    assert grace_client.allowed_ticket_groups is None
+    assert grace_client.ticket_group_tier_id is None
+
+
+@pytest.mark.asyncio
 async def test_mpesa_callback_confirms_group_upgrade(http, grace_client, db_session, monkeypatch):
     monkeypatch.setattr(main, "BILLING_WEBHOOK_SECRET", "test-secret")
     from models import GroupTierPrice, GroupUpgradeRequest

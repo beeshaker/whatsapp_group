@@ -420,3 +420,56 @@ async def test_admin_reset_ticket_groups_unrestricted(auth_http, db_session):
     r2 = await auth_http.get("/api/clients/acme-reset/ticket-groups")
     assert r2.status_code == 200
     assert r2.json() == {"allowed_groups": None, "tier_limit": None}
+
+
+@pytest.mark.asyncio
+async def test_admin_reset_cancels_pending_upgrade_request(auth_http, db_session):
+    """Regression (Finding B, re-review): resetting a client to unrestricted
+    must cancel any pending GroupUpgradeRequest, and a later-arriving M-Pesa
+    callback for that (now cancelled) request must not resurrect the old
+    group/tier and silently undo the admin's reset."""
+    await auth_http.post("/clients", data={"name": "Acme", "subdomain": "acme-reset-pending", "plan": "monthly"})
+    from models import Client, GroupTierPrice, GroupUpgradeRequest
+    from sqlalchemy import select
+    client = await db_session.scalar(select(Client).where(Client.subdomain == "acme-reset-pending"))
+    await auth_http.post(f"/clients/{client.id}/ticket-groups/add", data={"group_id": "g1@g.us"})
+    await db_session.refresh(client)
+    assert client.allowed_ticket_groups is not None
+
+    tier2 = GroupTierPrice(
+        min_groups=6, max_groups=10, amount=Decimal("1200"),
+        set_at=datetime.now(timezone.utc), set_by="admin",
+    )
+    db_session.add(tier2)
+    await db_session.flush()
+    upgrade_req = GroupUpgradeRequest(
+        client_id=client.id, group_id="g-new@g.us", target_tier_id=tier2.id,
+        phone="254712345678", amount=Decimal("1200"), checkout_request_id="ws_CO_RESET_RACE",
+        status="pending", created_at=datetime.now(timezone.utc),
+    )
+    db_session.add(upgrade_req)
+    await db_session.commit()
+
+    r = await auth_http.post(f"/clients/{client.id}/ticket-groups/reset-unrestricted")
+    assert r.status_code in (200, 303)
+    await db_session.refresh(client)
+    await db_session.refresh(upgrade_req)
+    assert client.allowed_ticket_groups is None
+    assert client.ticket_group_tier_id is None
+    assert upgrade_req.status == "cancelled"
+
+    # Later-arriving M-Pesa callback for the now-cancelled request must not
+    # resurrect the old group/tier.
+    r2 = await auth_http.post("/webhook/mpesa", json={
+        "Body": {"stkCallback": {
+            "CheckoutRequestID": "ws_CO_RESET_RACE",
+            "ResultCode": 0,
+            "CallbackMetadata": {"Item": [{"Name": "MpesaReceiptNumber", "Value": "QGH8YYYYY"}]},
+        }}
+    })
+    assert r2.status_code == 200
+    await db_session.refresh(client)
+    await db_session.refresh(upgrade_req)
+    assert client.allowed_ticket_groups is None
+    assert client.ticket_group_tier_id is None
+    assert upgrade_req.status == "cancelled"

@@ -311,6 +311,14 @@ async def admin_reset_ticket_groups_unrestricted(
     client = await db.get(Client, client_id)
     if not client:
         return HTMLResponse("Not found", status_code=404)
+    pending_requests = (await db.execute(
+        select(GroupUpgradeRequest).where(
+            GroupUpgradeRequest.client_id == client.id,
+            GroupUpgradeRequest.status == "pending",
+        )
+    )).scalars().all()
+    for req in pending_requests:
+        req.status = "cancelled"
     client.allowed_ticket_groups = None
     client.ticket_group_tier_id = None
     await db.commit()
@@ -701,6 +709,13 @@ async def mpesa_callback(request: Request, db=Depends(get_db)):
         if not upgrade_req:
             return {"ResultCode": 0, "ResultDesc": "Accepted"}
         if result_code == 0:
+            # Re-check status right before applying: a billing admin may have
+            # cancelled this request in the meantime (e.g. via
+            # admin_reset_ticket_groups_unrestricted). Don't resurrect a
+            # cancelled request by overwriting it back to "confirmed".
+            if upgrade_req.status != "pending":
+                await db.commit()
+                return {"ResultCode": 0, "ResultDesc": "Accepted"}
             client = await db.get(Client, upgrade_req.client_id)
             if not client:
                 await db.delete(upgrade_req)
@@ -1130,6 +1145,17 @@ async def client_self_service_upgrade_tier(subdomain: str, request: Request, db=
     phone = _normalize_phone(body.get("phone") or "")
     if not group_id or not phone:
         raise HTTPException(status_code=400, detail="group_id and a valid phone are required")
+
+    if client.allowed_ticket_groups is None:
+        # None means the client is fully unrestricted (no cap, no billing tie-in).
+        # Self-service upgrade is only for clients a billing admin has already
+        # opted in via admin_add_ticket_group — starting an upgrade flow here
+        # would silently convert an unrestricted client into a restricted one
+        # once the M-Pesa callback lands.
+        raise HTTPException(
+            status_code=403,
+            detail="Group management is not enabled for this account. Contact support to enable it.",
+        )
 
     pending = await db.scalar(
         select(GroupUpgradeRequest).where(
