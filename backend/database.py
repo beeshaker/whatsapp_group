@@ -260,3 +260,65 @@ async def init_db():
             await conn.execute(text("ALTER TABLE incidents ADD COLUMN reminder_sent_at TIMESTAMP"))
     except Exception:
         pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE incidents ADD COLUMN issue_index INTEGER NOT NULL DEFAULT 0"
+            ))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE incidents DROP CONSTRAINT IF EXISTS uq_incidents_message_id"
+            ))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("DROP INDEX IF EXISTS uq_incidents_message_id"))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_incidents_message_id_issue_index "
+                "ON incidents (message_id, issue_index)"
+            ))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE incident_updates ADD COLUMN issue_index INTEGER NOT NULL DEFAULT 0"
+            ))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE incident_updates DROP CONSTRAINT IF EXISTS uq_incident_updates_message_id"
+            ))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("DROP INDEX IF EXISTS uq_incident_updates_message_id"))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_incident_updates_message_id_issue_index "
+                "ON incident_updates (message_id, issue_index)"
+            ))
+    except Exception:
+        pass

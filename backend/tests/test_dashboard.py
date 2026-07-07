@@ -8,12 +8,10 @@ async def test_incidents_returns_empty_list_initially(client):
 
 
 async def test_incidents_returns_staged_record(client):
-    classification = {
-        "is_incident": True,
-        "category": "electrical",
-        "priority": "medium",
-        "confidence": 0.88,
-    }
+    classification = {"issues": [{
+        "category": "electrical", "priority": "medium", "confidence": 0.88,
+        "message_snippet": "Main fuse box tripped on ground floor",
+    }]}
     payload = {
         "event": "message.received",
         "data": {
@@ -49,10 +47,10 @@ async def test_dashboard_returns_html(authenticated_client):
 
 
 async def test_dashboard_contains_incident_card_markup(authenticated_client):
-    classification = {
-        "is_incident": True, "category": "plumbing",
-        "priority": "high", "confidence": 0.90,
-    }
+    classification = {"issues": [{
+        "category": "plumbing", "priority": "high", "confidence": 0.90,
+        "message_snippet": "Pipe burst in basement",
+    }]}
     payload = {
         "event": "message.received",
         "data": {
@@ -90,10 +88,10 @@ async def test_dashboard_shows_review_badge(authenticated_client):
 
 
 async def test_incidents_since_id_returns_only_newer(client):
-    classification = {
-        "is_incident": True, "category": "plumbing",
-        "priority": "high", "confidence": 0.92,
-    }
+    classification = {"issues": [{
+        "category": "plumbing", "priority": "high", "confidence": 0.92,
+        "message_snippet": "Pipe burst in basement",
+    }]}
     base_payload = {
         "event": "message.received",
         "data": {
@@ -123,7 +121,9 @@ async def test_incidents_since_id_returns_only_newer(client):
 
 async def test_list_incidents_statuses_filter_returns_only_resolved(client):
     from unittest.mock import AsyncMock, patch
-    classification = {"is_incident": True, "category": "plumbing", "priority": "high", "confidence": 0.92}
+    classification = {"issues": [{
+        "category": "plumbing", "priority": "high", "confidence": 0.92, "message_snippet": "Issue A",
+    }]}
     payload_a = {
         "event": "message.received",
         "data": {"id": "msg-s1", "type": "chat", "isGroup": True, "chatId": "1@g.us",
@@ -160,7 +160,9 @@ async def test_list_incidents_statuses_filter_returns_only_resolved(client):
 
 async def test_list_incidents_statuses_filter_multiple(client):
     from unittest.mock import AsyncMock, patch
-    classification = {"is_incident": True, "category": "plumbing", "priority": "high", "confidence": 0.92}
+    classification = {"issues": [{
+        "category": "plumbing", "priority": "high", "confidence": 0.92, "message_snippet": "Issue M",
+    }]}
     for msg_id, body_text in [("msg-m1", "Issue M1"), ("msg-m2", "Issue M2")]:
         payload = {
             "event": "message.received",
@@ -188,7 +190,9 @@ async def test_archive_route_returns_html(authenticated_client):
 
 async def test_archive_route_shows_only_resolved_incidents(authenticated_client):
     from unittest.mock import AsyncMock, patch
-    classification = {"is_incident": True, "category": "plumbing", "priority": "high", "confidence": 0.92}
+    classification = {"issues": [{
+        "category": "plumbing", "priority": "high", "confidence": 0.92, "message_snippet": "Archive issue",
+    }]}
     payload_live = {
         "event": "message.received",
         "data": {"id": "msg-arc1", "type": "chat", "isGroup": True, "chatId": "3@g.us",
@@ -218,7 +222,9 @@ async def test_archive_route_shows_only_resolved_incidents(authenticated_client)
 
 async def test_live_dashboard_excludes_resolved_incidents(authenticated_client):
     from unittest.mock import AsyncMock, patch
-    classification = {"is_incident": True, "category": "plumbing", "priority": "high", "confidence": 0.92}
+    classification = {"issues": [{
+        "category": "plumbing", "priority": "high", "confidence": 0.92, "message_snippet": "To be resolved",
+    }]}
     payload = {
         "event": "message.received",
         "data": {"id": "msg-exc1", "type": "chat", "isGroup": True, "chatId": "4@g.us",
@@ -249,7 +255,9 @@ async def test_incidents_filtered_by_group_for_user_role(client, db_session):
     """A user with role='user' only sees incidents from their assigned groups."""
     from unittest.mock import AsyncMock, patch
 
-    classification = {"is_incident": True, "category": "maintenance", "priority": "low", "confidence": 0.9}
+    classification = {"issues": [{
+        "category": "maintenance", "priority": "low", "confidence": 0.9, "message_snippet": "Group filter incident",
+    }]}
     for chatId, chatName, msg_id, body_text in [
         ("visible@g.us", "Visible Property", "msg-vis1", "Visible incident"),
         ("hidden@g.us",  "Hidden Property",  "msg-hid1", "Hidden incident"),

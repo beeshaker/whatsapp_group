@@ -276,3 +276,139 @@ async def test_reminder_fields_default_to_null(db_session):
     await db_session.refresh(incident)
     assert incident.reminder_offset_hours is None
     assert incident.reminder_sent_at is None
+
+
+async def test_incidents_table_has_issue_index_column(migrated_engine):
+    async with migrated_engine.connect() as conn:
+        result = await conn.execute(text("PRAGMA table_info(incidents)"))
+        columns = [row[1] for row in result.all()]
+        assert "issue_index" in columns
+
+
+async def test_incident_updates_table_has_issue_index_column(migrated_engine):
+    async with migrated_engine.connect() as conn:
+        result = await conn.execute(text("PRAGMA table_info(incident_updates)"))
+        columns = [row[1] for row in result.all()]
+        assert "issue_index" in columns
+
+
+async def test_issue_index_defaults_to_zero(db_session):
+    from models import Incident
+    now = datetime.now(timezone.utc)
+    incident = Incident(
+        group_id="g1@g.us", property_name="Block A", reporter_name="Alice",
+        message_body="Pump leaking", category="plumbing", priority="high",
+        confidence=0.9, status="review", received_at=now,
+    )
+    db_session.add(incident)
+    await db_session.commit()
+    await db_session.refresh(incident)
+    assert incident.issue_index == 0
+
+
+async def test_compound_unique_constraint_allows_differing_issue_index(db_session):
+    from models import Incident
+    now = datetime.now(timezone.utc)
+    db_session.add(Incident(
+        group_id="g1@g.us", property_name="Block A", message_body="Pump leaking",
+        category="plumbing", priority="high", confidence=0.9, status="review",
+        received_at=now, message_id="msg-split-1", issue_index=0,
+    ))
+    await db_session.commit()
+    db_session.add(Incident(
+        group_id="g1@g.us", property_name="Block A", message_body="Lift stuck",
+        category="lift", priority="high", confidence=0.9, status="review",
+        received_at=now, message_id="msg-split-1", issue_index=1,
+    ))
+    await db_session.commit()
+    result = await db_session.execute(
+        select(Incident).where(Incident.message_id == "msg-split-1")
+    )
+    assert len(result.scalars().all()) == 2
+
+
+async def test_compound_unique_constraint_rejects_exact_duplicate_pair(db_session):
+    from models import Incident
+    now = datetime.now(timezone.utc)
+    db_session.add(Incident(
+        group_id="g1@g.us", property_name="Block A", message_body="Pump leaking",
+        category="plumbing", priority="high", confidence=0.9, status="review",
+        received_at=now, message_id="msg-dup-1", issue_index=0,
+    ))
+    await db_session.commit()
+    db_session.add(Incident(
+        group_id="g1@g.us", property_name="Block A", message_body="Pump leaking again",
+        category="plumbing", priority="high", confidence=0.9, status="review",
+        received_at=now, message_id="msg-dup-1", issue_index=0,
+    ))
+    with pytest.raises(Exception):
+        await db_session.commit()
+    await db_session.rollback()
+
+
+async def test_legacy_pre_migration_incidents_upgrade_preserves_rows_and_enforces_new_constraint():
+    """Simulates upgrading a pre-existing DB that has the old single-column
+    uq_incidents_message_id index and no issue_index column."""
+    upgrade_engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    async with upgrade_engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE incidents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id TEXT NOT NULL,
+                property_name TEXT NOT NULL,
+                reporter_name TEXT,
+                reporter_phone TEXT,
+                message_body TEXT NOT NULL,
+                category VARCHAR(50) NOT NULL,
+                priority VARCHAR(20) NOT NULL,
+                confidence FLOAT NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'review',
+                received_at TIMESTAMP NOT NULL,
+                message_id TEXT,
+                updated_at TIMESTAMP,
+                end_date TIMESTAMP,
+                escalated BOOLEAN NOT NULL DEFAULT 0
+            )
+        """))
+        await conn.execute(text(
+            "CREATE UNIQUE INDEX uq_incidents_message_id ON incidents (message_id)"
+        ))
+        await conn.execute(text(
+            "INSERT INTO incidents (group_id, property_name, message_body, category, "
+            "priority, confidence, status, received_at, message_id) VALUES "
+            "('g1@g.us', 'Block A', 'Pump leaking', 'plumbing', 'high', 0.9, 'review', "
+            "'2026-01-01 00:00:00', 'legacy-msg-1')"
+        ))
+
+    import database
+    original_engine = database.engine
+    database.engine = upgrade_engine
+    try:
+        await init_db()
+    finally:
+        database.engine = original_engine
+
+    async with upgrade_engine.connect() as conn:
+        result = await conn.execute(text(
+            "SELECT issue_index FROM incidents WHERE message_id='legacy-msg-1'"
+        ))
+        assert result.scalar_one() == 0
+
+        # The new compound constraint allows a second row sharing the same
+        # message_id with a different issue_index — exactly what the old
+        # single-column unique index on message_id would have rejected.
+        await conn.execute(text(
+            "INSERT INTO incidents (group_id, property_name, message_body, category, "
+            "priority, confidence, status, received_at, message_id, issue_index) VALUES "
+            "('g1@g.us', 'Block A', 'Lift stuck', 'lift', 'high', 0.9, 'review', "
+            "'2026-01-01 00:00:01', 'legacy-msg-1', 1)"
+        ))
+        count = (await conn.execute(text(
+            "SELECT COUNT(*) FROM incidents WHERE message_id='legacy-msg-1'"
+        ))).scalar()
+        assert count == 2
+    await upgrade_engine.dispose()

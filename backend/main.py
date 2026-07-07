@@ -487,93 +487,120 @@ async def _handle_text_ingest(
     message_id: Optional[str],
 ) -> dict:
     classification = await classify_message(message_body, db)
-    if not classification["is_incident"] or classification["confidence"] < MIN_CONFIDENCE:
+    all_issues = classification["issues"]
+    survivor_count = sum(1 for i in all_issues if i["confidence"] >= MIN_CONFIDENCE)
+    if survivor_count == 0:
         return {"status": "noise", "message": "Message classified as non-incident"}
 
     open_tickets = await _get_open_tickets(db, group_id)
-    if open_tickets:
-        routing = await classify_update_or_new(message_body, open_tickets)
-    else:
-        routing = {"routing": "new"}
+    tickets_created = 0
+    updates_created = 0
+    duplicates_skipped = 0
 
-    if routing["routing"] == "update":
-        incident_id = routing["ticket_id"]
-        update = IncidentUpdate(
-            incident_id=incident_id,
-            message_id=message_id,
+    for issue_index, issue in enumerate(all_issues):
+        if issue["confidence"] < MIN_CONFIDENCE:
+            continue
+
+        dup_incident = await db.execute(
+            select(Incident.id).where(
+                Incident.message_id == message_id, Incident.issue_index == issue_index
+            )
+        )
+        dup_update = await db.execute(
+            select(IncidentUpdate.id).where(
+                IncidentUpdate.message_id == message_id, IncidentUpdate.issue_index == issue_index
+            )
+        )
+        if dup_incident.scalar_one_or_none() is not None or dup_update.scalar_one_or_none() is not None:
+            duplicates_skipped += 1
+            continue
+
+        if open_tickets:
+            routing = await classify_update_or_new(issue["message_snippet"], open_tickets)
+        else:
+            routing = {"routing": "new"}
+
+        if routing["routing"] == "update":
+            incident_id = routing["ticket_id"]
+            update = IncidentUpdate(
+                incident_id=incident_id,
+                message_id=message_id,
+                issue_index=issue_index,
+                reporter_name=reporter_name,
+                reporter_phone=reporter_phone,
+                message_body=issue["message_snippet"],
+                received_at=received_at,
+                ai_linked=True,
+            )
+            try:
+                db.add(update)
+                parent = await db.get(Incident, incident_id)
+                if parent:
+                    parent.updated_at = received_at
+                await db.commit()
+                updates_created += 1
+            except IntegrityError:
+                await db.rollback()
+                duplicates_skipped += 1
+            except Exception as exc:
+                await db.rollback()
+                logger.error("DB commit failed for update: %s", exc)
+                return {"status": "error", "message": "Update could not be persisted"}
+            continue
+
+        incident = Incident(
+            group_id=group_id,
+            property_name=group_name,
             reporter_name=reporter_name,
             reporter_phone=reporter_phone,
-            message_body=message_body,
+            message_body=issue["message_snippet"],
+            category=issue["category"],
+            priority=issue["priority"],
+            confidence=issue["confidence"],
+            status="review",
             received_at=received_at,
-            ai_linked=True,
+            message_id=message_id,
+            issue_index=issue_index,
         )
         try:
-            db.add(update)
-            parent = await db.get(Incident, incident_id)
-            if parent:
-                parent.updated_at = received_at
+            db.add(incident)
+            await db.flush()
+            db.add(IncidentStatusHistory(
+                incident_id=incident.id,
+                from_status=None,
+                to_status="review",
+                changed_at=received_at,
+            ))
             await db.commit()
+            await db.refresh(incident)
+            tickets_created += 1
         except IntegrityError:
             await db.rollback()
-            return {"status": "duplicate", "message": "Message already processed"}
+            duplicates_skipped += 1
+            continue
         except Exception as exc:
             await db.rollback()
-            logger.error("DB commit failed for update: %s", exc)
-            return {"status": "error", "message": "Update could not be persisted"}
+            logger.error("DB commit failed: %s", exc)
+            return {"status": "error", "message": "Incident could not be persisted"}
 
-        logger.info("[UPDATE] incident_id=%d reporter=%s", incident_id, reporter_name)
-        return {"status": "staged_update", "incident_id": incident_id}
+        open_tickets.append({
+            "id": incident.id, "category": incident.category, "message_body": incident.message_body,
+        })
 
-    incident = Incident(
-        group_id=group_id,
-        property_name=group_name,
-        reporter_name=reporter_name,
-        reporter_phone=reporter_phone,
-        message_body=message_body,
-        category=classification["category"],
-        priority=classification["priority"],
-        confidence=classification["confidence"],
-        status="review",
-        received_at=received_at,
-        message_id=message_id,
-    )
-    try:
-        db.add(incident)
-        await db.flush()
-        db.add(IncidentStatusHistory(
-            incident_id=incident.id,
-            from_status=None,
-            to_status="review",
-            changed_at=received_at,
-        ))
-        await db.commit()
-        await db.refresh(incident)
-    except IntegrityError:
-        await db.rollback()
+        try:
+            await push_incident(incident)
+        except Exception as exc:
+            logger.error("push_incident failed: %s", exc)
+
+        logger.info(
+            "[INCIDENT] property=%s category=%s priority=%s confidence=%.2f issue_index=%d",
+            group_name, issue["category"], issue["priority"], issue["confidence"], issue_index,
+        )
+
+    if tickets_created == 0 and updates_created == 0 and duplicates_skipped > 0:
         return {"status": "duplicate", "message": "Message already processed"}
-    except Exception as exc:
-        await db.rollback()
-        logger.error("DB commit failed: %s", exc)
-        return {"status": "error", "message": "Incident could not be persisted"}
 
-    try:
-        await push_incident(incident)
-    except Exception as exc:
-        logger.error("push_incident failed: %s", exc)
-
-    logger.info(
-        "[INCIDENT] property=%s category=%s priority=%s confidence=%.2f",
-        group_name,
-        classification["category"],
-        classification["priority"],
-        classification["confidence"],
-    )
-    return {
-        "status": "staged",
-        "property": group_name,
-        "category": classification["category"],
-        "priority": classification["priority"],
-    }
+    return {"status": "staged", "tickets_created": tickets_created, "updates_created": updates_created}
 
 
 async def _handle_media_ingest(
@@ -589,63 +616,106 @@ async def _handle_media_ingest(
 ) -> dict:
     incident_id: Optional[int] = None
     update_id: Optional[int] = None
-    _created_incident: Optional[Incident] = None
+    _created_incidents: list[Incident] = []
+    caption_had_survivors = False
 
     if caption:
         classification = await classify_message(caption, db)
-        if classification["is_incident"] and classification["confidence"] >= MIN_CONFIDENCE:
+        survivors = [
+            (idx, issue) for idx, issue in enumerate(classification["issues"])
+            if issue["confidence"] >= MIN_CONFIDENCE
+        ]
+        if survivors:
+            caption_had_survivors = True
             open_tickets = await _get_open_tickets(db, group_id)
-            if open_tickets:
-                routing = await classify_update_or_new(caption, open_tickets)
-            else:
-                routing = {"routing": "new"}
+            highest_idx = max(survivors, key=lambda pair: pair[1]["confidence"])[0]
+            tickets_created = 0
+            updates_created = 0
+            duplicates_skipped = 0
+            media_target_incident_id: Optional[int] = None
+            media_target_update_id: Optional[int] = None
 
-            if routing["routing"] == "update":
-                parent_id = routing["ticket_id"]
-                upd = IncidentUpdate(
-                    incident_id=parent_id,
-                    message_id=message_id,
-                    reporter_name=reporter_name,
-                    reporter_phone=reporter_phone,
-                    message_body=caption,
-                    received_at=received_at,
-                    ai_linked=True,
+            for issue_index, issue in survivors:
+                dup_incident = await db.execute(
+                    select(Incident.id).where(
+                        Incident.message_id == message_id, Incident.issue_index == issue_index
+                    )
                 )
-                try:
-                    db.add(upd)
-                    parent = await db.get(Incident, parent_id)
-                    if parent:
-                        parent.updated_at = received_at
-                    await db.flush()
-                    incident_id = parent_id
-                    update_id = upd.id
-                except IntegrityError:
-                    await db.rollback()
-                    return {"status": "duplicate", "message": "Message already processed"}
-            else:
-                new_inc = Incident(
-                    group_id=group_id,
-                    property_name=group_name,
-                    reporter_name=reporter_name,
-                    reporter_phone=reporter_phone,
-                    message_body=caption,
-                    category=classification["category"],
-                    priority=classification["priority"],
-                    confidence=classification["confidence"],
-                    status="review",
-                    received_at=received_at,
-                    message_id=message_id,
+                dup_update = await db.execute(
+                    select(IncidentUpdate.id).where(
+                        IncidentUpdate.message_id == message_id, IncidentUpdate.issue_index == issue_index
+                    )
                 )
-                try:
-                    db.add(new_inc)
-                    await db.flush()
-                    incident_id = new_inc.id
-                    _created_incident = new_inc
-                except IntegrityError:
-                    await db.rollback()
-                    return {"status": "duplicate", "message": "Message already processed"}
+                if dup_incident.scalar_one_or_none() is not None or dup_update.scalar_one_or_none() is not None:
+                    duplicates_skipped += 1
+                    continue
 
-    if incident_id is None and media_url:
+                if open_tickets:
+                    routing = await classify_update_or_new(issue["message_snippet"], open_tickets)
+                else:
+                    routing = {"routing": "new"}
+
+                if routing["routing"] == "update":
+                    parent_id = routing["ticket_id"]
+                    upd = IncidentUpdate(
+                        incident_id=parent_id,
+                        message_id=message_id,
+                        issue_index=issue_index,
+                        reporter_name=reporter_name,
+                        reporter_phone=reporter_phone,
+                        message_body=issue["message_snippet"],
+                        received_at=received_at,
+                        ai_linked=True,
+                    )
+                    try:
+                        async with db.begin_nested():
+                            db.add(upd)
+                            parent = await db.get(Incident, parent_id)
+                            if parent:
+                                parent.updated_at = received_at
+                            await db.flush()
+                        updates_created += 1
+                        if issue_index == highest_idx:
+                            media_target_incident_id = parent_id
+                            media_target_update_id = upd.id
+                    except IntegrityError:
+                        duplicates_skipped += 1
+                else:
+                    new_inc = Incident(
+                        group_id=group_id,
+                        property_name=group_name,
+                        reporter_name=reporter_name,
+                        reporter_phone=reporter_phone,
+                        message_body=issue["message_snippet"],
+                        category=issue["category"],
+                        priority=issue["priority"],
+                        confidence=issue["confidence"],
+                        status="review",
+                        received_at=received_at,
+                        message_id=message_id,
+                        issue_index=issue_index,
+                    )
+                    try:
+                        async with db.begin_nested():
+                            db.add(new_inc)
+                            await db.flush()
+                        tickets_created += 1
+                        open_tickets.append({
+                            "id": new_inc.id, "category": new_inc.category, "message_body": new_inc.message_body,
+                        })
+                        _created_incidents.append(new_inc)
+                        if issue_index == highest_idx:
+                            media_target_incident_id = new_inc.id
+                    except IntegrityError:
+                        duplicates_skipped += 1
+
+            if tickets_created == 0 and updates_created == 0 and duplicates_skipped > 0:
+                return {"status": "duplicate", "message": "Message already processed"}
+
+            incident_id = media_target_incident_id
+            update_id = media_target_update_id
+
+    if incident_id is None and media_url and not caption_had_survivors:
         open_tickets = await _get_open_tickets(db, group_id)
         if open_tickets:
             incident_id = open_tickets[0]["id"]
@@ -677,9 +747,9 @@ async def _handle_media_ingest(
         logger.error("DB commit failed for media ingest: %s", exc)
         return {"status": "error", "message": "Media could not be persisted"}
 
-    if _created_incident is not None:
+    for inc in _created_incidents:
         try:
-            await push_incident(_created_incident)
+            await push_incident(inc)
         except Exception as exc:
             logger.error("push_incident failed for media incident: %s", exc)
 
@@ -791,16 +861,6 @@ async def ingest(
         or (group_id.split("@")[0] if group_id else "Unmapped Property Group")
     )
     message_id: Optional[str] = data.get("id") or None
-
-    if message_id:
-        existing_inc = await db.execute(select(Incident).where(Incident.message_id == message_id))
-        if existing_inc.scalar_one_or_none():
-            return {"status": "duplicate", "message": "Message already processed"}
-        existing_upd = await db.execute(
-            select(IncidentUpdate).where(IncidentUpdate.message_id == message_id)
-        )
-        if existing_upd.scalar_one_or_none():
-            return {"status": "duplicate", "message": "Message already processed"}
 
     reporter_name = (data.get("notifyName") or "").strip() or "Unknown"
     reporter_phone = (data.get("author") or "").split("@")[0].strip() or None
@@ -969,6 +1029,25 @@ async def get_incident_detail(
         for a in audit_result.scalars().all()
     ]
 
+    sibling_tickets: list[dict] = []
+    if incident.message_id:
+        siblings_result = await db.execute(
+            select(Incident)
+            .where(Incident.message_id == incident.message_id)
+            .where(Incident.id != incident.id)
+            .order_by(Incident.issue_index.asc())
+        )
+        sibling_tickets = [
+            {
+                "id": s.id,
+                "property_name": s.property_name,
+                "category": s.category,
+                "priority": s.priority,
+                "status": s.status,
+            }
+            for s in siblings_result.scalars().all()
+        ]
+
     return {
         "id": incident.id,
         "property_name": incident.property_name,
@@ -989,6 +1068,7 @@ async def get_incident_detail(
         "media": media_rows,
         "status_history": history_rows,
         "audit_log": audit_rows,
+        "sibling_tickets": sibling_tickets,
     }
 
 

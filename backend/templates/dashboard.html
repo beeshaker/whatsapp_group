@@ -1633,11 +1633,22 @@ function renderDetailModal(detail) {
         return `<a href="${url}" target="_blank" class="media-file-row" download="${esc(m.filename)}">📄 ${esc(m.filename)}</a>`;
       }).join('')}</div>`;
 
+  const siblingsHtml = (detail.sibling_tickets && detail.sibling_tickets.length > 0)
+    ? `<div>
+        <div class="modal-section-label">Also reported in this message</div>
+        <div class="card-badges">${detail.sibling_tickets.map(s => {
+          const label = (CATEGORIES.find(c => c.slug === s.category) || {}).label || s.category;
+          return `<button class="card-badge-btn" onclick="openDetailModal(${s.id})">#${s.id} ${esc(label)} · ${esc(cap(s.priority))}</button>`;
+        }).join('')}</div>
+      </div>`
+    : '';
+
   return `
     <div>
       <div class="modal-section-label">Ticket details</div>
       ${renderTicketDetailsSection(detail)}
     </div>
+    ${siblingsHtml}
     <div>
       <div class="modal-section-label">Original report</div>
       <div class="message-box"><div class="message">${esc(detail.message_body)}</div></div>

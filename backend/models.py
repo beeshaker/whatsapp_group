@@ -7,7 +7,9 @@ from database import Base
 
 class Incident(Base):
     __tablename__ = "incidents"
-    __table_args__ = (UniqueConstraint("message_id", name="uq_incidents_message_id"),)
+    __table_args__ = (
+        UniqueConstraint("message_id", "issue_index", name="uq_incidents_message_id_issue_index"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     group_id: Mapped[str] = mapped_column(Text, nullable=False, index=True)
@@ -26,11 +28,14 @@ class Incident(Base):
     escalated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     reminder_offset_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     reminder_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    issue_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
 
 class IncidentUpdate(Base):
     __tablename__ = "incident_updates"
-    __table_args__ = (UniqueConstraint("message_id", name="uq_incident_updates_message_id"),)
+    __table_args__ = (
+        UniqueConstraint("message_id", "issue_index", name="uq_incident_updates_message_id_issue_index"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     incident_id: Mapped[int] = mapped_column(Integer, ForeignKey("incidents.id"), nullable=False, index=True)
@@ -41,6 +46,7 @@ class IncidentUpdate(Base):
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ai_linked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     relinked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    issue_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
 
 class IncidentMedia(Base):

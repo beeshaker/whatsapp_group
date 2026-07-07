@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock, patch
 
-_INCIDENT_CLASS = {"is_incident": True, "category": "plumbing", "priority": "high", "confidence": 0.92}
+async def _classify_incident(message, db):
+    return {"issues": [{"category": "plumbing", "priority": "high", "confidence": 0.92, "message_snippet": message}]}
 
 _ORIGINAL = {
     "event": "message.received",
@@ -34,7 +35,7 @@ _FOLLOWUP = {
 
 
 async def test_list_incidents_includes_counts(client):
-    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+    with patch("main.classify_message", new=_classify_incident):
         with patch("main.push_incident", new=AsyncMock()):
             await client.post("/api/v1/ops/ingest", json=_ORIGINAL, headers={"X-API-Key": "test-secret"})
     incidents = (await client.get("/incidents")).json()
@@ -45,13 +46,13 @@ async def test_list_incidents_includes_counts(client):
 
 
 async def test_list_incidents_update_count_increments(client):
-    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+    with patch("main.classify_message", new=_classify_incident):
         with patch("main.push_incident", new=AsyncMock()):
             await client.post("/api/v1/ops/ingest", json=_ORIGINAL, headers={"X-API-Key": "test-secret"})
     incident_id = (await client.get("/incidents")).json()[0]["id"]
 
     routing = {"routing": "update", "ticket_id": incident_id}
-    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+    with patch("main.classify_message", new=_classify_incident):
         with patch("main.classify_update_or_new", new=AsyncMock(return_value=routing)):
             await client.post("/api/v1/ops/ingest", json=_FOLLOWUP, headers={"X-API-Key": "test-secret"})
 
@@ -60,13 +61,13 @@ async def test_list_incidents_update_count_increments(client):
 
 
 async def test_get_incident_detail_returns_updates(client):
-    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+    with patch("main.classify_message", new=_classify_incident):
         with patch("main.push_incident", new=AsyncMock()):
             await client.post("/api/v1/ops/ingest", json=_ORIGINAL, headers={"X-API-Key": "test-secret"})
     incident_id = (await client.get("/incidents")).json()[0]["id"]
 
     routing = {"routing": "update", "ticket_id": incident_id}
-    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+    with patch("main.classify_message", new=_classify_incident):
         with patch("main.classify_update_or_new", new=AsyncMock(return_value=routing)):
             await client.post("/api/v1/ops/ingest", json=_FOLLOWUP, headers={"X-API-Key": "test-secret"})
 
@@ -91,7 +92,7 @@ from models import IncidentMedia
 
 async def test_serve_media_returns_file(client, db_session):
     # Create incident
-    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+    with patch("main.classify_message", new=_classify_incident):
         with patch("main.push_incident", new=AsyncMock()):
             await client.post("/api/v1/ops/ingest", json=_ORIGINAL, headers={"X-API-Key": "test-secret"})
     incident_id = (await client.get("/incidents")).json()[0]["id"]
@@ -148,7 +149,7 @@ async def test_relink_update_to_different_incident(client):
             "timestamp": 1782293350,
         },
     }
-    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+    with patch("main.classify_message", new=_classify_incident):
         with patch("main.push_incident", new=AsyncMock()):
             await client.post("/api/v1/ops/ingest", json=_ORIGINAL, headers={"X-API-Key": "test-secret"})
             await client.post("/api/v1/ops/ingest", json=payload_b, headers={"X-API-Key": "test-secret"})
@@ -159,7 +160,7 @@ async def test_relink_update_to_different_incident(client):
 
     # Create an update attached to inc_a
     routing = {"routing": "update", "ticket_id": inc_a_id}
-    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+    with patch("main.classify_message", new=_classify_incident):
         with patch("main.classify_update_or_new", new=AsyncMock(return_value=routing)):
             await client.post("/api/v1/ops/ingest", json=_FOLLOWUP, headers={"X-API-Key": "test-secret"})
 
@@ -202,14 +203,14 @@ async def test_relink_404_for_missing_update(client):
 
 async def test_relink_promote_update_to_standalone_incident(client):
     # Create original incident
-    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+    with patch("main.classify_message", new=_classify_incident):
         with patch("main.push_incident", new=AsyncMock()):
             await client.post("/api/v1/ops/ingest", json=_ORIGINAL, headers={"X-API-Key": "test-secret"})
     incident_id = (await client.get("/incidents")).json()[0]["id"]
 
     # Create an update on it
     routing = {"routing": "update", "ticket_id": incident_id}
-    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+    with patch("main.classify_message", new=_classify_incident):
         with patch("main.classify_update_or_new", new=AsyncMock(return_value=routing)):
             await client.post("/api/v1/ops/ingest", json=_FOLLOWUP, headers={"X-API-Key": "test-secret"})
 
@@ -238,7 +239,7 @@ async def test_relink_promote_update_to_standalone_incident(client):
 
 
 async def test_ingest_creates_status_history_entry(client):
-    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+    with patch("main.classify_message", new=_classify_incident):
         with patch("main.push_incident", new=AsyncMock()):
             await client.post("/api/v1/ops/ingest", json=_ORIGINAL, headers={"X-API-Key": "test-secret"})
     incident_id = (await client.get("/incidents")).json()[0]["id"]
@@ -250,12 +251,12 @@ async def test_ingest_creates_status_history_entry(client):
 
 
 async def test_get_detail_includes_relinked_field(client):
-    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+    with patch("main.classify_message", new=_classify_incident):
         with patch("main.push_incident", new=AsyncMock()):
             await client.post("/api/v1/ops/ingest", json=_ORIGINAL, headers={"X-API-Key": "test-secret"})
     incident_id = (await client.get("/incidents")).json()[0]["id"]
     routing = {"routing": "update", "ticket_id": incident_id}
-    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+    with patch("main.classify_message", new=_classify_incident):
         with patch("main.classify_update_or_new", new=AsyncMock(return_value=routing)):
             await client.post("/api/v1/ops/ingest", json=_FOLLOWUP, headers={"X-API-Key": "test-secret"})
     detail = (await client.get(f"/incidents/{incident_id}")).json()
@@ -264,7 +265,7 @@ async def test_get_detail_includes_relinked_field(client):
 
 
 async def test_status_change_appends_history(client):
-    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+    with patch("main.classify_message", new=_classify_incident):
         with patch("main.push_incident", new=AsyncMock()):
             await client.post("/api/v1/ops/ingest", json=_ORIGINAL, headers={"X-API-Key": "test-secret"})
     incident_id = (await client.get("/incidents")).json()[0]["id"]
@@ -283,14 +284,14 @@ async def test_status_change_appends_history(client):
 
 async def test_relink_sets_relinked_flag(client):
     # Create two incidents
-    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+    with patch("main.classify_message", new=_classify_incident):
         with patch("main.push_incident", new=AsyncMock()):
             await client.post("/api/v1/ops/ingest", json=_ORIGINAL, headers={"X-API-Key": "test-secret"})
     incident_id = (await client.get("/incidents")).json()[0]["id"]
 
     # Add an update to it
     routing = {"routing": "update", "ticket_id": incident_id}
-    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+    with patch("main.classify_message", new=_classify_incident):
         with patch("main.classify_update_or_new", new=AsyncMock(return_value=routing)):
             await client.post("/api/v1/ops/ingest", json=_FOLLOWUP, headers={"X-API-Key": "test-secret"})
 
@@ -304,7 +305,7 @@ async def test_relink_sets_relinked_flag(client):
             "body": "Different issue", "timestamp": 1782293500,
         },
     }
-    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASS)):
+    with patch("main.classify_message", new=_classify_incident):
         with patch("main.push_incident", new=AsyncMock()):
             await client.post("/api/v1/ops/ingest", json=second_payload, headers={"X-API-Key": "test-secret"})
     incidents = (await client.get("/incidents")).json()
@@ -324,3 +325,45 @@ async def test_relink_sets_relinked_flag(client):
     assert resp.json()["incident_id"] == second_id
     second_detail = (await client.get(f"/incidents/{second_id}")).json()
     assert second_detail["updates"][0]["relinked"] is True
+
+
+async def test_sibling_tickets_empty_for_non_split_ticket(client):
+    with patch("main.classify_message", new=_classify_incident):
+        with patch("main.push_incident", new=AsyncMock()):
+            await client.post("/api/v1/ops/ingest", json=_ORIGINAL, headers={"X-API-Key": "test-secret"})
+    incident_id = (await client.get("/incidents")).json()[0]["id"]
+    detail = (await client.get(f"/incidents/{incident_id}")).json()
+    assert detail["sibling_tickets"] == []
+
+
+async def test_sibling_tickets_returns_other_split_rows_in_order(client):
+    async def _classify_three_issues(message, db):
+        return {"issues": [
+            {"category": "plumbing", "priority": "high", "confidence": 0.9, "message_snippet": "pump leaking"},
+            {"category": "lift", "priority": "urgent", "confidence": 0.95, "message_snippet": "lift stuck"},
+            {"category": "security", "priority": "medium", "confidence": 0.85, "message_snippet": "broken gate"},
+        ]}
+    payload = {
+        "event": "message.received",
+        "data": {
+            "id": "msg-siblings-1", "type": "chat", "isGroup": True,
+            "chatId": "127@g.us", "chat": {"name": "Block J"},
+            "author": "254700000009@c.us", "notifyName": "Ivy",
+            "body": "1. pump leaking 2. lift stuck 3. broken gate",
+            "timestamp": 1782293340,
+        },
+    }
+    with patch("main.classify_message", new=_classify_three_issues):
+        with patch("main.push_incident", new=AsyncMock()):
+            await client.post("/api/v1/ops/ingest", json=payload, headers={"X-API-Key": "test-secret"})
+
+    incidents = (await client.get("/incidents")).json()
+    split_incidents = [i for i in incidents if i["property_name"] == "Block J"]
+    assert len(split_incidents) == 3
+    by_category = {i["category"]: i["id"] for i in split_incidents}
+
+    detail = (await client.get(f"/incidents/{by_category['plumbing']}")).json()
+    assert [s["id"] for s in detail["sibling_tickets"]] == [by_category["lift"], by_category["security"]]
+    assert detail["sibling_tickets"][0]["category"] == "lift"
+    assert detail["sibling_tickets"][1]["category"] == "security"
+    assert all(s["id"] != by_category["plumbing"] for s in detail["sibling_tickets"])

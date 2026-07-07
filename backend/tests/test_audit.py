@@ -25,7 +25,10 @@ _audit_engine = create_async_engine(
 )
 _AuditSession = async_sessionmaker(_audit_engine, expire_on_commit=False)
 
-_INCIDENT_CLASS = {"is_incident": True, "category": "plumbing", "priority": "high", "confidence": 0.92}
+_INCIDENT_CLASS = {"issues": [{
+    "category": "plumbing", "priority": "high", "confidence": 0.92,
+    "message_snippet": "Pump leaking",
+}]}
 _ORIGINAL = {
     "event": "message.received",
     "data": {
