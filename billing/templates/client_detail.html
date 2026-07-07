@@ -117,6 +117,38 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
 </div>
 
 <div class="card">
+  <h3 style="margin-top:0">Ticket-Raising Groups</h3>
+  {% if client.allowed_ticket_groups and (client.allowed_ticket_groups | fromjson) %}
+  <table>
+    <tr><th>Group ID</th><th></th></tr>
+    {% for gid in client.allowed_ticket_groups | fromjson %}
+    <tr>
+      <td>{{ gid }}</td>
+      <td>
+        <form method="post" action="/clients/{{ client.id }}/ticket-groups/remove" style="display:inline">
+          <input type="hidden" name="group_id" value="{{ gid }}">
+          <button class="action danger" type="submit">Remove</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p style="color:#666">Unrestricted &mdash; any group can raise tickets. Add a group below to opt this client into tiered limits.</p>
+  {% endif %}
+  <form method="post" action="/clients/{{ client.id }}/ticket-groups/add" style="margin-top:.75rem">
+    <input name="group_id" placeholder="120363XXXXXXXXXX@g.us" required>
+    <button class="action" type="submit">Add Group</button>
+  </form>
+  {% if client.allowed_ticket_groups is not none %}
+  <form method="post" action="/clients/{{ client.id }}/ticket-groups/reset-unrestricted" style="margin-top:.5rem"
+    onsubmit="return confirm('Reset this client to fully unrestricted? This clears the group list and tier.');">
+    <button class="action danger" type="submit">Reset to Unrestricted</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="card">
   <h3 style="margin-top:0">Payment History</h3>
   <table>
     <tr><th>Date</th><th>Phone</th><th>Amount</th><th>MPesa Receipt</th><th>Status</th><th>Period</th></tr>

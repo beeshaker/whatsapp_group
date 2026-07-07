@@ -256,3 +256,182 @@ async def test_close_command_sets_status_closed(db_session, monkeypatch):
     await db_session.refresh(client)
     assert client.status == "closed"
     stop_mock.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_upgrade_endpoint_triggers_stk_push(http, grace_client, db_session, monkeypatch):
+    # BILLING_WEBHOOK_SECRET is read into a module-level constant at import time,
+    # so monkeypatch.setenv (which only changes os.environ) has no effect on code
+    # that already captured the old value — patch the constant on `main` directly.
+    monkeypatch.setattr(main, "BILLING_WEBHOOK_SECRET", "test-secret")
+    from models import GroupTierPrice
+    from sqlalchemy import select
+    from datetime import datetime, timezone
+    from decimal import Decimal
+    tier1 = GroupTierPrice(min_groups=1, max_groups=5, amount=Decimal("500"), set_at=datetime.now(timezone.utc), set_by="admin")
+    tier2 = GroupTierPrice(min_groups=6, max_groups=10, amount=Decimal("1200"), set_at=datetime.now(timezone.utc), set_by="admin")
+    db_session.add_all([tier1, tier2])
+    await db_session.flush()
+    grace_client.allowed_ticket_groups = "[]"
+    grace_client.ticket_group_tier_id = tier1.id
+    await db_session.commit()
+
+    r = await http.post(
+        "/api/clients/acme/ticket-groups/upgrade",
+        json={"group_id": "g-new@g.us", "phone": "0712345678"},
+        headers={"X-Billing-Secret": "test-secret"},
+    )
+    assert r.status_code == 200
+    assert r.json()["status"] == "stk_sent"
+    main.initiate_stk_push.assert_called_once()
+    from models import GroupUpgradeRequest
+    reqs = (await db_session.execute(select(GroupUpgradeRequest))).scalars().all()
+    assert len(reqs) == 1
+    assert reqs[0].status == "pending"
+    assert reqs[0].checkout_request_id == "ws_CO_TEST_123"
+
+
+@pytest.mark.asyncio
+async def test_upgrade_endpoint_reuses_pending_request(http, grace_client, db_session, monkeypatch):
+    monkeypatch.setattr(main, "BILLING_WEBHOOK_SECRET", "test-secret")
+    from models import GroupTierPrice, GroupUpgradeRequest
+    from datetime import datetime, timezone
+    from decimal import Decimal
+    tier1 = GroupTierPrice(min_groups=1, max_groups=5, amount=Decimal("500"), set_at=datetime.now(timezone.utc), set_by="admin")
+    db_session.add(tier1)
+    await db_session.flush()
+    grace_client.allowed_ticket_groups = "[]"
+    grace_client.ticket_group_tier_id = tier1.id
+    existing = GroupUpgradeRequest(
+        client_id=grace_client.id, group_id="g-new@g.us", target_tier_id=tier1.id,
+        phone="0712345678", amount=Decimal("500"), checkout_request_id="ws_CO_EXISTING",
+        status="pending", created_at=datetime.now(timezone.utc),
+    )
+    db_session.add(existing)
+    await db_session.commit()
+
+    r = await http.post(
+        "/api/clients/acme/ticket-groups/upgrade",
+        json={"group_id": "g-new@g.us", "phone": "0712345678"},
+        headers={"X-Billing-Secret": "test-secret"},
+    )
+    assert r.status_code == 200
+    assert r.json()["status"] == "pending_exists"
+    main.initiate_stk_push.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_upgrade_endpoint_rejected_for_unrestricted_client(http, grace_client, db_session, monkeypatch):
+    """Regression (Finding A, re-review): the same None-vs-empty-list bug fixed
+    in the self-service add endpoint also existed here — an unrestricted client
+    (allowed_ticket_groups is None) must not be able to kick off a tier-upgrade
+    M-Pesa charge, since that would silently convert them to restricted once
+    the callback lands."""
+    monkeypatch.setattr(main, "BILLING_WEBHOOK_SECRET", "test-secret")
+    from models import GroupUpgradeRequest
+    from sqlalchemy import select
+    assert grace_client.allowed_ticket_groups is None
+
+    r = await http.post(
+        "/api/clients/acme/ticket-groups/upgrade",
+        json={"group_id": "g-new@g.us", "phone": "0712345678"},
+        headers={"X-Billing-Secret": "test-secret"},
+    )
+    assert r.status_code == 403
+    main.initiate_stk_push.assert_not_called()
+    reqs = (await db_session.execute(select(GroupUpgradeRequest))).scalars().all()
+    assert reqs == []
+    await db_session.refresh(grace_client)
+    assert grace_client.allowed_ticket_groups is None
+    assert grace_client.ticket_group_tier_id is None
+
+
+@pytest.mark.asyncio
+async def test_mpesa_callback_confirms_group_upgrade(http, grace_client, db_session, monkeypatch):
+    monkeypatch.setattr(main, "BILLING_WEBHOOK_SECRET", "test-secret")
+    from models import GroupTierPrice, GroupUpgradeRequest
+    from datetime import datetime, timezone
+    from decimal import Decimal
+    tier2 = GroupTierPrice(min_groups=6, max_groups=10, amount=Decimal("1200"), set_at=datetime.now(timezone.utc), set_by="admin")
+    db_session.add(tier2)
+    await db_session.flush()
+    grace_client.allowed_ticket_groups = "[]"
+    req = GroupUpgradeRequest(
+        client_id=grace_client.id, group_id="g-new@g.us", target_tier_id=tier2.id,
+        phone="254712345678", amount=Decimal("1200"), checkout_request_id="ws_CO_UPGRADE_1",
+        status="pending", created_at=datetime.now(timezone.utc),
+    )
+    db_session.add(req)
+    await db_session.commit()
+
+    r = await http.post("/webhook/mpesa", json={
+        "Body": {"stkCallback": {
+            "CheckoutRequestID": "ws_CO_UPGRADE_1",
+            "ResultCode": 0,
+            "CallbackMetadata": {"Item": [{"Name": "MpesaReceiptNumber", "Value": "QGH8XXXXX"}]},
+        }}
+    })
+    assert r.status_code == 200
+    await db_session.refresh(grace_client)
+    await db_session.refresh(req)
+    import json as _json
+    assert _json.loads(grace_client.allowed_ticket_groups) == ["g-new@g.us"]
+    assert grace_client.ticket_group_tier_id == tier2.id
+    assert req.status == "confirmed"
+    # Renewal state machine must be untouched
+    assert grace_client.status == "grace"
+
+
+@pytest.mark.asyncio
+async def test_mpesa_callback_marks_group_upgrade_failed(http, grace_client, db_session, monkeypatch):
+    monkeypatch.setattr(main, "BILLING_WEBHOOK_SECRET", "test-secret")
+    from models import GroupTierPrice, GroupUpgradeRequest
+    from datetime import datetime, timezone
+    from decimal import Decimal
+    tier2 = GroupTierPrice(min_groups=6, max_groups=10, amount=Decimal("1200"), set_at=datetime.now(timezone.utc), set_by="admin")
+    db_session.add(tier2)
+    await db_session.flush()
+    grace_client.allowed_ticket_groups = "[]"
+    req = GroupUpgradeRequest(
+        client_id=grace_client.id, group_id="g-new@g.us", target_tier_id=tier2.id,
+        phone="254712345678", amount=Decimal("1200"), checkout_request_id="ws_CO_UPGRADE_FAIL",
+        status="pending", created_at=datetime.now(timezone.utc),
+    )
+    db_session.add(req)
+    await db_session.commit()
+
+    r = await http.post("/webhook/mpesa", json={
+        "Body": {"stkCallback": {"CheckoutRequestID": "ws_CO_UPGRADE_FAIL", "ResultCode": 1032}}
+    })
+    assert r.status_code == 200
+    await db_session.refresh(req)
+    await db_session.refresh(grace_client)
+    assert req.status == "failed"
+    assert grace_client.allowed_ticket_groups == "[]"
+
+
+@pytest.mark.asyncio
+async def test_mpesa_callback_group_upgrade_handles_deleted_client(http, db_session, monkeypatch):
+    monkeypatch.setattr(main, "BILLING_WEBHOOK_SECRET", "test-secret")
+    from models import GroupTierPrice, GroupUpgradeRequest
+    from datetime import datetime, timezone
+    from decimal import Decimal
+    tier2 = GroupTierPrice(min_groups=6, max_groups=10, amount=Decimal("1200"), set_at=datetime.now(timezone.utc), set_by="admin")
+    db_session.add(tier2)
+    await db_session.flush()
+    req = GroupUpgradeRequest(
+        client_id=999999, group_id="g-new@g.us", target_tier_id=tier2.id,
+        phone="254712345678", amount=Decimal("1200"), checkout_request_id="ws_CO_UPGRADE_NOCLIENT",
+        status="pending", created_at=datetime.now(timezone.utc),
+    )
+    db_session.add(req)
+    await db_session.commit()
+
+    r = await http.post("/webhook/mpesa", json={
+        "Body": {"stkCallback": {
+            "CheckoutRequestID": "ws_CO_UPGRADE_NOCLIENT",
+            "ResultCode": 0,
+            "CallbackMetadata": {"Item": [{"Name": "MpesaReceiptNumber", "Value": "QGH8XXXXX"}]},
+        }}
+    })
+    assert r.status_code == 200

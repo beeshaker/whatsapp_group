@@ -54,6 +54,8 @@ class Client(Base):
     admin_whatsapp_phone: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     whatsapp_invite_link: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     backend_port: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    allowed_ticket_groups: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ticket_group_tier_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("group_tier_prices.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     def __init__(self, **kw):
@@ -96,3 +98,44 @@ class PaymentSession(Base):
     payment_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("payments.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class GroupTierPrice(Base):
+    __tablename__ = "group_tier_prices"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    min_groups: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_groups: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # None = no upper bound
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(5), nullable=False, default="KES")
+    set_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    set_by: Mapped[str] = mapped_column(Text, nullable=False)
+
+    def __init__(self, **kw):
+        if "currency" not in kw:
+            kw["currency"] = "KES"
+        super().__init__(**kw)
+
+
+class GroupUpgradeRequest(Base):
+    """Tracks an in-progress (or completed) tier-upgrade M-Pesa payment triggered
+    from the client's self-service /settings 'add group' flow. Deliberately
+    separate from PaymentSession/Payment — a tier upgrade has nothing to do
+    with renewal or the grace/billing_only state machine."""
+    __tablename__ = "group_upgrade_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    client_id: Mapped[int] = mapped_column(Integer, ForeignKey("clients.id"), nullable=False, index=True)
+    group_id: Mapped[str] = mapped_column(Text, nullable=False)
+    target_tier_id: Mapped[int] = mapped_column(Integer, ForeignKey("group_tier_prices.id"), nullable=False)
+    phone: Mapped[str] = mapped_column(Text, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    checkout_request_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(15), nullable=False, default="pending")
+    # "pending" | "confirmed" | "failed"
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    def __init__(self, **kw):
+        if "status" not in kw:
+            kw["status"] = "pending"
+        super().__init__(**kw)

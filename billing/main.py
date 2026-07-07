@@ -18,7 +18,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from auth import hash_password, verify_password, require_login
 from database import get_db, init_db, AsyncSessionLocal, engine
 from docker_manager import start_client, stop_client
-from models import AdminUser, Client, Payment, PaymentSession, PlanPrice
+from models import AdminUser, Client, GroupTierPrice, GroupUpgradeRequest, Payment, PaymentSession, PlanPrice
 from mpesa import initiate_stk_push
 from scheduler import start_scheduler
 from nginx_manager import add_client_port, remove_client_port
@@ -28,10 +28,26 @@ BILLING_WEBHOOK_SECRET = os.getenv("BILLING_WEBHOOK_SECRET", "")
 MPESA_CALLBACK_BASE_URL = os.getenv("MPESA_CALLBACK_BASE_URL", "https://whats2eat.com/billing")
 
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
+templates.env.filters["fromjson"] = json.loads
 
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "changeme")
 SECRET_KEY = os.getenv("SECRET_KEY", "billing-secret-change-in-prod")
+
+
+async def _seed_group_tier_prices():
+    """Seed the three fixed, non-overlapping group-count tiers if absent."""
+    async with AsyncSessionLocal() as db:
+        existing = (await db.execute(select(GroupTierPrice))).scalars().all()
+        if existing:
+            return
+        now = datetime.now(timezone.utc)
+        db.add_all([
+            GroupTierPrice(min_groups=1, max_groups=5, amount=Decimal("0"), set_at=now, set_by="system"),
+            GroupTierPrice(min_groups=6, max_groups=10, amount=Decimal("0"), set_at=now, set_by="system"),
+            GroupTierPrice(min_groups=11, max_groups=None, amount=Decimal("0"), set_at=now, set_by="system"),
+        ])
+        await db.commit()
 
 
 async def _seed_admin():
@@ -61,6 +77,8 @@ async def _migrate_db():
             ("clients", "data_retention_days INTEGER DEFAULT 90"),
             ("clients", "pre_expiry_14_warned BOOLEAN DEFAULT 0"),
             ("clients", "pre_expiry_2_warned BOOLEAN DEFAULT 0"),
+            ("clients", "allowed_ticket_groups TEXT"),
+            ("clients", "ticket_group_tier_id INTEGER"),
         ]
         for table, col_def in migrations:
             try:
@@ -73,6 +91,7 @@ async def _migrate_db():
 async def lifespan(app: FastAPI):
     await init_db()
     await _migrate_db()
+    await _seed_group_tier_prices()
     await _seed_admin()
     import logging as _log
     if SECRET_KEY == "billing-secret-change-in-prod":
@@ -239,6 +258,73 @@ async def update_client(
     return RedirectResponse(f"/clients/{client_id}", status_code=303)
 
 
+@app.post("/clients/{client_id}/ticket-groups/add", response_class=HTMLResponse)
+async def admin_add_ticket_group(
+    request: Request, client_id: int,
+    group_id: str = Form(...),
+    username: str = Depends(require_login),
+    db=Depends(get_db),
+):
+    client = await db.get(Client, client_id)
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+    group_id = group_id.strip()
+    if group_id:
+        groups = json.loads(client.allowed_ticket_groups) if client.allowed_ticket_groups else []
+        if client.ticket_group_tier_id is None:
+            # _get_or_seed_group_tiers (Task 2) guarantees the 3 fixed tiers exist —
+            # a fresh install may reach this admin route before anyone has opened
+            # /prices, so the lookup can't assume the rows are already there.
+            base_tier = (await _get_or_seed_group_tiers(db))[0]
+            client.ticket_group_tier_id = base_tier.id
+        if group_id not in groups:
+            groups.append(group_id)
+        client.allowed_ticket_groups = json.dumps(groups)
+        await db.commit()
+    return RedirectResponse(f"/clients/{client_id}", status_code=303)
+
+
+@app.post("/clients/{client_id}/ticket-groups/remove", response_class=HTMLResponse)
+async def admin_remove_ticket_group(
+    request: Request, client_id: int,
+    group_id: str = Form(...),
+    username: str = Depends(require_login),
+    db=Depends(get_db),
+):
+    client = await db.get(Client, client_id)
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+    if client.allowed_ticket_groups is not None:
+        groups = json.loads(client.allowed_ticket_groups)
+        groups = [g for g in groups if g != group_id.strip()]
+        client.allowed_ticket_groups = json.dumps(groups)
+        await db.commit()
+    return RedirectResponse(f"/clients/{client_id}", status_code=303)
+
+
+@app.post("/clients/{client_id}/ticket-groups/reset-unrestricted", response_class=HTMLResponse)
+async def admin_reset_ticket_groups_unrestricted(
+    request: Request, client_id: int,
+    username: str = Depends(require_login),
+    db=Depends(get_db),
+):
+    client = await db.get(Client, client_id)
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+    pending_requests = (await db.execute(
+        select(GroupUpgradeRequest).where(
+            GroupUpgradeRequest.client_id == client.id,
+            GroupUpgradeRequest.status == "pending",
+        )
+    )).scalars().all()
+    for req in pending_requests:
+        req.status = "cancelled"
+    client.allowed_ticket_groups = None
+    client.ticket_group_tier_id = None
+    await db.commit()
+    return RedirectResponse(f"/clients/{client_id}", status_code=303)
+
+
 @app.post("/clients/{client_id}/send-invite", response_class=HTMLResponse)
 async def send_invite(
     request: Request, client_id: int,
@@ -268,10 +354,59 @@ async def send_invite(
     return RedirectResponse(f"/clients/{client_id}?invited=1", status_code=303)
 
 
+async def _get_or_seed_group_tiers(db) -> list[GroupTierPrice]:
+    tiers = (await db.execute(select(GroupTierPrice).order_by(GroupTierPrice.min_groups))).scalars().all()
+    if tiers:
+        return list(tiers)
+    now = datetime.now(timezone.utc)
+    tiers = [
+        GroupTierPrice(min_groups=1, max_groups=5, amount=Decimal("0"), set_at=now, set_by="system"),
+        GroupTierPrice(min_groups=6, max_groups=10, amount=Decimal("0"), set_at=now, set_by="system"),
+        GroupTierPrice(min_groups=11, max_groups=None, amount=Decimal("0"), set_at=now, set_by="system"),
+    ]
+    db.add_all(tiers)
+    await db.commit()
+    for t in tiers:
+        await db.refresh(t)
+    return tiers
+
+
 @app.get("/prices", response_class=HTMLResponse)
 async def prices_page(request: Request, username: str = Depends(require_login), db=Depends(get_db)):
     prices = {p.plan_type: p for p in (await db.execute(select(PlanPrice))).scalars().all()}
-    return templates.TemplateResponse(request, "prices.html", {"request": request, "prices": prices, "username": username})
+    group_tiers = await _get_or_seed_group_tiers(db)
+    return templates.TemplateResponse(request, "prices.html", {
+        "request": request, "prices": prices, "group_tiers": group_tiers, "username": username,
+    })
+
+
+@app.post("/prices/group-tiers", response_class=HTMLResponse)
+async def set_group_tier_prices(
+    request: Request,
+    tier1_amount: str = Form(...),
+    tier2_amount: str = Form(...),
+    tier3_amount: str = Form(...),
+    username: str = Depends(require_login),
+    db=Depends(get_db),
+):
+    now = datetime.now(timezone.utc)
+    group_tiers = await _get_or_seed_group_tiers(db)
+    try:
+        amounts = [Decimal(tier1_amount), Decimal(tier2_amount), Decimal(tier3_amount)]
+        if any(v < 0 for v in amounts):
+            raise ValueError("Amount must be non-negative")
+    except Exception as e:
+        prices = {p.plan_type: p for p in (await db.execute(select(PlanPrice))).scalars().all()}
+        return templates.TemplateResponse(request, "prices.html", {
+            "prices": prices, "group_tiers": group_tiers, "username": username,
+            "group_tier_error": f"Invalid amount: {e}",
+        })
+    for tier, amount in zip(group_tiers, amounts):
+        tier.amount = amount
+        tier.set_at = now
+        tier.set_by = username
+    await db.commit()
+    return RedirectResponse("/prices", status_code=303)
 
 
 @app.post("/prices", response_class=HTMLResponse)
@@ -568,6 +703,33 @@ async def mpesa_callback(request: Request, db=Depends(get_db)):
         select(PaymentSession).where(PaymentSession.checkout_request_id == checkout_id)
     )
     if not session:
+        upgrade_req = await db.scalar(
+            select(GroupUpgradeRequest).where(GroupUpgradeRequest.checkout_request_id == checkout_id)
+        )
+        if not upgrade_req:
+            return {"ResultCode": 0, "ResultDesc": "Accepted"}
+        if result_code == 0:
+            # Re-check status right before applying: a billing admin may have
+            # cancelled this request in the meantime (e.g. via
+            # admin_reset_ticket_groups_unrestricted). Don't resurrect a
+            # cancelled request by overwriting it back to "confirmed".
+            if upgrade_req.status != "pending":
+                await db.commit()
+                return {"ResultCode": 0, "ResultDesc": "Accepted"}
+            client = await db.get(Client, upgrade_req.client_id)
+            if not client:
+                await db.delete(upgrade_req)
+                await db.commit()
+                return {"ResultCode": 0, "ResultDesc": "Accepted"}
+            groups = json.loads(client.allowed_ticket_groups) if client.allowed_ticket_groups else []
+            if upgrade_req.group_id not in groups:
+                groups.append(upgrade_req.group_id)
+            client.allowed_ticket_groups = json.dumps(groups)
+            client.ticket_group_tier_id = upgrade_req.target_tier_id
+            upgrade_req.status = "confirmed"
+        else:
+            upgrade_req.status = "failed"
+        await db.commit()
         return {"ResultCode": 0, "ResultDesc": "Accepted"}
 
     client = await db.get(Client, session.client_id)
@@ -897,6 +1059,150 @@ async def client_billing_status(subdomain: str, request: Request, db=Depends(get
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     return {"status": client.status}
+
+
+@app.get("/api/clients/{subdomain}/ticket-groups")
+async def client_ticket_groups(subdomain: str, request: Request, db=Depends(get_db)):
+    secret = request.headers.get("X-Billing-Secret", "")
+    if BILLING_WEBHOOK_SECRET and secret != BILLING_WEBHOOK_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    client = await db.scalar(select(Client).where(Client.subdomain == subdomain))
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    tier = await db.get(GroupTierPrice, client.ticket_group_tier_id) if client.ticket_group_tier_id else None
+    return {
+        "allowed_groups": json.loads(client.allowed_ticket_groups) if client.allowed_ticket_groups else None,
+        "tier_limit": tier.max_groups if tier else None,
+    }
+
+
+@app.post("/api/clients/{subdomain}/ticket-groups/add")
+async def client_self_service_add_ticket_group(subdomain: str, request: Request, db=Depends(get_db)):
+    secret = request.headers.get("X-Billing-Secret", "")
+    if BILLING_WEBHOOK_SECRET and secret != BILLING_WEBHOOK_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    client = await db.scalar(select(Client).where(Client.subdomain == subdomain))
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    body = await request.json()
+    group_id = (body.get("group_id") or "").strip()
+    if not group_id:
+        raise HTTPException(status_code=400, detail="group_id required")
+
+    if client.allowed_ticket_groups is None:
+        # None means the client is fully unrestricted (no cap, no billing tie-in).
+        # Self-service add is only for clients a billing admin has already opted
+        # in via admin_add_ticket_group — bootstrapping a tier here would silently
+        # convert an unrestricted client into one restricted to a single group.
+        raise HTTPException(
+            status_code=403,
+            detail="Group management is not enabled for this account. Contact support to enable it.",
+        )
+
+    groups = json.loads(client.allowed_ticket_groups)
+    if group_id in groups:
+        return {"status": "ok", "added": False}
+
+    if client.ticket_group_tier_id is None:
+        # _get_or_seed_group_tiers (Task 2) guarantees the 3 fixed tiers exist —
+        # a client may reach this self-service route before anyone has opened
+        # /prices, so the lookup can't assume the rows are already there.
+        base_tier = (await _get_or_seed_group_tiers(db))[0]
+        client.ticket_group_tier_id = base_tier.id
+
+    tier = await db.get(GroupTierPrice, client.ticket_group_tier_id)
+    limit = tier.max_groups if tier else None
+    if limit is not None and len(groups) + 1 > limit:
+        next_tier = await db.scalar(
+            select(GroupTierPrice)
+            .where(GroupTierPrice.min_groups > limit)
+            .order_by(GroupTierPrice.min_groups)
+            .limit(1)
+        )
+        await db.commit()
+        return {
+            "status": "limit_reached",
+            "next_tier_amount": str(next_tier.amount) if next_tier else None,
+            "next_tier_max": next_tier.max_groups if next_tier else None,
+        }
+
+    groups.append(group_id)
+    client.allowed_ticket_groups = json.dumps(groups)
+    await db.commit()
+    return {"status": "ok", "added": True}
+
+
+@app.post("/api/clients/{subdomain}/ticket-groups/upgrade")
+async def client_self_service_upgrade_tier(subdomain: str, request: Request, db=Depends(get_db)):
+    secret = request.headers.get("X-Billing-Secret", "")
+    if BILLING_WEBHOOK_SECRET and secret != BILLING_WEBHOOK_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    client = await db.scalar(select(Client).where(Client.subdomain == subdomain))
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    body = await request.json()
+    group_id = (body.get("group_id") or "").strip()
+    phone = _normalize_phone(body.get("phone") or "")
+    if not group_id or not phone:
+        raise HTTPException(status_code=400, detail="group_id and a valid phone are required")
+
+    if client.allowed_ticket_groups is None:
+        # None means the client is fully unrestricted (no cap, no billing tie-in).
+        # Self-service upgrade is only for clients a billing admin has already
+        # opted in via admin_add_ticket_group — starting an upgrade flow here
+        # would silently convert an unrestricted client into a restricted one
+        # once the M-Pesa callback lands.
+        raise HTTPException(
+            status_code=403,
+            detail="Group management is not enabled for this account. Contact support to enable it.",
+        )
+
+    pending = await db.scalar(
+        select(GroupUpgradeRequest).where(
+            GroupUpgradeRequest.client_id == client.id,
+            GroupUpgradeRequest.status == "pending",
+        )
+    )
+    if pending:
+        return {"status": "pending_exists", "checkout_request_id": pending.checkout_request_id}
+
+    groups = json.loads(client.allowed_ticket_groups) if client.allowed_ticket_groups else []
+    current_tier = await db.get(GroupTierPrice, client.ticket_group_tier_id) if client.ticket_group_tier_id else None
+    if current_tier and current_tier.max_groups is None:
+        raise HTTPException(status_code=400, detail="Already on the highest tier")
+    current_limit = current_tier.max_groups if current_tier else 0
+    next_tier = await db.scalar(
+        select(GroupTierPrice)
+        .where(GroupTierPrice.min_groups > current_limit)
+        .order_by(GroupTierPrice.min_groups)
+        .limit(1)
+    )
+    if not next_tier:
+        raise HTTPException(status_code=400, detail="Already on the highest tier")
+
+    upgrade_req = GroupUpgradeRequest(
+        client_id=client.id, group_id=group_id, target_tier_id=next_tier.id,
+        phone=phone, amount=next_tier.amount, created_at=datetime.now(timezone.utc),
+    )
+    db.add(upgrade_req)
+    await db.flush()
+
+    try:
+        stk = await initiate_stk_push(
+            phone=phone, amount=next_tier.amount,
+            account_ref=f"{client.subdomain}-tier-upgrade",
+            callback_url=f"{MPESA_CALLBACK_BASE_URL}/webhook/mpesa",
+        )
+    except Exception as exc:
+        import logging as _log
+        _log.getLogger(__name__).error("Tier-upgrade STK Push failed for %s: %s", client.subdomain, exc)
+        upgrade_req.status = "failed"
+        await db.commit()
+        raise HTTPException(status_code=502, detail="M-Pesa payment request failed")
+
+    upgrade_req.checkout_request_id = stk.get("CheckoutRequestID")
+    await db.commit()
+    return {"status": "stk_sent"}
 
 
 # ---------------------------------------------------------------------------

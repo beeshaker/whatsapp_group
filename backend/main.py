@@ -63,6 +63,15 @@ class GroupAssignBody(BaseModel):
     group_ids: list[str]
 
 
+class TicketGroupAddBody(BaseModel):
+    group_id: str
+
+
+class TicketGroupUpgradeBody(BaseModel):
+    group_id: str
+    phone: str
+
+
 class AdminProfileBody(BaseModel):
     whatsapp_phone: Optional[str] = None
 
@@ -143,6 +152,7 @@ except ValueError:
 DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://localhost:8000")
 
 _billing_status_cache: dict | None = None
+_ticket_groups_cache: dict | None = None
 _CACHE_TTL_SECONDS = 60
 
 SECRET_KEY = os.getenv("SECRET_KEY", "")
@@ -174,6 +184,39 @@ async def _get_client_billing_status() -> str:
         return "active"
     _billing_status_cache = {"status": status, "fetched_at": now}
     return status
+
+
+async def _get_allowed_ticket_groups() -> Optional[list[str]]:
+    """Returns the client's allowed ticket-raising group IDs, or None if unrestricted
+    (today's default) or the billing service is unreachable/unconfigured (fail open)."""
+    global _ticket_groups_cache
+    if not BILLING_SERVICE_URL or not CLIENT_SUBDOMAIN:
+        return None
+    now = datetime.now(timezone.utc)
+    if (
+        _ticket_groups_cache is not None
+        and (now - _ticket_groups_cache["fetched_at"]).total_seconds() < _CACHE_TTL_SECONDS
+    ):
+        return _ticket_groups_cache["allowed_groups"]
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as http:
+            r = await http.get(
+                f"{BILLING_SERVICE_URL}/api/clients/{CLIENT_SUBDOMAIN}/ticket-groups",
+                headers={"X-Billing-Secret": BILLING_WEBHOOK_SECRET},
+            )
+            r.raise_for_status()
+            allowed_groups = r.json().get("allowed_groups")
+    except Exception:
+        logger.warning("Ticket-groups check failed — defaulting to unrestricted")
+        return None
+    if allowed_groups is not None and not isinstance(allowed_groups, list):
+        logger.warning(
+            "Ticket-groups response had unexpected shape (%r) — defaulting to unrestricted",
+            allowed_groups,
+        )
+        return None
+    _ticket_groups_cache = {"allowed_groups": allowed_groups, "fetched_at": now}
+    return allowed_groups
 
 
 async def require_write_auth(
@@ -855,6 +898,11 @@ async def ingest(
                 except Exception as exc:
                     logger.error("Sales agent reply failed: %s", exc)
         return JSONResponse({"status": "sales_handled"}, status_code=status.HTTP_202_ACCEPTED)
+
+    allowed_groups = await _get_allowed_ticket_groups()
+    if allowed_groups is not None and group_id not in allowed_groups:
+        return {"status": "group_not_licensed"}
+
     group_name = (
         data.get("chatName")
         or (data.get("chat") or {}).get("name")
@@ -1981,6 +2029,89 @@ async def api_whatsapp_qr(_: str = Depends(require_admin)):
             return JSONResponse({"status": sr.json().get("status", "UNKNOWN")})
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+_GROUP_JID_RE = re.compile(r"[\w-]+@g\.us")
+
+
+@app.get("/api/settings/ticket-groups")
+async def settings_ticket_groups(
+    username: str = Depends(require_admin),
+):
+    allowed_groups = await _get_allowed_ticket_groups()
+    tier_limit = None
+    if BILLING_SERVICE_URL and CLIENT_SUBDOMAIN:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as http:
+                r = await http.get(
+                    f"{BILLING_SERVICE_URL}/api/clients/{CLIENT_SUBDOMAIN}/ticket-groups",
+                    headers={"X-Billing-Secret": BILLING_WEBHOOK_SECRET},
+                )
+                r.raise_for_status()
+                tier_limit = r.json().get("tier_limit")
+        except Exception:
+            logger.warning("Ticket-groups tier-limit fetch failed")
+    return {"allowed_groups": allowed_groups, "tier_limit": tier_limit}
+
+
+@app.post("/api/settings/ticket-groups/add")
+async def settings_add_ticket_group(
+    body: TicketGroupAddBody,
+    username: str = Depends(require_admin),
+):
+    group_id = body.group_id.strip()
+    if not _GROUP_JID_RE.fullmatch(group_id):
+        raise HTTPException(status_code=422, detail="group_id doesn't look like a WhatsApp group JID")
+    if not BILLING_SERVICE_URL or not CLIENT_SUBDOMAIN:
+        raise HTTPException(status_code=503, detail="Billing service not configured")
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as http:
+            r = await http.post(
+                f"{BILLING_SERVICE_URL}/api/clients/{CLIENT_SUBDOMAIN}/ticket-groups/add",
+                json={"group_id": group_id},
+                headers={"X-Billing-Secret": BILLING_WEBHOOK_SECRET},
+            )
+            r.raise_for_status()
+            global _ticket_groups_cache
+            _ticket_groups_cache = None
+            return r.json()
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.json().get("detail", "Request failed"))
+    except Exception:
+        logger.warning("Ticket-group add proxy to billing failed")
+        raise HTTPException(status_code=502, detail="Could not reach billing service")
+
+
+@app.post("/api/settings/ticket-groups/upgrade")
+async def settings_upgrade_ticket_tier(
+    body: TicketGroupUpgradeBody,
+    username: str = Depends(require_admin),
+):
+    group_id = body.group_id.strip()
+    if not _GROUP_JID_RE.fullmatch(group_id):
+        raise HTTPException(status_code=422, detail="group_id doesn't look like a WhatsApp group JID")
+    if not BILLING_SERVICE_URL or not CLIENT_SUBDOMAIN:
+        raise HTTPException(status_code=503, detail="Billing service not configured")
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as http:
+            r = await http.post(
+                f"{BILLING_SERVICE_URL}/api/clients/{CLIENT_SUBDOMAIN}/ticket-groups/upgrade",
+                json={"group_id": group_id, "phone": body.phone.strip()},
+                headers={"X-Billing-Secret": BILLING_WEBHOOK_SECRET},
+            )
+            r.raise_for_status()
+            global _ticket_groups_cache
+            _ticket_groups_cache = None
+            return r.json()
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.json().get("detail", "Request failed"))
+    except Exception:
+        logger.warning("Ticket-group upgrade proxy to billing failed")
+        raise HTTPException(status_code=502, detail="Could not reach billing service")
 
 
 # ---------------------------------------------------------------------------
