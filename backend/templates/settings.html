@@ -179,7 +179,7 @@
   <div class="section">
     <div class="section-title">Ticket-Raising Groups</div>
     <div id="ticket-groups-list" style="font-size:.875rem;color:var(--muted)">Loading&hellip;</div>
-    <div style="margin-top:1rem;display:flex;gap:.5rem;flex-wrap:wrap">
+    <div id="ticket-groups-add" style="margin-top:1rem;display:flex;gap:.5rem;flex-wrap:wrap">
       <input id="new-group-id" placeholder="120363XXXXXXXXXX@g.us"
         style="flex:1;min-width:220px;padding:.5rem .75rem;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--text)">
       <button class="btn btn-primary" onclick="addTicketGroup()">Add Group</button>
@@ -287,12 +287,15 @@ async function pollQr() {
 
 async function loadTicketGroups() {
   const el = document.getElementById('ticket-groups-list');
+  const addForm = document.getElementById('ticket-groups-add');
   try {
     const data = await fetch('/api/settings/ticket-groups').then(r => r.json());
     if (data.allowed_groups === null) {
       el.textContent = 'Unrestricted — any group can raise tickets.';
+      if (addForm) addForm.style.display = 'none';
       return;
     }
+    if (addForm) addForm.style.display = '';
     const limit = data.tier_limit != null ? ` (limit: ${data.tier_limit})` : '';
     el.innerHTML = data.allowed_groups.length
       ? `<ul style="margin:0;padding-left:1.25rem">${data.allowed_groups.map(g => `<li>${g}</li>`).join('')}</ul>${limit}`

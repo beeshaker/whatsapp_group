@@ -302,6 +302,21 @@ async def admin_remove_ticket_group(
     return RedirectResponse(f"/clients/{client_id}", status_code=303)
 
 
+@app.post("/clients/{client_id}/ticket-groups/reset-unrestricted", response_class=HTMLResponse)
+async def admin_reset_ticket_groups_unrestricted(
+    request: Request, client_id: int,
+    username: str = Depends(require_login),
+    db=Depends(get_db),
+):
+    client = await db.get(Client, client_id)
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+    client.allowed_ticket_groups = None
+    client.ticket_group_tier_id = None
+    await db.commit()
+    return RedirectResponse(f"/clients/{client_id}", status_code=303)
+
+
 @app.post("/clients/{client_id}/send-invite", response_class=HTMLResponse)
 async def send_invite(
     request: Request, client_id: int,
@@ -376,7 +391,7 @@ async def set_group_tier_prices(
         prices = {p.plan_type: p for p in (await db.execute(select(PlanPrice))).scalars().all()}
         return templates.TemplateResponse(request, "prices.html", {
             "prices": prices, "group_tiers": group_tiers, "username": username,
-            "error": f"Invalid amount: {e}",
+            "group_tier_error": f"Invalid amount: {e}",
         })
     for tier, amount in zip(group_tiers, amounts):
         tier.amount = amount
@@ -1059,7 +1074,17 @@ async def client_self_service_add_ticket_group(subdomain: str, request: Request,
     if not group_id:
         raise HTTPException(status_code=400, detail="group_id required")
 
-    groups = json.loads(client.allowed_ticket_groups) if client.allowed_ticket_groups else []
+    if client.allowed_ticket_groups is None:
+        # None means the client is fully unrestricted (no cap, no billing tie-in).
+        # Self-service add is only for clients a billing admin has already opted
+        # in via admin_add_ticket_group — bootstrapping a tier here would silently
+        # convert an unrestricted client into one restricted to a single group.
+        raise HTTPException(
+            status_code=403,
+            detail="Group management is not enabled for this account. Contact support to enable it.",
+        )
+
+    groups = json.loads(client.allowed_ticket_groups)
     if group_id in groups:
         return {"status": "ok", "added": False}
 

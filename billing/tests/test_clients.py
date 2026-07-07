@@ -344,12 +344,17 @@ async def test_self_service_add_beyond_limit_returns_limit_reached(auth_http, db
 
 @pytest.mark.asyncio
 async def test_self_service_only_bootstraps_tier_id(auth_http, db_session, monkeypatch):
+    """A client already opted in (allowed_ticket_groups non-None) but somehow
+    missing a tier assignment (e.g. legacy data) still gets one bootstrapped
+    on self-service add."""
     monkeypatch.setattr(main, "BILLING_WEBHOOK_SECRET", "test-secret")
     await auth_http.post("/clients", data={"name": "Acme", "subdomain": "acme-self4", "plan": "monthly"})
     from models import Client, GroupTierPrice
     from sqlalchemy import select
     client = await db_session.scalar(select(Client).where(Client.subdomain == "acme-self4"))
-    assert client.ticket_group_tier_id is None
+    client.allowed_ticket_groups = "[]"
+    client.ticket_group_tier_id = None
+    await db_session.commit()
 
     r = await auth_http.post(
         "/api/clients/acme-self4/ticket-groups/add",
@@ -365,3 +370,53 @@ async def test_self_service_only_bootstraps_tier_id(auth_http, db_session, monke
     assert client.ticket_group_tier_id is not None
     tier = await db_session.get(GroupTierPrice, client.ticket_group_tier_id)
     assert tier.min_groups == 1
+
+
+@pytest.mark.asyncio
+async def test_self_service_add_rejected_for_unrestricted_client(auth_http, db_session, monkeypatch):
+    """Regression (Finding 1): self-service add must not silently opt in an
+    unrestricted client. allowed_ticket_groups is None means the client has no
+    cap and no billing tie-in — self-service add is only for clients a billing
+    admin has already opted in via admin_add_ticket_group."""
+    monkeypatch.setattr(main, "BILLING_WEBHOOK_SECRET", "test-secret")
+    await auth_http.post("/clients", data={"name": "Acme", "subdomain": "acme-self5", "plan": "monthly"})
+    from models import Client
+    from sqlalchemy import select
+    client = await db_session.scalar(select(Client).where(Client.subdomain == "acme-self5"))
+    assert client.allowed_ticket_groups is None
+
+    r = await auth_http.post(
+        "/api/clients/acme-self5/ticket-groups/add",
+        json={"group_id": "g1@g.us"},
+        headers={"X-Billing-Secret": "test-secret"},
+    )
+    assert r.status_code == 403
+    await db_session.refresh(client)
+    assert client.allowed_ticket_groups is None
+    assert client.ticket_group_tier_id is None
+
+
+@pytest.mark.asyncio
+async def test_admin_reset_ticket_groups_unrestricted(auth_http, db_session):
+    """Regression (Finding 2): a billing admin can reset an opted-in client
+    back to fully unrestricted (allowed_ticket_groups and ticket_group_tier_id
+    both None), which is not achievable by removing every group (that leaves
+    an empty-list "restricted to zero groups" state instead)."""
+    await auth_http.post("/clients", data={"name": "Acme", "subdomain": "acme-reset", "plan": "monthly"})
+    from models import Client
+    from sqlalchemy import select
+    client = await db_session.scalar(select(Client).where(Client.subdomain == "acme-reset"))
+    await auth_http.post(f"/clients/{client.id}/ticket-groups/add", data={"group_id": "g1@g.us"})
+    await db_session.refresh(client)
+    assert client.allowed_ticket_groups is not None
+    assert client.ticket_group_tier_id is not None
+
+    r = await auth_http.post(f"/clients/{client.id}/ticket-groups/reset-unrestricted")
+    assert r.status_code in (200, 303)
+    await db_session.refresh(client)
+    assert client.allowed_ticket_groups is None
+    assert client.ticket_group_tier_id is None
+
+    r2 = await auth_http.get("/api/clients/acme-reset/ticket-groups")
+    assert r2.status_code == 200
+    assert r2.json() == {"allowed_groups": None, "tier_limit": None}
