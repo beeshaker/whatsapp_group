@@ -140,6 +140,12 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
     <input name="group_id" placeholder="120363XXXXXXXXXX@g.us" required>
     <button class="action" type="submit">Add Group</button>
   </form>
+  {% if client.allowed_ticket_groups is not none %}
+  <form method="post" action="/clients/{{ client.id }}/ticket-groups/reset-unrestricted" style="margin-top:.5rem"
+    onsubmit="return confirm('Reset this client to fully unrestricted? This clears the group list and tier.');">
+    <button class="action danger" type="submit">Reset to Unrestricted</button>
+  </form>
+  {% endif %}
 </div>
 
 <div class="card">
