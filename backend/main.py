@@ -1896,6 +1896,8 @@ async def settings_add_ticket_group(
                 headers={"X-Billing-Secret": BILLING_WEBHOOK_SECRET},
             )
             r.raise_for_status()
+            global _ticket_groups_cache
+            _ticket_groups_cache = None
             return r.json()
     except HTTPException:
         raise
@@ -1922,6 +1924,8 @@ async def settings_upgrade_ticket_tier(
                 headers={"X-Billing-Secret": BILLING_WEBHOOK_SECRET},
             )
             r.raise_for_status()
+            global _ticket_groups_cache
+            _ticket_groups_cache = None
             return r.json()
     except HTTPException:
         raise

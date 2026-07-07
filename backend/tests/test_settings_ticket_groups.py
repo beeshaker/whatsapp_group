@@ -241,3 +241,75 @@ async def test_settings_ticket_groups_upgrade_returns_502_when_billing_unreachab
     admin_client.app.dependency_overrides.clear()
     assert r.status_code == 502
     assert "billing" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_settings_ticket_groups_add_invalidates_cache(admin_client, monkeypatch):
+    """Verify that cache is invalidated after a successful add, so subsequent GET reflects new groups."""
+    from tests.conftest import _TestSession, _HASHED_TESTPASS
+    from models import User
+    from datetime import datetime, timezone
+
+    async with _TestSession() as session:
+        session.add(User(
+            username="settingsadmin5", hashed_password=_HASHED_TESTPASS,
+            created_at=datetime.now(timezone.utc), created_by=None, role="admin",
+        ))
+        await session.commit()
+
+    mock_billing_client = AsyncMock()
+    mock_billing_client.__aenter__ = AsyncMock(return_value=mock_billing_client)
+    mock_billing_client.__aexit__ = AsyncMock(return_value=None)
+
+    # Response for first GET (allowed groups, 2 groups)
+    get_resp_allowed_1 = MagicMock()
+    get_resp_allowed_1.status_code = 200
+    get_resp_allowed_1.json = MagicMock(return_value={"allowed_groups": ["g1@g.us", "g2@g.us"], "tier_limit": 5})
+
+    # Response for first GET (tier limit fetch)
+    get_resp_tier_1 = MagicMock()
+    get_resp_tier_1.status_code = 200
+    get_resp_tier_1.json = MagicMock(return_value={"tier_limit": 5})
+
+    # POST returns success for add
+    post_resp = MagicMock()
+    post_resp.status_code = 200
+    post_resp.json = MagicMock(return_value={"status": "ok", "added": True})
+
+    # Response for second GET (allowed groups, 3 groups - cache was invalidated, fresh data fetched)
+    get_resp_allowed_2 = MagicMock()
+    get_resp_allowed_2.status_code = 200
+    get_resp_allowed_2.json = MagicMock(return_value={"allowed_groups": ["g1@g.us", "g2@g.us", "g3@g.us"], "tier_limit": 5})
+
+    # Response for second GET (tier limit fetch)
+    get_resp_tier_2 = MagicMock()
+    get_resp_tier_2.status_code = 200
+    get_resp_tier_2.json = MagicMock(return_value={"tier_limit": 5})
+
+    # Set up mock to return different responses on successive get calls
+    # First GET call: allowed groups (2), then tier limit
+    # POST call: add new group
+    # Second GET call: allowed groups (3), then tier limit
+    mock_billing_client.get = AsyncMock(side_effect=[get_resp_allowed_1, get_resp_tier_1, get_resp_allowed_2, get_resp_tier_2])
+    mock_billing_client.post = AsyncMock(return_value=post_resp)
+
+    async with AsyncClient(transport=ASGITransport(app=admin_client.app), base_url="http://test") as c:
+        await c.post("/login", data={"username": "settingsadmin5", "password": "testpass"})
+        with patch("main.httpx.AsyncClient", return_value=mock_billing_client):
+            # First GET populates cache with 2 groups
+            r1 = await c.get("/api/settings/ticket-groups")
+            assert r1.status_code == 200
+            assert len(r1.json()["allowed_groups"]) == 2
+
+            # Add a new group (should invalidate cache)
+            r2 = await c.post("/api/settings/ticket-groups/add", json={"group_id": "120363111@g.us"})
+            assert r2.status_code == 200
+            assert r2.json() == {"status": "ok", "added": True}
+
+            # Second GET should return fresh data with 3 groups (not the cached 2)
+            r3 = await c.get("/api/settings/ticket-groups")
+            assert r3.status_code == 200
+            assert len(r3.json()["allowed_groups"]) == 3
+            assert r3.json()["allowed_groups"] == ["g1@g.us", "g2@g.us", "g3@g.us"]
+
+    admin_client.app.dependency_overrides.clear()
