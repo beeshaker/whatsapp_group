@@ -145,6 +145,44 @@ async def test_settings_ticket_groups_add_returns_502_when_billing_unreachable(a
 
 
 @pytest.mark.asyncio
+async def test_settings_ticket_groups_add_forwards_billing_4xx(admin_client):
+    """Regression (Finding 3): a 4xx from billing's add endpoint (e.g. the 403
+    for an unrestricted client, or a 404/400) must be forwarded with its real
+    status and detail, not swallowed into a misleading 502."""
+    from tests.conftest import _TestSession, _HASHED_TESTPASS
+    from models import User
+    from datetime import datetime, timezone
+
+    async with _TestSession() as session:
+        session.add(User(
+            username="settingsadmin5", hashed_password=_HASHED_TESTPASS,
+            created_at=datetime.now(timezone.utc), created_by=None, role="admin",
+        ))
+        await session.commit()
+
+    mock_billing_client = AsyncMock()
+    mock_billing_client.__aenter__ = AsyncMock(return_value=mock_billing_client)
+    mock_billing_client.__aexit__ = AsyncMock(return_value=None)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 403
+    mock_resp.json = MagicMock(return_value={
+        "detail": "Group management is not enabled for this account. Contact support to enable it.",
+    })
+    mock_resp.raise_for_status = MagicMock(
+        side_effect=httpx.HTTPStatusError("Forbidden", request=MagicMock(), response=mock_resp)
+    )
+    mock_billing_client.post = AsyncMock(return_value=mock_resp)
+
+    async with AsyncClient(transport=ASGITransport(app=admin_client.app), base_url="http://test") as c:
+        await c.post("/login", data={"username": "settingsadmin5", "password": "testpass"})
+        with patch("main.httpx.AsyncClient", return_value=mock_billing_client):
+            r = await c.post("/api/settings/ticket-groups/add", json={"group_id": "120363111@g.us"})
+    admin_client.app.dependency_overrides.clear()
+    assert r.status_code == 403
+    assert "not enabled" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
 async def test_settings_ticket_groups_upgrade_proxies_to_billing(admin_client):
     from tests.conftest import _TestSession, _HASHED_TESTPASS
     from models import User

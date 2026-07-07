@@ -1901,6 +1901,8 @@ async def settings_add_ticket_group(
             return r.json()
     except HTTPException:
         raise
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.json().get("detail", "Request failed"))
     except Exception:
         logger.warning("Ticket-group add proxy to billing failed")
         raise HTTPException(status_code=502, detail="Could not reach billing service")
