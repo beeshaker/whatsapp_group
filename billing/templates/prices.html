@@ -28,7 +28,7 @@ button{padding:.6rem 1.2rem;background:#075e54;color:white;border:none;border-ra
 </form>
 <form method="post" action="/prices/group-tiers" style="margin-top:1.5rem">
   <h2>Ticket-Raising Group Tiers (KES)</h2>
-  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  {% if group_tier_error %}<p class="error">{{ group_tier_error }}</p>{% endif %}
   <label>Tier 1 (1&ndash;5 groups)</label>
   <input name="tier1_amount" type="number" step="0.01" min="0"
     value="{{ group_tiers[0].amount if group_tiers else '' }}" required>
