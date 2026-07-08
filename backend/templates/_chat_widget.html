@@ -376,7 +376,7 @@
     showTyping();
 
     var controller = new AbortController();
-    var timeoutId = setTimeout(function () { controller.abort(); }, 30000);
+    var timeoutId = setTimeout(function () { controller.abort(); }, 90000);
 
     fetch('/api/chat', {
       method: 'POST',
