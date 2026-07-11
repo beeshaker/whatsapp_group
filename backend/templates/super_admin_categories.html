@@ -4,153 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Category Management — Ops Ticketing</title>
+  <link rel="stylesheet" href="/static/css/base.css">
   <style>
-    :root {
-      --bg: #07111f;
-      --bg-soft: #0b1728;
-      --surface: #101f34;
-      --surface-2: #132840;
-      --surface-3: #18324f;
-      --line: rgba(148, 163, 184, 0.18);
-      --text: #eef6ff;
-      --muted: #91a3b8;
-      --muted-2: #65758a;
-      --blue: #38bdf8;
-      --blue-deep: #075985;
-      --red: #ef4444;
-      --red-soft: rgba(239, 68, 68, 0.14);
-      --green: #22c55e;
-      --amber: #f59e0b;
-      --radius-xl: 22px;
-      --radius-lg: 16px;
-      --radius-md: 12px;
-      --radius-sm: 8px;
-    }
-
-    *, *::before, *::after { box-sizing: border-box; }
-    * { margin: 0; padding: 0; }
-    html, body { height: 100%; }
-
-    body {
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background:
-        radial-gradient(circle at top left, rgba(56, 189, 248, 0.16), transparent 34%),
-        radial-gradient(circle at top right, rgba(168, 85, 247, 0.14), transparent 30%),
-        var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-    }
-
-    button, input, select { font: inherit; }
-
-    /* ── Nav ── */
-    .nav {
-      position: sticky;
-      top: 0;
-      z-index: 100;
-      background: rgba(7, 17, 31, 0.88);
-      backdrop-filter: blur(14px);
-      border-bottom: 1px solid var(--line);
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-      padding: 0 1.5rem;
-      height: 52px;
-    }
-
-    .nav-brand {
-      display: flex;
-      align-items: center;
-      gap: 0.55rem;
-      text-decoration: none;
-      color: var(--text);
-      font-weight: 700;
-      font-size: 0.9375rem;
-      letter-spacing: -0.01em;
-      flex-shrink: 0;
-    }
-
-    .nav-brand-icon {
-      width: 28px;
-      height: 28px;
-      background: linear-gradient(135deg, var(--blue) 0%, #7c3aed 100%);
-      border-radius: 7px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.875rem;
-    }
-
-    .nav-links {
-      display: flex;
-      align-items: center;
-      gap: 0.25rem;
-      flex: 1;
-      justify-content: center;
-    }
-
-    .nav-link {
-      display: flex;
-      align-items: center;
-      gap: 0.35rem;
-      padding: 0.375rem 0.75rem;
-      border-radius: var(--radius-sm);
-      font-size: 0.875rem;
-      font-weight: 500;
-      color: var(--muted);
-      text-decoration: none;
-      transition: color 0.15s, background 0.15s;
-    }
-
-    .nav-link:hover { color: var(--text); background: rgba(148, 163, 184, 0.08); }
-    .nav-link.active { color: var(--blue); background: rgba(56, 189, 248, 0.1); }
-
-    .nav-right {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      flex-shrink: 0;
-    }
-
-    .user-pill {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.3rem 0.65rem;
-      background: var(--surface-2);
-      border: 1px solid var(--line);
-      border-radius: 99px;
-      font-size: 0.8125rem;
-      font-weight: 500;
-    }
-
-    .user-avatar {
-      width: 22px;
-      height: 22px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, var(--blue) 0%, #7c3aed 100%);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.65rem;
-      font-weight: 700;
-      color: #fff;
-      flex-shrink: 0;
-    }
-
-    .btn-signout {
-      padding: 0.35rem 0.875rem;
-      background: transparent;
-      border: 1px solid var(--line);
-      border-radius: var(--radius-sm);
-      color: var(--muted);
-      font-size: 0.8125rem;
-      font-weight: 500;
-      cursor: pointer;
-      transition: color 0.15s, border-color 0.15s;
-    }
-
-    .btn-signout:hover { color: var(--red); border-color: rgba(239, 68, 68, 0.4); }
+    /* Page-local styles: page shell, add-category form, category table cells,
+       protected badge, and this page's own remap-and-delete modal. Shared
+       tokens / nav / buttons / inputs / data-table come from base.css. */
 
     /* ── Page ── */
     .page {
@@ -189,35 +47,21 @@
       letter-spacing: 0.05em;
     }
 
-    .field-input {
-      padding: 0.45rem 0.75rem;
-      background: var(--surface-2);
-      border: 1px solid var(--line);
-      border-radius: var(--radius-sm);
-      color: var(--text);
-      font-size: 0.875rem;
-      outline: none;
-      transition: border-color 0.15s;
-    }
-
-    .field-input:focus { border-color: var(--blue); }
-    .field-input.error { border-color: var(--red); }
-
     .btn-add {
       padding: 0.47rem 1.1rem;
-      background: var(--blue);
+      background: var(--teal);
       border: none;
       border-radius: var(--radius-sm);
-      color: #000;
+      color: #fff;
       font-size: 0.875rem;
-      font-weight: 600;
+      font-weight: 700;
       cursor: pointer;
       transition: opacity 0.15s;
       align-self: flex-end;
       margin-top: 1.05rem;
     }
 
-    .btn-add:hover { opacity: 0.88; }
+    .btn-add:hover:not(:disabled) { opacity: 0.88; }
     .btn-add:disabled { opacity: 0.45; cursor: not-allowed; }
 
     .inline-error {
@@ -228,37 +72,10 @@
 
     /* ── Table ── */
     .table-wrap {
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: var(--radius-lg);
-      overflow: hidden;
+      /* .data-table (base.css) provides the surface/border/radius on the
+         <table> itself; this div is kept as a structural wrapper only,
+         matching the pattern used on other data-table pages. */
     }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-
-    th {
-      text-align: left;
-      font-size: 0.75rem;
-      font-weight: 600;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      padding: 0.75rem 1rem;
-      border-bottom: 1px solid var(--line);
-    }
-
-    td {
-      padding: 0.85rem 1rem;
-      font-size: 0.875rem;
-      border-bottom: 1px solid var(--line);
-      vertical-align: middle;
-    }
-
-    tr:last-child td { border-bottom: none; }
-    tr:hover td { background: rgba(148, 163, 184, 0.04); }
 
     .slug-cell { font-family: monospace; color: var(--muted); font-size: 0.8125rem; }
     .count-cell { color: var(--muted); }
@@ -266,28 +83,33 @@
     .btn-delete {
       padding: 0.3rem 0.75rem;
       background: transparent;
-      border: 1px solid rgba(239, 68, 68, 0.35);
+      border: 1px solid var(--red-soft);
       border-radius: var(--radius-sm);
       color: var(--red);
       font-size: 0.8125rem;
       cursor: pointer;
-      transition: background 0.15s, border-color 0.15s;
+      transition: background 0.15s;
     }
 
-    .btn-delete:hover { background: var(--red-soft); border-color: var(--red); }
+    .btn-delete:hover { background: var(--red-soft); }
 
+    /* Lock-icon badge shown on protected categories (cannot be deleted).
+       Domain-specific to this page — not one of base.css's ticket-status
+       .badge-* variants, so kept here. */
     .protected-badge {
       font-size: 1rem;
       cursor: default;
       opacity: 0.6;
     }
 
-    /* ── Modal ── */
+    /* ── Modal (this page's own remap-and-delete-category modal; separate
+       from dashboard.html's #detail-modal-overlay) ── */
     .modal-overlay {
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.65);
+      background: rgba(43, 38, 32, 0.45);
+      backdrop-filter: blur(3px);
       z-index: 200;
       align-items: center;
       justify-content: center;
@@ -299,6 +121,7 @@
       background: var(--surface);
       border: 1px solid var(--line);
       border-radius: var(--radius-xl);
+      box-shadow: var(--shadow);
       padding: 1.75rem;
       max-width: 420px;
       width: 90%;
@@ -318,13 +141,9 @@
     }
 
     .modal-select {
+      /* base.css styles bare <select> (background/border/radius/color); this
+         class only adds the layout it needs beyond that default. */
       width: 100%;
-      padding: 0.45rem 0.75rem;
-      background: var(--surface-2);
-      border: 1px solid var(--line);
-      border-radius: var(--radius-sm);
-      color: var(--text);
-      font-size: 0.875rem;
       margin-bottom: 1.25rem;
     }
 
@@ -366,29 +185,8 @@
 </head>
 <body>
 
-<nav class="nav">
-  <a class="nav-brand" href="/">
-    <div class="nav-brand-icon">📋</div>
-    Ops Ticketing
-  </a>
-  <div class="nav-links">
-    <a class="nav-link" href="/">📋 Live Queue</a>
-    <a class="nav-link" href="/archive">📁 Archive</a>
-    <a class="nav-link" href="/users">👥 Users</a>
-    <a class="nav-link" href="/summaries">📊 Summaries</a>
-    <a class="nav-link" href="/admin/profile">👤 Profile</a>
-    <a class="nav-link active" href="/super-admin/categories">⚙️ System Config</a>
-  </div>
-  <div class="nav-right">
-    <div class="user-pill">
-      <div class="user-avatar" id="avatar"></div>
-      <span>{{ username }}</span>
-    </div>
-    <form action="/logout" method="post" style="margin:0">
-      <button type="submit" class="btn-signout">Sign out</button>
-    </form>
-  </div>
-</nav>
+{% set active_page = 'super_admin_categories' %}
+{% include "_nav.html" %}
 
 <div class="page">
   <div class="page-title">Category Management</div>
@@ -396,19 +194,19 @@
   <div class="add-form">
     <div class="field-group">
       <label class="field-label" for="new-slug">Slug</label>
-      <input id="new-slug" class="field-input" type="text" placeholder="e.g. pest_control" maxlength="50">
+      <input id="new-slug" type="text" placeholder="e.g. pest_control" maxlength="50">
       <div class="inline-error" id="slug-error"></div>
     </div>
     <div class="field-group">
       <label class="field-label" for="new-label">Label</label>
-      <input id="new-label" class="field-input" type="text" placeholder="e.g. Pest Control" maxlength="100">
+      <input id="new-label" type="text" placeholder="e.g. Pest Control" maxlength="100">
       <div class="inline-error" id="label-error"></div>
     </div>
     <button class="btn-add" id="btn-add" onclick="addCategory()">+ Add Category</button>
   </div>
 
   <div class="table-wrap">
-    <table>
+    <table class="data-table">
       <thead>
         <tr>
           <th>Slug</th>
@@ -453,7 +251,7 @@
 
 <script>
   const username = {{ username | tojson }};
-  const el = document.getElementById('avatar');
+  const el = document.getElementById('nav-avatar');
   if (el && username) el.textContent = username.slice(0, 2).toUpperCase();
 
   let _deleteSlug = null;
