@@ -4,345 +4,184 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ title }}</title>
+  <link rel="stylesheet" href="/static/css/base.css">
   <style>
-    :root {
-      --bg: #07111f;
-      --bg-soft: #0b1728;
-      --surface: #101f34;
-      --surface-2: #132840;
-      --surface-3: #18324f;
-      --line: rgba(148, 163, 184, 0.18);
-      --text: #eef6ff;
-      --muted: #91a3b8;
-      --muted-2: #65758a;
-      --blue: #38bdf8;
-      --blue-deep: #075985;
-      --red: #ef4444;
-      --red-soft: rgba(239, 68, 68, 0.14);
-      --urgent: #e11d48;
-      --urgent-soft: rgba(225, 29, 72, 0.18);
-      --amber: #f59e0b;
-      --amber-soft: rgba(245, 158, 11, 0.14);
-      --green: #22c55e;
-      --green-soft: rgba(34, 197, 94, 0.14);
-      --purple: #a855f7;
-      --purple-soft: rgba(168, 85, 247, 0.16);
-      --shadow: 0 18px 45px rgba(0, 0, 0, 0.28);
-      --radius-xl: 22px;
-      --radius-lg: 16px;
-      --radius-md: 12px;
-      --radius-sm: 10px;
-    }
+    /* Page-local styles: app shell, toolbar + filter chips, ticket table,
+       the new-incident banner, and the incident detail modal (only this page
+       uses that modal). Shared tokens / nav / buttons / inputs / badges / table
+       chrome / toast all come from base.css. */
 
-    *, *::before, *::after { box-sizing: border-box; }
-    * { margin: 0; padding: 0; }
-
-    html, body { height: 100%; }
-
-    body {
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background:
-        radial-gradient(circle at top left, rgba(56, 189, 248, 0.16), transparent 34%),
-        radial-gradient(circle at top right, rgba(168, 85, 247, 0.14), transparent 30%),
-        var(--bg);
-      color: var(--text);
-      overflow: hidden;
-    }
-
-    button, input, textarea { font: inherit; }
-
-    /* ── Nav ── */
-    .nav {
-      position: sticky;
-      top: 0;
-      z-index: 100;
-      background: rgba(7, 17, 31, 0.88);
-      backdrop-filter: blur(14px);
-      border-bottom: 1px solid var(--line);
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-      padding: 0 1.25rem;
-      height: 52px;
-      flex-shrink: 0;
-    }
-
-    .nav-brand {
-      display: flex;
-      align-items: center;
-      gap: 0.55rem;
-      text-decoration: none;
-      color: var(--text);
-      font-weight: 700;
-      font-size: 0.9375rem;
-      letter-spacing: -0.01em;
-      flex-shrink: 0;
-    }
-
-    .nav-brand-icon {
-      width: 28px;
-      height: 28px;
-      background: linear-gradient(135deg, var(--blue) 0%, #7c3aed 100%);
-      border-radius: 7px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.875rem;
-    }
-
-    .nav-links {
-      display: flex;
-      align-items: center;
-      gap: 0.25rem;
-      flex: 1;
-      justify-content: center;
-    }
-
-    .nav-link {
-      display: flex;
-      align-items: center;
-      gap: 0.35rem;
-      padding: 0.35rem 0.7rem;
-      border-radius: 8px;
-      font-size: 0.8375rem;
-      font-weight: 500;
-      color: var(--muted);
-      text-decoration: none;
-      transition: color 0.15s, background 0.15s;
-    }
-
-    .nav-link:hover { color: var(--text); background: rgba(148, 163, 184, 0.08); }
-    .nav-link.active { color: var(--blue); background: rgba(56, 189, 248, 0.1); }
-
-    .nav-right {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      flex-shrink: 0;
-    }
-
-    .user-pill {
-      display: flex;
-      align-items: center;
-      gap: 0.45rem;
-      padding: 0.28rem 0.6rem;
-      background: var(--surface-2);
-      border: 1px solid var(--line);
-      border-radius: 99px;
-      font-size: 0.8rem;
-      font-weight: 500;
-    }
-
-    .user-avatar {
-      width: 21px;
-      height: 21px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, var(--blue) 0%, #7c3aed 100%);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.6rem;
-      font-weight: 700;
-      color: #fff;
-      flex-shrink: 0;
-    }
-
-    .btn-signout {
-      padding: 0.3rem 0.75rem;
-      background: transparent;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      color: var(--muted);
-      font-size: 0.8rem;
-      font-weight: 500;
-      cursor: pointer;
-      transition: color 0.15s, border-color 0.15s;
-    }
-
-    .btn-signout:hover { color: var(--red); border-color: rgba(239, 68, 68, 0.4); }
-
-    /* ── App shell below nav ── */
     .app-shell {
-      height: calc(100vh - 52px);
-      display: grid;
-      grid-template-rows: auto 1fr;
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 20px;
     }
 
+    /* -- New-incident banner -- */
     #new-banner {
       display: none;
-      padding: 10px 22px;
-      background: linear-gradient(90deg, rgba(14, 165, 233, 0.95), rgba(37, 99, 235, 0.95));
-      color: white;
-      border-bottom: 1px solid rgba(255,255,255,0.16);
+      margin-bottom: 16px;
+      padding: 11px 18px;
+      background: var(--teal-soft);
+      color: var(--teal-deep);
+      border: 1px solid var(--teal);
+      border-radius: var(--radius-lg);
       font-size: 13px;
-      font-weight: 800;
+      font-weight: 700;
       cursor: pointer;
+      transition: filter 0.15s;
     }
+    #new-banner:hover { filter: brightness(0.97); }
 
-    #new-banner:hover { filter: brightness(1.05); }
-
-    .body {
-      min-height: 0;
-      display: grid;
-      grid-template-columns: 292px minmax(0, 1fr);
-      gap: 18px;
-      padding: 18px;
-      transition: grid-template-columns 0.22s ease;
-    }
-
-    .body.sidebar-hidden {
-      grid-template-columns: minmax(0, 1fr);
-    }
-
-    .body.sidebar-hidden #sidebar {
-      display: none;
-    }
-
-    #sidebar {
-      min-height: 0;
-      overflow: hidden;
+    /* -- Toolbar -- */
+    .toolbar {
       display: flex;
       flex-direction: column;
       gap: 14px;
-      padding: 14px;
+      margin-bottom: 16px;
+    }
+
+    .toolbar-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .toolbar-title { font-size: 1.15rem; font-weight: 800; letter-spacing: -0.02em; }
+    .toolbar-meta { margin-top: 3px; color: var(--muted); font-size: 0.8rem; }
+
+    .toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    /* stats pills */
+    .stats-bar { display: flex; gap: 10px; flex-wrap: wrap; }
+    .stat {
+      background: var(--surface);
       border: 1px solid var(--line);
-      border-radius: var(--radius-xl);
-      background: rgba(11, 23, 40, 0.78);
-      backdrop-filter: blur(16px);
+      border-top: 3px solid var(--teal);
+      border-radius: var(--radius-lg);
+      padding: 8px 16px;
+      min-width: 84px;
       box-shadow: var(--shadow);
     }
-
-    .search-wrap {
-      position: relative;
-      flex-shrink: 0;
+    .stat.red { border-top-color: var(--red); }
+    .stat.purple { border-top-color: var(--purple); }
+    .stat .n { font-size: 1.35rem; font-weight: 800; line-height: 1; letter-spacing: -0.04em; color: var(--text); }
+    .stat .l {
+      margin-top: 5px;
+      font-size: 0.62rem;
+      color: var(--muted);
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      font-weight: 700;
     }
 
-    .search-wrap span {
+    /* legend */
+    .legend { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+    .legend-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.68rem;
+      font-weight: 700;
+    }
+
+    /* search + filter chips row */
+    .toolbar-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+    .search-wrap { position: relative; flex: 1 1 260px; max-width: 380px; }
+    .search-wrap > span {
       position: absolute;
-      left: 14px;
+      left: 12px;
       top: 50%;
       transform: translateY(-50%);
-      color: var(--muted-2);
+      color: var(--muted);
       font-size: 14px;
+      pointer-events: none;
     }
+    #search-input { width: 100%; padding-left: 34px; }
 
-    #search-input {
-      width: 100%;
-      height: 44px;
+    .toolbar-filters { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+
+    .chip-dropdown { position: relative; }
+    .chip-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0.5rem 0.85rem;
+      background: var(--surface);
       border: 1px solid var(--line);
-      border-radius: 14px;
-      background: rgba(7, 17, 31, 0.84);
+      border-radius: var(--radius-md);
       color: var(--text);
-      padding: 0 14px 0 40px;
-      outline: none;
-      transition: border 0.2s, box-shadow 0.2s;
-    }
-
-    #search-input:focus {
-      border-color: rgba(56, 189, 248, 0.75);
-      box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.12);
-    }
-
-    #search-input::placeholder { color: var(--muted-2); }
-
-    .filter-scroll {
-      min-height: 0;
-      overflow-y: auto;
-      padding-right: 2px;
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
-
-    .filter-scroll::-webkit-scrollbar,
-    .main::-webkit-scrollbar { width: 8px; }
-    .filter-scroll::-webkit-scrollbar-thumb,
-    .main::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.18); border-radius: 99px; }
-
-    .filter-group {
-      padding: 12px;
-      background: rgba(255,255,255,0.035);
-      border: 1px solid rgba(148, 163, 184, 0.12);
-      border-radius: var(--radius-lg);
-    }
-
-    .filter-group.collapsible {
-      padding: 0;
-      overflow: hidden;
-    }
-
-    .filter-header {
-      width: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 12px;
-      background: transparent;
-      border: none;
-      color: inherit;
+      font-size: 0.8rem;
+      font-weight: 600;
       cursor: pointer;
-      text-align: left;
+      transition: background 0.15s, border-color 0.15s;
     }
+    .chip-btn:hover { background: var(--surface-2); }
+    .chip-dropdown.open .chip-btn { border-color: var(--teal); background: var(--teal-soft); }
 
-    .filter-header:hover { background: rgba(56, 189, 248, 0.05); }
-
-    .filter-group h4,
-    .filter-header h4 {
-      margin-bottom: 9px;
-      color: var(--muted);
-      font-size: 11px;
-      font-weight: 900;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-    }
-
-    .filter-header h4 { margin: 0; }
-
-    .filter-header-meta {
-      display: flex;
+    .chip-count {
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      display: inline-flex;
       align-items: center;
-      gap: 8px;
+      justify-content: center;
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--muted-2);
+      font-size: 0.68rem;
+      font-weight: 800;
     }
 
-    .filter-chevron {
-      color: var(--muted);
-      font-size: 12px;
-      transition: transform 0.18s ease;
+    .chip-caret { color: var(--muted); font-size: 0.65rem; transition: transform 0.16s; }
+    .chip-dropdown.open .chip-caret { transform: rotate(180deg); }
+
+    .chip-menu {
+      display: none;
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      z-index: 20;
+      min-width: 224px;
+      max-height: 320px;
+      overflow-y: auto;
+      padding: 6px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow);
     }
-
-    .filter-content {
-      padding: 0 12px 12px;
-      border-top: 1px solid rgba(148, 163, 184, 0.08);
-    }
-
-    .filter-content > .fopt:first-child { margin-top: 10px; }
-
-    .filter-group.collapsed .filter-content { display: none; }
-    .filter-group.collapsed .filter-chevron { transform: rotate(-90deg); }
+    .chip-dropdown.open .chip-menu { display: block; }
 
     .fopt {
-      width: 100%;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      padding: 9px 10px;
-      border-radius: 12px;
-      color: #dce9f7;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      color: var(--text);
       cursor: pointer;
       user-select: none;
-      font-size: 13px;
-      transition: background 0.16s, transform 0.16s, color 0.16s;
+      font-size: 0.82rem;
     }
-
     .fopt + .fopt { margin-top: 2px; }
-    .fopt:hover { background: rgba(56, 189, 248, 0.08); }
-    .fopt.active {
-      background: linear-gradient(90deg, rgba(14, 165, 233, 0.24), rgba(59, 130, 246, 0.12));
-      color: white;
-    }
-
+    .fopt:hover { background: var(--surface-2); }
+    .fopt.active { background: var(--teal-soft); color: var(--teal-deep); font-weight: 700; }
     .fopt .left {
       min-width: 0;
       display: flex;
@@ -353,513 +192,106 @@
       text-overflow: ellipsis;
     }
 
-    .dot {
-      flex: 0 0 auto;
-      width: 9px;
-      height: 9px;
-      border-radius: 50%;
-      box-shadow: 0 0 0 3px rgba(255,255,255,0.055);
-    }
+    .dot { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%; }
 
     .cnt {
-      min-width: 26px;
+      min-width: 24px;
       text-align: center;
-      padding: 3px 8px;
+      padding: 2px 8px;
       border-radius: 999px;
-      background: rgba(255,255,255,0.08);
-      color: #cbd5e1;
-      font-size: 11px;
-      font-weight: 900;
-    }
-
-    .sidebar-actions {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 8px;
-      flex-shrink: 0;
-    }
-
-    .ghost-btn {
-      border: 1px solid var(--line);
-      border-radius: 13px;
-      background: rgba(255,255,255,0.035);
-      color: var(--muted);
-      padding: 10px 12px;
-      cursor: pointer;
-      font-size: 12px;
+      background: var(--surface-2);
+      color: var(--muted-2);
+      font-size: 0.68rem;
       font-weight: 800;
     }
 
-    .ghost-btn:hover {
-      color: white;
-      border-color: rgba(56, 189, 248, 0.4);
-      background: rgba(56, 189, 248, 0.08);
+    /* -- Ticket table -- */
+    .ticket-row { cursor: pointer; }
+    .ticket-row.hidden { display: none; }
+    .ticket-row.removing { opacity: 0; transition: opacity 0.25s ease; }
+
+    .col-prio { width: 26px; }
+    .prio-dot {
+      display: inline-block;
+      width: 11px; height: 11px;
+      border-radius: 50%;
+      background: var(--muted);
+      box-shadow: 0 0 0 3px var(--surface-2);
     }
+    .prio-dot[data-priority="urgent"] { background: var(--urgent); }
+    .prio-dot[data-priority="high"]   { background: var(--red); }
+    .prio-dot[data-priority="medium"] { background: var(--amber); }
+    .prio-dot[data-priority="low"]    { background: var(--green); }
 
-    .main {
-      min-width: 0;
-      min-height: 0;
-      overflow-y: auto;
-      padding-right: 4px;
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
+    .col-id { color: var(--muted-2); font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
-    .toolbar {
-      position: sticky;
-      top: 0;
-      z-index: 5;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 13px 14px;
-      border: 1px solid var(--line);
-      border-radius: var(--radius-xl);
-      background: rgba(11, 23, 40, 0.86);
-      backdrop-filter: blur(16px);
-      box-shadow: 0 10px 28px rgba(0,0,0,0.2);
-    }
+    .cell-strong { font-weight: 700; color: var(--text); }
+    .cell-sub { margin-top: 2px; color: var(--muted); font-size: 0.78rem; }
 
-    .toolbar-title {
-      font-size: 15px;
-      font-weight: 900;
-      letter-spacing: -0.02em;
-    }
+    .col-cat { white-space: nowrap; color: var(--muted-2); }
+    .category-icon { margin-right: 5px; font-size: 1rem; }
 
-    .toolbar-meta {
-      margin-top: 2px;
-      color: var(--muted);
-      font-size: 12px;
-    }
-
-    .toolbar-actions {
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      gap: 9px;
-      flex-wrap: wrap;
-    }
-
-    .sidebar-toggle {
-      min-height: 34px;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 0 12px;
-      border-radius: 999px;
-      border: 1px solid rgba(56, 189, 248, 0.22);
-      background: rgba(56, 189, 248, 0.08);
-      color: #dbeafe;
-      cursor: pointer;
-      font-size: 12px;
-      font-weight: 900;
-      transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
-    }
-
-    .sidebar-toggle:hover {
-      transform: translateY(-1px);
-      background: rgba(56, 189, 248, 0.14);
-      border-color: rgba(56, 189, 248, 0.42);
-    }
-
-    .sidebar-toggle .toggle-icon { font-size: 14px; line-height: 1; }
-
-    .legend {
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 7px;
-      justify-content: flex-end;
-    }
-
-    .legend-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      padding: 7px 10px;
-      border-radius: 999px;
-      background: rgba(255,255,255,0.045);
-      border: 1px solid rgba(148, 163, 184, 0.12);
-      color: var(--muted);
-      font-size: 11px;
-      font-weight: 800;
-    }
-
-    /* ── Stats bar ── */
-    .stats-bar {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .stat {
-      position: relative;
-      overflow: hidden;
-      background: linear-gradient(180deg, rgba(255,255,255,0.065), rgba(255,255,255,0.025));
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 10px 14px;
-      min-width: 100px;
-      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14);
-    }
-
-    .stat::after {
-      content: "";
-      position: absolute;
-      inset: auto 10px 0 10px;
-      height: 3px;
-      border-radius: 99px 99px 0 0;
-      background: var(--blue);
-      opacity: 0.86;
-    }
-
-    .stat.red::after { background: var(--red); }
-    .stat.purple::after { background: var(--purple); }
-    .stat.green::after { background: var(--green); }
-
-    .stat .n {
-      font-size: 22px;
-      font-weight: 900;
-      line-height: 1;
-      letter-spacing: -0.06em;
-    }
-
-    .stat .l {
-      margin-top: 5px;
-      font-size: 10px;
-      color: var(--muted);
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      font-weight: 800;
-    }
-
-    #card-list {
-      display: grid;
-      gap: 12px;
-    }
-
-    .empty {
-      min-height: 300px;
-      display: grid;
-      place-items: center;
-      text-align: center;
-      border: 1px dashed rgba(148, 163, 184, 0.2);
-      border-radius: var(--radius-xl);
-      background: rgba(11, 23, 40, 0.55);
-      color: var(--muted);
-      padding: 28px;
-    }
-
-    .empty strong {
-      display: block;
-      color: var(--text);
-      font-size: 18px;
-      margin-bottom: 6px;
-    }
-
-    .card {
-      position: relative;
-      overflow: hidden;
-      border: 1px solid rgba(148, 163, 184, 0.14);
-      border-radius: var(--radius-xl);
-      background:
-        linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.025)),
-        rgba(16, 31, 52, 0.86);
-      box-shadow: 0 10px 28px rgba(0,0,0,0.18);
-      transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
-    }
-
-    .card::before {
-      content: "";
-      position: absolute;
-      left: 0; top: 0; bottom: 0;
-      width: 5px;
-      background: var(--muted-2);
-    }
-
-    .card:hover {
-      transform: translateY(-1px);
-      border-color: rgba(56, 189, 248, 0.32);
-      background:
-        linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.03)),
-        rgba(16, 31, 52, 0.92);
-    }
-
-    .card[data-priority="urgent"]::before { background: var(--urgent); }
-    .card[data-priority="high"]::before { background: var(--red); }
-    .card[data-priority="medium"]::before { background: var(--amber); }
-    .card[data-priority="low"]::before { background: var(--green); }
-    .card.hidden { display: none; }
-
-    .card-head {
-      display: grid;
-      grid-template-columns: auto minmax(0, 1fr) auto;
-      align-items: center;
-      gap: 13px;
-      padding: 16px 18px 15px 20px;
-      cursor: pointer;
-    }
-
-    .category-icon {
-      width: 44px;
-      height: 44px;
-      border-radius: 15px;
-      display: grid;
-      place-items: center;
-      background: rgba(56, 189, 248, 0.1);
-      border: 1px solid rgba(56, 189, 248, 0.16);
-      font-size: 20px;
-    }
-
-    .info { min-width: 0; }
-
-    .title-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-width: 0;
-    }
-
-    .title {
-      min-width: 0;
-      font-size: 15px;
-      font-weight: 900;
-      letter-spacing: -0.025em;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .meta {
-      margin-top: 5px;
-      color: var(--muted);
-      font-size: 12px;
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 7px;
-    }
-
-    .meta-dot {
-      width: 3px; height: 3px;
-      border-radius: 99px;
-      background: rgba(148, 163, 184, 0.5);
-    }
-
-    .message-preview {
-      margin-top: 7px;
-      max-width: 980px;
-      color: #b8c7d8;
-      font-size: 12px;
-      line-height: 1.45;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .card-right {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .chevron {
-      width: 28px; height: 28px;
-      display: grid;
-      place-items: center;
-      border-radius: 10px;
-      color: var(--muted);
-      background: rgba(255,255,255,0.045);
-      transition: transform 0.18s ease;
-      font-size: 12px;
-    }
-
-    .card.open .chevron { transform: rotate(180deg); }
-
-    .card-body {
-      display: none;
-      padding: 0 18px 18px 77px;
-    }
-
-    .card.open .card-body { display: block; }
-
-    .details-panel {
-      border-top: 1px solid rgba(148, 163, 184, 0.14);
-      padding-top: 16px;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 250px;
-      gap: 14px;
-    }
-
-    .message-box {
-      border-radius: var(--radius-lg);
-      background: rgba(7, 17, 31, 0.68);
-      border: 1px solid rgba(148, 163, 184, 0.12);
-      padding: 14px;
-    }
-
-    .group-label {
-      color: var(--muted);
-      font-size: 11px;
-      font-weight: 900;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      margin-bottom: 8px;
-    }
-
-    .message {
-      color: #dbeafe;
-      line-height: 1.65;
-      font-size: 13px;
-      white-space: pre-wrap;
-    }
-
-    .side-details {
-      display: grid;
-      gap: 10px;
-      align-content: start;
-    }
-
-    .detail-card {
-      border: 1px solid rgba(148, 163, 184, 0.12);
-      border-radius: 14px;
-      background: rgba(255,255,255,0.035);
-      padding: 12px;
-    }
-
-    .detail-card .label {
-      color: var(--muted);
-      font-size: 10px;
-      font-weight: 900;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-    }
-
-    .detail-card .value {
-      margin-top: 4px;
-      color: white;
-      font-size: 13px;
-      font-weight: 800;
-      word-break: break-word;
-    }
-
-    .actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 14px;
-    }
-
-    .act-btn {
-      min-height: 36px;
-      padding: 0 13px;
-      border: none;
-      border-radius: 12px;
-      color: white;
-      cursor: pointer;
-      font-size: 12px;
-      font-weight: 900;
-      transition: transform 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
-    }
-
-    .act-btn:hover { transform: translateY(-1px); filter: brightness(1.06); }
-    .act-btn:disabled { opacity: 0.46; cursor: default; transform: none; }
-    .btn-ack { background: linear-gradient(135deg, #059669, #047857); }
-    .btn-resolve { background: linear-gradient(135deg, #334155, #1f2937); }
-    .btn-ignore { background: rgba(255,255,255,0.08); color: #cbd5e1; }
-    .btn-review { background: linear-gradient(135deg, #9333ea, #6d28d9); }
-    .btn-reply { background: linear-gradient(135deg, #0ea5e9, #0284c7); color: white; }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 26px;
-      padding: 0 10px;
-      border-radius: 999px;
-      font-size: 10px;
-      font-weight: 950;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      white-space: nowrap;
-      border: 1px solid rgba(255,255,255,0.08);
-    }
-
-    .badge-urgent { background: var(--urgent-soft); color: #fecdd3; }
-    .badge-high { background: var(--red-soft); color: #fecaca; }
-    .badge-medium { background: var(--amber-soft); color: #fde68a; }
-    .badge-low { background: var(--green-soft); color: #bbf7d0; }
-    .badge-new { background: rgba(14, 165, 233, 0.16); color: #bae6fd; }
-    .badge-review { background: var(--purple-soft); color: #e9d5ff; }
-    .badge-acknowledged { background: rgba(20, 184, 166, 0.16); color: #99f6e4; }
-    .badge-resolved { background: rgba(148, 163, 184, 0.14); color: #cbd5e1; }
-    .badge-ignored { background: rgba(75, 85, 99, 0.16); color: #9ca3af; }
-
-    .toast {
-      position: fixed;
-      right: 18px; bottom: 18px;
-      z-index: 30;
-      display: none;
-      max-width: 360px;
-      padding: 12px 14px;
-      border-radius: 14px;
-      color: white;
-      background: rgba(15, 23, 42, 0.94);
-      border: 1px solid rgba(148, 163, 184, 0.22);
-      box-shadow: var(--shadow);
-      font-size: 13px;
-      font-weight: 800;
-    }
-
-    .toast.show { display: block; animation: slideUp 0.2s ease; }
-
-    @keyframes slideUp {
-      from { transform: translateY(10px); opacity: 0; }
-      to { transform: translateY(0); opacity: 1; }
-    }
-
-    .card-badges {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 8px;
-    }
-
-    .card-badge-btn {
+    .col-activity { white-space: nowrap; }
+    .activity-chip {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      padding: 3px 10px;
-      border-radius: 999px;
-      border: 1px solid rgba(56, 189, 248, 0.3);
-      background: rgba(56, 189, 248, 0.08);
-      color: #7dd3fc;
-      font-size: 11px;
-      font-weight: 800;
+      margin-right: 6px;
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-weight: 700;
+    }
+    .activity-none { color: var(--muted-2); }
+
+    .col-age { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+    .col-actions { white-space: nowrap; text-align: right; }
+    .row-actions { display: inline-flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+    .row-act {
+      padding: 4px 9px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 0.72rem;
+      font-weight: 700;
       cursor: pointer;
-      transition: background 0.15s, border-color 0.15s;
+      transition: background 0.14s, border-color 0.14s, color 0.14s;
     }
+    .row-act:hover:not(:disabled) { background: var(--surface-2); }
+    .row-act:disabled { opacity: 0.5; cursor: default; }
+    .row-act.btn-ack:hover:not(:disabled)     { background: var(--cyan-soft); border-color: var(--cyan); color: var(--cyan); }
+    .row-act.btn-resolve:hover:not(:disabled) { background: var(--green-soft); border-color: var(--green); color: var(--green); }
+    .row-act.btn-ignore:hover:not(:disabled)  { background: var(--surface-2); border-color: var(--muted); color: var(--muted-2); }
+    .row-act.btn-review:hover:not(:disabled)  { background: var(--purple-soft); border-color: var(--purple); color: var(--purple); }
 
-    .card-badge-btn:hover {
-      background: rgba(56, 189, 248, 0.16);
-      border-color: rgba(56, 189, 248, 0.55);
+    /* -- Empty states -- */
+    .empty {
+      min-height: 240px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      border: 1px dashed var(--line);
+      border-radius: var(--radius-xl);
+      background: var(--surface);
+      color: var(--muted);
+      padding: 28px;
+      margin-top: 14px;
     }
+    .empty strong { display: block; color: var(--text); font-size: 1.05rem; margin-bottom: 6px; }
 
-    /* ── Modal ── */
+    /* -- Detail modal -- */
     .modal-overlay {
       display: none;
       position: fixed;
       inset: 0;
       z-index: 50;
-      background: rgba(0,0,0,0.6);
-      backdrop-filter: blur(4px);
+      background: rgba(43, 38, 32, 0.45);
+      backdrop-filter: blur(3px);
       align-items: center;
       justify-content: center;
       padding: 20px;
     }
-
     .modal-overlay.open { display: flex; }
 
     .modal {
@@ -882,8 +314,7 @@
       border-bottom: 1px solid var(--line);
       flex-shrink: 0;
     }
-
-    .modal-header h2 { font-size: 16px; font-weight: 900; }
+    .modal-header h2 { font-size: 1rem; font-weight: 800; }
 
     .modal-close {
       width: 32px; height: 32px;
@@ -896,8 +327,7 @@
       display: grid;
       place-items: center;
     }
-
-    .modal-close:hover { background: rgba(255,255,255,0.06); color: white; }
+    .modal-close:hover { background: var(--surface-2); color: var(--text); }
 
     .modal-body {
       flex: 1;
@@ -912,67 +342,54 @@
       flex-shrink: 0;
       border-top: 1px solid var(--line);
       padding: 12px 22px 14px;
-      background: var(--bg-soft);
+      background: var(--surface-2);
     }
 
     .modal-section-label {
-      font-size: 11px;
-      font-weight: 900;
-      letter-spacing: 0.1em;
+      font-size: 0.68rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
       color: var(--muted);
       margin-bottom: 8px;
     }
 
-    .ticket-details-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      align-items: end;
-    }
-    .ticket-details-grid label {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      font-size: 12px;
-      color: var(--muted);
-    }
-    .ticket-details-grid select,
-    .ticket-details-grid input[type="date"] {
-      background: var(--surface-2);
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      color: var(--text);
-      padding: 8px 10px;
-      font-size: 13px;
-    }
-    .ticket-details-readonly {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      font-size: 13px;
-    }
+    /* ticket-detail editor (generated in JS) */
+    .ticket-details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
+    .ticket-details-grid label { display: flex; flex-direction: column; gap: 6px; font-size: 0.75rem; color: var(--muted); }
+    .ticket-details-readonly { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.82rem; }
     .ticket-details-readonly .label {
       color: var(--muted);
-      font-size: 11px;
+      font-size: 0.68rem;
       text-transform: uppercase;
       letter-spacing: 0.06em;
       display: block;
+      margin-bottom: 2px;
     }
-    .btn-escalate { background: linear-gradient(135deg, #dc2626, #991b1b); }
-    .btn-unescalate { background: linear-gradient(135deg, #334155, #1f2937); }
+
+    .act-btn {
+      min-height: 36px;
+      padding: 0 14px;
+      border: 1px solid transparent;
+      border-radius: var(--radius-md);
+      color: #fff;
+      cursor: pointer;
+      font-size: 0.8rem;
+      font-weight: 700;
+      transition: filter 0.15s;
+    }
+    .act-btn:hover { filter: brightness(0.96); }
+    .act-btn:disabled { opacity: 0.5; cursor: default; filter: none; }
+    .btn-escalate { background: var(--red); }
+    .btn-unescalate { background: var(--muted-2); }
+
+    .message-box { border-radius: var(--radius-lg); background: var(--surface-2); border: 1px solid var(--line); padding: 14px; }
+    .message { color: var(--text); line-height: 1.6; font-size: 0.85rem; white-space: pre-wrap; }
 
     .update-thread { display: flex; flex-direction: column; gap: 10px; }
-
-    .update-row {
-      background: var(--surface-2);
-      border: 1px solid var(--line);
-      border-radius: var(--radius-md);
-      padding: 12px 14px;
-    }
-
+    .update-row { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-md); padding: 12px 14px; }
     .update-meta {
-      font-size: 12px;
+      font-size: 0.75rem;
       color: var(--muted);
       margin-bottom: 6px;
       display: flex;
@@ -980,172 +397,45 @@
       justify-content: space-between;
       gap: 8px;
     }
-
-    .update-body { font-size: 13px; line-height: 1.55; color: var(--text); }
+    .update-body { font-size: 0.82rem; line-height: 1.55; color: var(--text); }
 
     .relink-wrap { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
-
-    .relink-select {
-      flex: 1;
-      padding: 5px 8px;
-      border-radius: 8px;
-      border: 1px solid var(--line);
-      background: var(--surface-3);
-      color: var(--text);
-      font-size: 12px;
-    }
-
+    .relink-select { flex: 1; padding: 5px 8px; font-size: 0.75rem; }
     .relink-btn {
-      padding: 5px 12px;
-      border-radius: 8px;
-      border: 1px solid rgba(56, 189, 248, 0.3);
-      background: rgba(56, 189, 248, 0.08);
-      color: #7dd3fc;
-      font-size: 12px;
-      font-weight: 800;
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--teal);
+      background: var(--teal-soft);
+      color: var(--teal-deep);
+      font-size: 0.75rem;
+      font-weight: 700;
       cursor: pointer;
     }
-
-    .relink-btn:hover { background: rgba(56, 189, 248, 0.18); }
-
-    .media-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-      gap: 8px;
-    }
-
-    .media-thumb {
-      aspect-ratio: 1;
-      border-radius: var(--radius-sm);
-      overflow: hidden;
-      border: 1px solid var(--line);
-      background: var(--surface-2);
-    }
-
-    .media-thumb img {
-      width: 100%; height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-
-    .media-file-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 10px;
-      background: var(--surface-2);
-      border: 1px solid var(--line);
-      border-radius: var(--radius-sm);
-      font-size: 12px;
-      color: var(--muted);
-      text-decoration: none;
-    }
-
-    .media-file-row:hover { color: var(--text); border-color: rgba(56,189,248,0.3); }
-
-    .card.removing {
-      transition: opacity 0.25s ease, max-height 0.3s ease, margin-bottom 0.3s ease;
-      opacity: 0;
-      max-height: 0 !important;
-      overflow: hidden;
-      margin-bottom: 0;
-    }
-
-    .reply-wrap {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .reply-top-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .reply-who {
-      font-size: 12px;
-      color: var(--muted);
-      flex-shrink: 0;
-    }
-
-    .reply-who strong { color: var(--blue); }
-
-    .reply-textarea {
-      width: 100%;
-      padding: 10px 12px;
-      border-radius: var(--radius-md);
-      border: 1px solid var(--line);
-      background: var(--surface-2);
-      color: var(--text);
-      font: inherit;
-      font-size: 13px;
-      resize: vertical;
-      min-height: 72px;
-    }
-
-    .reply-textarea:focus {
-      outline: none;
-      border-color: rgba(56, 189, 248, 0.4);
-    }
-
-    .reply-send-btn {
-      align-self: flex-end;
-      padding: 7px 16px;
-      border-radius: var(--radius-sm);
-      border: none;
-      background: linear-gradient(135deg, #0ea5e9, #0284c7);
-      color: white;
-      font-size: 13px;
-      font-weight: 800;
-      cursor: pointer;
-      transition: filter 0.15s ease, opacity 0.15s ease;
-    }
-
-    .reply-send-btn:hover { filter: brightness(1.08); }
-    .reply-send-btn:disabled { opacity: 0.45; cursor: default; filter: none; }
-
-    .update-row-outbound {
-      background: rgba(7, 89, 133, 0.22);
-      border-color: rgba(56, 189, 248, 0.2);
-    }
-
-    .update-row-moved { border-color: rgba(245,158,11,0.22); }
+    .relink-btn:hover { background: var(--teal); color: #fff; }
 
     .update-badge {
       display: inline-flex;
       align-items: center;
       padding: 1px 8px;
       border-radius: 999px;
-      font-size: 10px;
-      font-weight: 900;
-      letter-spacing: .04em;
+      font-size: 0.62rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
     }
-
-    .update-badge-sent { background: rgba(14,165,233,0.12); color: #7dd3fc; }
-    .update-badge-moved { background: rgba(245,158,11,0.12); color: #fde68a; }
+    .update-badge-sent { background: var(--blue-soft); color: var(--blue); }
+    .update-badge-moved { background: var(--amber-soft); color: var(--amber); }
+    .update-row-outbound { background: var(--blue-soft); border-color: var(--blue); }
+    .update-row-moved { border-color: var(--amber); }
 
     .status-history-list { display: flex; flex-direction: column; gap: 8px; }
+    .status-history-row { display: flex; align-items: center; gap: 10px; font-size: 0.75rem; color: var(--muted); }
+    .sh-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .sh-dot-new { background: var(--blue); }
+    .sh-dot-review { background: var(--purple); }
+    .sh-dot-acknowledged { background: var(--cyan); }
+    .sh-dot-resolved { background: var(--green); }
+    .sh-dot-ignored { background: var(--muted-2); }
 
-    .status-history-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 12px;
-      color: var(--muted);
-    }
-
-    .sh-dot {
-      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
-    }
-
-    .sh-dot-new       { background: #38bdf8; }
-    .sh-dot-review    { background: #a855f7; }
-    .sh-dot-acknowledged { background: #14b8a6; }
-    .sh-dot-resolved  { background: #64748b; }
-    .sh-dot-ignored   { background: #374151; }
-
-    /* ── Audit log ── */
     .audit-row {
       display: grid;
       grid-template-columns: 90px 110px minmax(0,1fr) 60px;
@@ -1154,253 +444,228 @@
       background: var(--surface-2);
       border: 1px solid var(--line);
       border-radius: var(--radius-sm);
-      font-size: 12px;
+      font-size: 0.75rem;
     }
-
     .audit-row + .audit-row { margin-top: 6px; }
-
-    .audit-who { font-weight: 700; color: var(--blue); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .audit-who { font-weight: 700; color: var(--teal-deep); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .audit-action { color: var(--muted); white-space: nowrap; }
     .audit-detail { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .audit-time { color: var(--muted-2); text-align: right; white-space: nowrap; }
 
-    @media (max-width: 980px) {
-      body { overflow: auto; }
-      .app-shell { min-height: calc(100vh - 52px); height: auto; }
-      .body { grid-template-columns: 1fr; overflow: visible; }
-      #sidebar { max-height: none; }
-      .filter-scroll { max-height: none; overflow: visible; }
-      .main { overflow: visible; }
-      .toolbar { position: static; align-items: flex-start; flex-direction: column; }
-      .toolbar-actions { justify-content: flex-start; }
-      .legend { justify-content: flex-start; }
-      .details-panel { grid-template-columns: 1fr; }
-      .card-body { padding-left: 20px; }
+    .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+    .media-thumb {
+      aspect-ratio: 1;
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: var(--surface-2);
     }
+    .media-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .media-file-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-decoration: none;
+    }
+    .media-file-row:hover { color: var(--text); border-color: var(--teal); }
 
-    @media (max-width: 620px) {
-      .nav { padding: 0 0.75rem; }
-      .nav-links { display: none; }
-      .body { padding: 12px; gap: 12px; }
-      .brand { min-width: 0; }
-      .card-head { grid-template-columns: minmax(0, 1fr); }
-      .category-icon { display: none; }
-      .card-right { align-items: flex-start; flex-wrap: wrap; }
-      .message-preview { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    /* sibling-ticket chips inside the modal */
+    .card-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+    .card-badge-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--teal);
+      background: var(--teal-soft);
+      color: var(--teal-deep);
+      font-size: 0.72rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .card-badge-btn:hover { background: var(--teal); color: #fff; }
+
+    /* reply bar */
+    .reply-wrap { display: flex; flex-direction: column; gap: 8px; }
+    .reply-top-row { display: flex; align-items: center; gap: 8px; }
+    .reply-who { font-size: 0.75rem; color: var(--muted); flex-shrink: 0; }
+    .reply-who strong { color: var(--teal-deep); }
+    .reply-textarea { width: 100%; font-size: 0.82rem; resize: vertical; min-height: 72px; }
+    .reply-send-btn {
+      align-self: flex-end;
+      padding: 8px 18px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--teal);
+      background: var(--teal);
+      color: #fff;
+      font-size: 0.82rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .reply-send-btn:hover:not(:disabled) { background: var(--teal-deep); }
+    .reply-send-btn:disabled { opacity: 0.5; cursor: default; }
+
+    @media (max-width: 820px) {
+      .toolbar-row { align-items: flex-start; }
+      .ticket-details-grid, .ticket-details-readonly { grid-template-columns: 1fr; }
+      .col-cat, .col-activity { display: none; }
     }
   </style>
 </head>
 <body>
 
-<!-- ── Top nav ── -->
-<nav class="nav">
-  <a class="nav-brand" href="/">
-    <div class="nav-brand-icon">🎫</div>
-    Ops Ticketing
-  </a>
-  <div class="nav-links">
-    <a class="nav-link {% if mode != 'archive' %}active{% endif %}" href="/">📋 Live Queue</a>
-    <a class="nav-link {% if mode == 'archive' %}active{% endif %}" href="/archive">📁 Archive</a>
-    {% if role in ('admin', 'super_admin') %}
-    <a class="nav-link" href="/users">👥 Users</a>
-    {% endif %}
-    <a class="nav-link" href="/summaries">📊 Summaries</a>
-    <a class="nav-link" href="/admin/profile">👤 Profile</a>
-    {% if role == 'super_admin' %}
-    <a class="nav-link" href="/super-admin/categories">⚙️ System Config</a>
-    {% endif %}
-    {% if role in ('admin', 'super_admin') %}
-    <a class="nav-link" href="/settings">🔧 Settings</a>
-    {% endif %}
-    <a class="nav-link" href="/billing">💳 Billing</a>
-  </div>
-  <div class="nav-right">
-    <div class="user-pill">
-      <div class="user-avatar" id="nav-avatar"></div>
-      <span>{{ username }}</span>
-    </div>
-    <form method="post" action="/logout" style="margin:0">
-      <button class="btn-signout" type="submit">Sign out</button>
-    </form>
-  </div>
-</nav>
+{% set active_page = 'archive' if mode == 'archive' else 'live' %}
+{% include "_nav.html" %}
 
-<div class="app-shell">
+<div class="app-shell" id="dashboard-body">
   <div id="new-banner" onclick="loadNewIncidents()">
-    ▲ <span id="new-count">0</span> new incident(s) arrived — click to load
+    &#9650; <span id="new-count">0</span> new incident(s) arrived &mdash; click to load
   </div>
 
-  <div class="body" id="dashboard-body">
-    <aside id="sidebar">
-      <div class="search-wrap">
-        <span>⌕</span>
-        <input id="search-input" placeholder="Search property, reporter, message…" oninput="applyFilters()">
+  <div class="toolbar">
+    <div class="toolbar-row">
+      <div>
+        <div class="toolbar-title">{% if mode == 'archive' %}Resolved incidents{% else %}Live incident queue{% endif %}</div>
+        <div class="toolbar-meta"><span id="visible-count">0</span> visible &middot; Polling every 30 s</div>
       </div>
-
-      <div class="filter-scroll">
+      <div class="toolbar-actions">
         {% if mode != 'archive' %}
-        <div class="filter-group collapsible" data-group="status">
-          <button type="button" class="filter-header" onclick="toggleFilterGroup(this)">
-            <h4>Status</h4>
-            <div class="filter-header-meta"><span class="cnt" id="selected-status-count">0</span><span class="filter-chevron">⌄</span></div>
-          </button>
-          <div class="filter-content">
-            <div class="fopt" data-filter="status" data-val="review" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#a855f7"></span>Review</span><span class="cnt" data-cnt="review">0</span></div>
-            <div class="fopt" data-filter="status" data-val="new" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#38bdf8"></span>New</span><span class="cnt" data-cnt="new">0</span></div>
-            <div class="fopt" data-filter="status" data-val="acknowledged" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#14b8a6"></span>Acknowledged</span><span class="cnt" data-cnt="acknowledged">0</span></div>
-            <div class="fopt" data-filter="status" data-val="ignored" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#6b7280"></span>Ignored</span><span class="cnt" data-cnt="ignored">0</span></div>
+        <div class="stats-bar">
+          <div class="stat red"><div class="n" id="stat-high">0</div><div class="l">High &middot; Open</div></div>
+          <div class="stat purple"><div class="n" id="stat-review">0</div><div class="l">In Review</div></div>
+          <div class="stat"><div class="n" id="stat-total">0</div><div class="l">Total</div></div>
+        </div>
+        {% else %}
+        <div class="stats-bar">
+          <div class="stat"><div class="n" id="stat-total">0</div><div class="l">Resolved</div></div>
+        </div>
+        {% endif %}
+        <div class="legend">
+          <span class="legend-pill"><span class="dot" style="background:var(--red)"></span>High</span>
+          <span class="legend-pill"><span class="dot" style="background:var(--amber)"></span>Med</span>
+          <span class="legend-pill"><span class="dot" style="background:var(--green)"></span>Low</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="toolbar-controls">
+      <div class="search-wrap">
+        <span>&#9013;</span>
+        <input id="search-input" placeholder="Search property, reporter, message&hellip;" oninput="applyFilters()">
+      </div>
+      <div class="toolbar-filters">
+        {% if mode != 'archive' %}
+        <div class="chip-dropdown" data-group="status">
+          <button type="button" class="chip-btn" onclick="toggleFilterGroup(this)">Status <span class="cnt chip-count" id="selected-status-count">0</span><span class="chip-caret">&#8964;</span></button>
+          <div class="chip-menu">
+            <div class="fopt" data-filter="status" data-val="review" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:var(--purple)"></span>Review</span><span class="cnt" data-cnt="review">0</span></div>
+            <div class="fopt" data-filter="status" data-val="new" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:var(--blue)"></span>New</span><span class="cnt" data-cnt="new">0</span></div>
+            <div class="fopt" data-filter="status" data-val="acknowledged" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:var(--cyan)"></span>Acknowledged</span><span class="cnt" data-cnt="acknowledged">0</span></div>
+            <div class="fopt" data-filter="status" data-val="ignored" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:var(--muted-2)"></span>Ignored</span><span class="cnt" data-cnt="ignored">0</span></div>
           </div>
         </div>
         {% endif %}
 
-        <div class="filter-group collapsible" data-group="priority">
-          <button type="button" class="filter-header" onclick="toggleFilterGroup(this)">
-            <h4>Priority</h4>
-            <div class="filter-header-meta"><span class="cnt" id="selected-priority-count">0</span><span class="filter-chevron">⌄</span></div>
-          </button>
-          <div class="filter-content">
-            <div class="fopt" data-filter="priority" data-val="urgent" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#e11d48"></span>Urgent</span><span class="cnt" data-cnt-priority="urgent">0</span></div>
-            <div class="fopt" data-filter="priority" data-val="high" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#ef4444"></span>High</span><span class="cnt" data-cnt-priority="high">0</span></div>
-            <div class="fopt" data-filter="priority" data-val="medium" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#f59e0b"></span>Medium</span><span class="cnt" data-cnt-priority="medium">0</span></div>
-            <div class="fopt" data-filter="priority" data-val="low" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:#22c55e"></span>Low</span><span class="cnt" data-cnt-priority="low">0</span></div>
+        <div class="chip-dropdown" data-group="priority">
+          <button type="button" class="chip-btn" onclick="toggleFilterGroup(this)">Priority <span class="cnt chip-count" id="selected-priority-count">0</span><span class="chip-caret">&#8964;</span></button>
+          <div class="chip-menu">
+            <div class="fopt" data-filter="priority" data-val="urgent" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:var(--urgent)"></span>Urgent</span><span class="cnt" data-cnt-priority="urgent">0</span></div>
+            <div class="fopt" data-filter="priority" data-val="high" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:var(--red)"></span>High</span><span class="cnt" data-cnt-priority="high">0</span></div>
+            <div class="fopt" data-filter="priority" data-val="medium" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:var(--amber)"></span>Medium</span><span class="cnt" data-cnt-priority="medium">0</span></div>
+            <div class="fopt" data-filter="priority" data-val="low" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:var(--green)"></span>Low</span><span class="cnt" data-cnt-priority="low">0</span></div>
           </div>
         </div>
 
-        <div class="filter-group collapsible" data-group="category">
-          <button type="button" class="filter-header" onclick="toggleFilterGroup(this)">
-            <h4>Category</h4>
-            <div class="filter-header-meta"><span class="cnt" id="selected-cat-count">0</span><span class="filter-chevron">⌄</span></div>
-          </button>
-          <div class="filter-content">
-            {% set cat_icons = {'plumbing':'🔧','electrical':'⚡','lift':'🛗','security':'🔒','structural':'🏗','cleaning':'🧹','access':'🚪','other':'📋'} %}
+        <div class="chip-dropdown" data-group="category">
+          <button type="button" class="chip-btn" onclick="toggleFilterGroup(this)">Category <span class="cnt chip-count" id="selected-cat-count">0</span><span class="chip-caret">&#8964;</span></button>
+          <div class="chip-menu">
+            {% set cat_icons = {'plumbing':'&#128295;','electrical':'&#9889;','lift':'&#128727;','security':'&#128274;','structural':'&#127959;','cleaning':'&#129529;','access':'&#128682;','other':'&#128203;'} %}
             {% for cat in categories %}
-            <div class="fopt" data-filter="cat" data-val="{{ cat.slug }}" onclick="toggleFilter(this)"><span class="left">{{ cat_icons.get(cat.slug, '📋') }} {{ cat.label }}</span><span class="cnt" data-cnt-cat="{{ cat.slug }}">0</span></div>
+            <div class="fopt" data-filter="cat" data-val="{{ cat.slug }}" onclick="toggleFilter(this)"><span class="left">{{ cat_icons.get(cat.slug, '&#128203;') | safe }} {{ cat.label }}</span><span class="cnt" data-cnt-cat="{{ cat.slug }}">0</span></div>
             {% endfor %}
           </div>
         </div>
-      </div>
 
-      <div class="sidebar-actions">
-        <button type="button" class="ghost-btn" onclick="clearFilters()">Clear filters</button>
+        <button type="button" class="btn btn-ghost" onclick="clearFilters()">Clear filters</button>
       </div>
-    </aside>
-
-    <main class="main">
-      <div class="toolbar">
-        <div>
-          <div class="toolbar-title">{% if mode == 'archive' %}Resolved incidents{% else %}Live incident queue{% endif %}</div>
-          <div class="toolbar-meta"><span id="visible-count">0</span> visible · Polling every 30 s</div>
-        </div>
-        <div class="toolbar-actions">
-          {% if mode != 'archive' %}
-          <div class="stats-bar">
-            <div class="stat red"><div class="n" id="stat-high">0</div><div class="l">High · Open</div></div>
-            <div class="stat purple"><div class="n" id="stat-review">0</div><div class="l">In Review</div></div>
-            <div class="stat"><div class="n" id="stat-total">0</div><div class="l">Total</div></div>
-          </div>
-          {% else %}
-          <div class="stats-bar">
-            <div class="stat"><div class="n" id="stat-total">0</div><div class="l">Resolved</div></div>
-          </div>
-          {% endif %}
-          <button type="button" class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()">
-            <span class="toggle-icon">☰</span>
-            <span id="sidebar-toggle-text">Hide filters</span>
-          </button>
-          <div class="legend">
-            <span class="legend-pill"><span class="dot" style="background:#ef4444"></span>High</span>
-            <span class="legend-pill"><span class="dot" style="background:#f59e0b"></span>Med</span>
-            <span class="legend-pill"><span class="dot" style="background:#22c55e"></span>Low</span>
-          </div>
-        </div>
-      </div>
-
-      <section id="card-list">
-        {% if incidents_with_counts %}
-          {% for row in incidents_with_counts %}
-          {% set i = row.incident %}
-          {% set update_count = row.update_count %}
-          {% set media_count = row.media_count %}
-          <article class="card"
-               data-id="{{ i.id }}"
-               data-priority="{{ i.priority }}"
-               data-status="{{ i.status }}"
-               data-cat="{{ i.category }}"
-               data-updates="{{ update_count }}"
-               data-media="{{ media_count }}">
-            <div class="card-head" onclick="toggleCard(this.closest('.card'))">
-              <div class="category-icon" data-cat="{{ i.category }}">📋</div>
-              <div class="info">
-                <div class="title-row">
-                  <div class="title">{{ i.property_name }} — {{ i.category | capitalize }}</div>
-                </div>
-                <div class="meta">
-                  <span>{{ i.reporter_name or "Unknown reporter" }}</span>
-                  {% if i.reporter_phone %}<span class="meta-dot"></span><span>+{{ i.reporter_phone }}</span>{% endif %}
-                  <span class="meta-dot"></span><span>{{ i.received_at.strftime("%H:%M") }}</span>
-                </div>
-                <p class="message-preview">{{ i.message_body }}</p>
-                {% if update_count > 0 or media_count > 0 %}
-                <div class="card-badges">
-                  {% if update_count > 0 %}
-                  <button class="card-badge-btn" onclick="event.stopPropagation(); openDetailModal({{ i.id }})">↩ {{ update_count }} update{{ 's' if update_count != 1 else '' }}</button>
-                  {% endif %}
-                  {% if media_count > 0 %}
-                  <button class="card-badge-btn" onclick="event.stopPropagation(); openDetailModal({{ i.id }})">📎 {{ media_count }} attachment{{ 's' if media_count != 1 else '' }}</button>
-                  {% endif %}
-                </div>
-                {% endif %}
-              </div>
-              <div class="card-right">
-                <span class="badge badge-{{ i.priority }}">{{ i.priority }}</span>
-                <span class="badge badge-{{ i.status }}" id="status-badge-{{ i.id }}">{{ i.status }}</span>
-                <span class="chevron">⌄</span>
-              </div>
-            </div>
-            <div class="card-body">
-              <div class="details-panel">
-                <div>
-                  <div class="message-box">
-                    <div class="group-label">Reported message</div>
-                    <div class="message">{{ i.message_body }}</div>
-                  </div>
-                  <div class="actions" id="actions-{{ i.id }}">
-                    {% if mode == 'archive' %}
-                    <button class="act-btn btn-review" onclick="setStatus({{ i.id }}, 'review', event)">↩ Reopen</button>
-                    {% else %}
-                    <button class="act-btn btn-ack" onclick="setStatus({{ i.id }}, 'acknowledged', event)">✓ Acknowledge</button>
-                    <button class="act-btn btn-resolve" onclick="setStatus({{ i.id }}, 'resolved', event)">✓ Resolve</button>
-                    <button class="act-btn btn-ignore" onclick="setStatus({{ i.id }}, 'ignored', event)">✗ Ignore</button>
-                    <button class="act-btn btn-review" onclick="setStatus({{ i.id }}, 'review', event)">⟳ Review</button>
-                    {% endif %}
-                    <button class="act-btn btn-reply" onclick="event.stopPropagation(); openDetailModal({{ i.id }})">↩ View / Reply</button>
-                  </div>
-                </div>
-                <div class="side-details">
-                  <div class="detail-card">
-                    <div class="label">Property group</div>
-                    <div class="value">{{ i.property_name }}</div>
-                  </div>
-                  <div class="detail-card">
-                    <div class="label">Reporter</div>
-                    <div class="value">{{ i.reporter_name or "Unknown" }}{% if i.reporter_phone %}<br>+{{ i.reporter_phone }}{% endif %}</div>
-                  </div>
-                  <div class="detail-card">
-                    <div class="label">Incident ID</div>
-                    <div class="value">#{{ i.id }}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </article>
-          {% endfor %}
-        {% else %}
-          <div class="empty" id="empty-state"><div><strong>No incidents yet</strong>Waiting for property group messages.</div></div>
-        {% endif %}
-        <div class="empty" id="no-results" style="display:none;"><div><strong>No matching incidents</strong>Try clearing filters.</div></div>
-      </section>
-    </main>
+    </div>
   </div>
+
+  <table class="data-table" id="ticket-table">
+    <thead>
+      <tr>
+        <th class="col-prio" aria-label="Priority"></th>
+        <th>ID</th>
+        <th>Reporter / Property</th>
+        <th>Category</th>
+        <th>Status</th>
+        <th>Activity</th>
+        <th>Age</th>
+        <th class="col-actions">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="ticket-table-body">
+      {% if incidents_with_counts %}
+        {% for row in incidents_with_counts %}
+        {% set i = row.incident %}
+        {% set update_count = row.update_count %}
+        {% set media_count = row.media_count %}
+        <tr class="ticket-row"
+            data-id="{{ i.id }}"
+            data-priority="{{ i.priority }}"
+            data-status="{{ i.status }}"
+            data-cat="{{ i.category }}"
+            data-updates="{{ update_count }}"
+            data-media="{{ media_count }}"
+            data-search="{{ (i.property_name ~ ' ' ~ (i.reporter_name or '') ~ ' ' ~ i.message_body ~ ' ' ~ i.status ~ ' ' ~ i.priority ~ ' ' ~ i.category) | lower }}"
+            onclick="openDetailModal({{ i.id }})">
+          <td class="col-prio"><span class="prio-dot" data-priority="{{ i.priority }}" title="{{ i.priority | capitalize }} priority"></span></td>
+          <td class="col-id">#{{ i.id }}</td>
+          <td>
+            <div class="cell-strong">{{ i.property_name }}</div>
+            <div class="cell-sub">{{ i.reporter_name or "Unknown reporter" }}{% if i.reporter_phone %} &middot; +{{ i.reporter_phone }}{% endif %}</div>
+          </td>
+          <td class="col-cat"><span class="category-icon" data-cat="{{ i.category }}">&#128203;</span>{{ i.category | capitalize }}</td>
+          <td class="col-status"><span class="badge badge-{{ i.status }}" id="status-badge-{{ i.id }}">{{ i.status }}</span></td>
+          <td class="col-activity">
+            {% if update_count > 0 or media_count > 0 %}
+              {% if update_count > 0 %}<span class="activity-chip">&#8617; {{ update_count }}</span>{% endif %}
+              {% if media_count > 0 %}<span class="activity-chip">&#128206; {{ media_count }}</span>{% endif %}
+            {% else %}
+              <span class="activity-none">&mdash;</span>
+            {% endif %}
+          </td>
+          <td class="col-age" data-received="{{ i.received_at.isoformat() }}">{{ i.received_at.strftime("%H:%M") }}</td>
+          <td class="col-actions">
+            <div class="row-actions" id="actions-{{ i.id }}">
+              {% if mode == 'archive' %}
+              <button class="row-act btn-review" title="Reopen" onclick="setStatus({{ i.id }}, 'review', event)">Reopen</button>
+              {% else %}
+              <button class="row-act btn-ack" title="Acknowledge" onclick="setStatus({{ i.id }}, 'acknowledged', event)">Ack</button>
+              <button class="row-act btn-resolve" title="Resolve" onclick="setStatus({{ i.id }}, 'resolved', event)">Resolve</button>
+              <button class="row-act btn-ignore" title="Ignore" onclick="setStatus({{ i.id }}, 'ignored', event)">Ignore</button>
+              <button class="row-act btn-review" title="Review" onclick="setStatus({{ i.id }}, 'review', event)">Review</button>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      {% endif %}
+    </tbody>
+  </table>
+  {% if not incidents_with_counts %}
+  <div class="empty" id="empty-state"><div><strong>No incidents yet</strong>Waiting for property group messages.</div></div>
+  {% endif %}
+  <div class="empty" id="no-results" style="display:none;"><div><strong>No matching incidents</strong>Try clearing filters.</div></div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -1736,11 +1001,11 @@ async function relinkUpdate(updateId, currentIncidentId) {
 
 function init() {
   hydrateCategoryIcons();
-  restoreSidebarState();
-  document.querySelectorAll('.card[data-id]').forEach(card => {
-    const id = parseInt(card.dataset.id, 10);
+  hydrateAges();
+  document.querySelectorAll('.ticket-row[data-id]').forEach(row => {
+    const id = parseInt(row.dataset.id, 10);
     if (id > maxId) maxId = id;
-    allIncidents.push(extractIncidentFromCard(card));
+    allIncidents.push(extractIncidentFromRow(row));
   });
   updateStats();
   updateCounts();
@@ -1749,17 +1014,15 @@ function init() {
   setInterval(poll, POLL_INTERVAL);
 }
 
-function extractIncidentFromCard(card) {
-  const title = card.querySelector('.title')?.textContent || '';
-  const propertyName = title.split(' — ')[0] || 'Unknown property';
+function extractIncidentFromRow(row) {
   return {
-    id: parseInt(card.dataset.id, 10),
-    property_name: propertyName,
-    priority: card.dataset.priority,
-    status: card.dataset.status,
-    category: card.dataset.cat,
-    message_body: card.querySelector('.message')?.textContent || '',
-    reporter_name: card.querySelector('.meta span:first-child')?.textContent || 'Unknown reporter'
+    id: parseInt(row.dataset.id, 10),
+    property_name: row.querySelector('.cell-strong')?.textContent || 'Unknown property',
+    priority: row.dataset.priority,
+    status: row.dataset.status,
+    category: row.dataset.cat,
+    message_body: row.dataset.search || '',
+    reporter_name: row.querySelector('.cell-sub')?.textContent || 'Unknown reporter'
   };
 }
 
@@ -1798,13 +1061,13 @@ async function poll() {
 }
 
 function loadNewIncidents() {
-  const list = document.getElementById('card-list');
+  const list = document.getElementById('ticket-table-body');
   const empty = document.getElementById('empty-state');
   if (empty) empty.remove();
 
   pendingNew.forEach(inc => {
     allIncidents.unshift(normalizeIncident(inc));
-    list.insertAdjacentHTML('afterbegin', buildCard(inc));
+    list.insertAdjacentHTML('afterbegin', buildRow(inc));
   });
 
   pendingNew = [];
@@ -1830,62 +1093,39 @@ function normalizeIncident(i) {
   };
 }
 
-function buildCard(raw) {
+function buildRow(raw) {
   const i = normalizeIncident(raw);
-  const receivedAt = formatTime(i.received_at);
   const icon = categoryIcon(i.category);
   const category = cap(i.category);
+  const search = `${i.property_name} ${i.reporter_name} ${i.message_body} ${i.status} ${i.priority} ${i.category}`.toLowerCase();
+
+  const activity = (i.update_count > 0 || i.media_count > 0)
+    ? `${i.update_count > 0 ? `<span class="activity-chip">↩ ${i.update_count}</span>` : ''}${i.media_count > 0 ? `<span class="activity-chip">📎 ${i.media_count}</span>` : ''}`
+    : '<span class="activity-none">—</span>';
+
+  const actions = MODE === 'archive'
+    ? `<button class="row-act btn-review" title="Reopen" onclick="setStatus(${i.id}, 'review', event)">Reopen</button>`
+    : `<button class="row-act btn-ack" title="Acknowledge" onclick="setStatus(${i.id}, 'acknowledged', event)">Ack</button>
+       <button class="row-act btn-resolve" title="Resolve" onclick="setStatus(${i.id}, 'resolved', event)">Resolve</button>
+       <button class="row-act btn-ignore" title="Ignore" onclick="setStatus(${i.id}, 'ignored', event)">Ignore</button>
+       <button class="row-act btn-review" title="Review" onclick="setStatus(${i.id}, 'review', event)">Review</button>`;
 
   return `
-<article class="card" data-id="${i.id}" data-priority="${esc(i.priority)}" data-status="${esc(i.status)}" data-cat="${esc(i.category)}">
-  <div class="card-head" onclick="toggleCard(this.closest('.card'))">
-    <div class="category-icon">${icon}</div>
-    <div class="info">
-      <div class="title-row"><div class="title">${esc(i.property_name)} — ${esc(category)}</div></div>
-      <div class="meta"><span>${esc(i.reporter_name)}</span>${i.reporter_phone ? '<span class="meta-dot"></span><span>+' + esc(i.reporter_phone) + '</span>' : ''}<span class="meta-dot"></span><span>${receivedAt}</span></div>
-      <p class="message-preview">${esc(i.message_body)}</p>
-      ${(i.update_count > 0 || i.media_count > 0) ? `
-      <div class="card-badges">
-        ${i.update_count > 0 ? `<button class="card-badge-btn" onclick="event.stopPropagation(); openDetailModal(${i.id})">↩ ${i.update_count} update${i.update_count !== 1 ? 's' : ''}</button>` : ''}
-        ${i.media_count > 0 ? `<button class="card-badge-btn" onclick="event.stopPropagation(); openDetailModal(${i.id})">📎 ${i.media_count} attachment${i.media_count !== 1 ? 's' : ''}</button>` : ''}
-      </div>` : ''}
-    </div>
-    <div class="card-right">
-      <span class="badge badge-${esc(i.priority)}">${esc(i.priority)}</span>
-      <span class="badge badge-${esc(i.status)}" id="status-badge-${i.id}">${esc(statusLabels[i.status] || i.status)}</span>
-      <span class="chevron">⌄</span>
-    </div>
-  </div>
-  <div class="card-body">
-    <div class="details-panel">
-      <div>
-        <div class="message-box">
-          <div class="group-label">Reported message</div>
-          <div class="message">${esc(i.message_body)}</div>
-        </div>
-        <div class="actions" id="actions-${i.id}">
-          ${MODE === 'archive'
-            ? `<button class="act-btn btn-review" onclick="setStatus(${i.id}, 'review', event)">↩ Reopen</button>`
-            : `<button class="act-btn btn-ack" onclick="setStatus(${i.id}, 'acknowledged', event)">✓ Acknowledge</button>
-               <button class="act-btn btn-resolve" onclick="setStatus(${i.id}, 'resolved', event)">✓ Resolve</button>
-               <button class="act-btn btn-ignore" onclick="setStatus(${i.id}, 'ignored', event)">✗ Ignore</button>
-               <button class="act-btn btn-review" onclick="setStatus(${i.id}, 'review', event)">⟳ Review</button>`}
-          <button class="act-btn btn-reply" onclick="event.stopPropagation(); openDetailModal(${i.id})">↩ View / Reply</button>
-        </div>
-      </div>
-      <div class="side-details">
-        <div class="detail-card"><div class="label">Property group</div><div class="value">${esc(i.property_name)}</div></div>
-        <div class="detail-card"><div class="label">Reporter</div><div class="value">${esc(i.reporter_name)}${i.reporter_phone ? '<br>+' + esc(i.reporter_phone) : ''}</div></div>
-        <div class="detail-card"><div class="label">Incident ID</div><div class="value">#${i.id}</div></div>
-      </div>
-    </div>
-  </div>
-</article>`;
-}
-
-function toggleCard(card) {
-  if (!card) return;
-  card.classList.toggle('open');
+<tr class="ticket-row" data-id="${i.id}" data-priority="${esc(i.priority)}" data-status="${esc(i.status)}" data-cat="${esc(i.category)}" data-updates="${i.update_count}" data-media="${i.media_count}" data-search="${esc(search)}" onclick="openDetailModal(${i.id})">
+  <td class="col-prio"><span class="prio-dot" data-priority="${esc(i.priority)}" title="${esc(cap(i.priority))} priority"></span></td>
+  <td class="col-id">#${i.id}</td>
+  <td>
+    <div class="cell-strong">${esc(i.property_name)}</div>
+    <div class="cell-sub">${esc(i.reporter_name)}${i.reporter_phone ? ' · +' + esc(i.reporter_phone) : ''}</div>
+  </td>
+  <td class="col-cat"><span class="category-icon" data-cat="${esc(i.category)}">${icon}</span>${esc(category)}</td>
+  <td class="col-status"><span class="badge badge-${esc(i.status)}" id="status-badge-${i.id}">${esc(statusLabels[i.status] || i.status)}</span></td>
+  <td class="col-activity">${activity}</td>
+  <td class="col-age" data-received="${esc(i.received_at)}">${formatAge(i.received_at)}</td>
+  <td class="col-actions">
+    <div class="row-actions" id="actions-${i.id}">${actions}</div>
+  </td>
+</tr>`;
 }
 
 async function setStatus(id, newStatus, event) {
@@ -1910,11 +1150,11 @@ async function setStatus(id, newStatus, event) {
       (MODE === 'archive' && newStatus !== 'resolved');
 
     if (shouldRemove) {
-      const card = document.querySelector(`.card[data-id="${id}"]`);
-      if (card) {
-        card.classList.add('removing');
+      const row = document.querySelector(`.ticket-row[data-id="${id}"]`);
+      if (row) {
+        row.classList.add('removing');
         setTimeout(() => {
-          card.remove();
+          row.remove();
           const idx = allIncidents.findIndex(i => i.id === id);
           if (idx !== -1) allIncidents.splice(idx, 1);
           updateStats();
@@ -1923,8 +1163,8 @@ async function setStatus(id, newStatus, event) {
         }, 320);
       }
     } else {
-      const card = document.querySelector(`.card[data-id="${id}"]`);
-      if (card) card.dataset.status = newStatus;
+      const row = document.querySelector(`.ticket-row[data-id="${id}"]`);
+      if (row) row.dataset.status = newStatus;
       const badge = document.getElementById(`status-badge-${id}`);
       if (badge) {
         badge.className = `badge badge-${newStatus}`;
@@ -1942,28 +1182,6 @@ async function setStatus(id, newStatus, event) {
   }
 }
 
-function toggleSidebar(forceHidden = null) {
-  const body = document.getElementById('dashboard-body');
-  const label = document.getElementById('sidebar-toggle-text');
-  if (!body) return;
-
-  const shouldHide = forceHidden === null ? !body.classList.contains('sidebar-hidden') : forceHidden;
-  body.classList.toggle('sidebar-hidden', shouldHide);
-  if (label) label.textContent = shouldHide ? 'Show filters' : 'Hide filters';
-
-  try {
-    localStorage.setItem('incidentSidebarHidden', shouldHide ? '1' : '0');
-  } catch (e) {}
-}
-
-function restoreSidebarState() {
-  try {
-    toggleSidebar(localStorage.getItem('incidentSidebarHidden') === '1');
-  } catch (e) {
-    toggleSidebar(false);
-  }
-}
-
 function toggleFilter(el) {
   const { filter, val } = el.dataset;
   const set = activeFilters[filter];
@@ -1974,9 +1192,11 @@ function toggleFilter(el) {
 }
 
 function toggleFilterGroup(button) {
-  const group = button.closest('.filter-group');
-  if (!group) return;
-  group.classList.toggle('collapsed');
+  const dropdown = button.closest('.chip-dropdown');
+  if (!dropdown) return;
+  const willOpen = !dropdown.classList.contains('open');
+  document.querySelectorAll('.chip-dropdown.open').forEach(d => d.classList.remove('open'));
+  if (willOpen) dropdown.classList.add('open');
 }
 
 function updateSelectedFilterCounts() {
@@ -2006,19 +1226,13 @@ function applyFilters() {
   const q = document.getElementById('search-input').value.toLowerCase().trim();
   let visible = 0;
 
-  document.querySelectorAll('.card[data-id]').forEach(card => {
-    const matchStatus = activeFilters.status.size === 0 || activeFilters.status.has(card.dataset.status);
-    const matchPriority = activeFilters.priority.size === 0 || activeFilters.priority.has(card.dataset.priority);
-    const matchCat = activeFilters.cat.size === 0 || activeFilters.cat.has(card.dataset.cat);
-    const searchable = [
-      card.querySelector('.title')?.textContent,
-      card.querySelector('.message')?.textContent,
-      card.querySelector('.meta')?.textContent,
-      card.dataset.status, card.dataset.priority, card.dataset.cat
-    ].join(' ').toLowerCase();
-    const matchSearch = !q || searchable.includes(q);
+  document.querySelectorAll('.ticket-row[data-id]').forEach(row => {
+    const matchStatus = activeFilters.status.size === 0 || activeFilters.status.has(row.dataset.status);
+    const matchPriority = activeFilters.priority.size === 0 || activeFilters.priority.has(row.dataset.priority);
+    const matchCat = activeFilters.cat.size === 0 || activeFilters.cat.has(row.dataset.cat);
+    const matchSearch = !q || (row.dataset.search || '').includes(q);
     const shouldShow = matchStatus && matchPriority && matchCat && matchSearch;
-    card.classList.toggle('hidden', !shouldShow);
+    row.classList.toggle('hidden', !shouldShow);
     if (shouldShow) visible++;
   });
 
@@ -2026,8 +1240,8 @@ function applyFilters() {
 
   const noResults = document.getElementById('no-results');
   if (noResults) {
-    const hasCards = document.querySelectorAll('.card[data-id]').length > 0;
-    noResults.style.display = hasCards && visible === 0 ? 'grid' : 'none';
+    const hasRows = document.querySelectorAll('.ticket-row[data-id]').length > 0;
+    noResults.style.display = hasRows && visible === 0 ? 'grid' : 'none';
   }
 }
 
@@ -2070,6 +1284,24 @@ function formatTime(value) {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+function formatAge(value) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  const secs = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (secs < 60) return 'now';
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h`;
+  return `${Math.floor(hrs / 24)}d`;
+}
+
+function hydrateAges(root = document) {
+  root.querySelectorAll('.col-age[data-received]').forEach(el => {
+    el.textContent = formatAge(el.dataset.received);
+  });
+}
+
 function showToast(message) {
   const toast = document.getElementById('toast');
   toast.textContent = message;
@@ -2085,6 +1317,13 @@ function esc(s) {
 }
 
 function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+
+// Close any open filter-chip dropdown when clicking outside of it.
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.chip-dropdown')) {
+    document.querySelectorAll('.chip-dropdown.open').forEach(d => d.classList.remove('open'));
+  }
+});
 
 init();
 </script>
