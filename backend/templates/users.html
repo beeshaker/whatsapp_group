@@ -172,6 +172,8 @@
       font-size: 0.9rem;
     }
 
+    .muted { color: var(--muted); }
+
     /* Toast error state */
     #toast.error { border-color: var(--red-soft); color: var(--red); }
 
@@ -335,7 +337,7 @@
   </div>
 </div>
 
-<div id="toast"></div>
+<div class="toast" id="toast"></div>
 
 <script>
   const CURRENT_USER = {{ username | tojson }};
