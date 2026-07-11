@@ -22,10 +22,15 @@
     .empty { text-align: center; padding: 2.5rem 1rem; color: var(--muted); font-size: .9rem; }
 
     .error-box {
-      background: rgba(220, 38, 38, 0.1); border: 1px solid rgba(220, 38, 38, 0.2);
+      background: var(--red-soft); border: 1px solid var(--red);
       border-radius: var(--radius-md); padding: 1rem 1.25rem;
       color: var(--red); font-size: .875rem;
     }
+
+    /* Billing-domain status badges (client status: active/grace/suspended; payment status: confirmed/pending/failed) */
+    .badge-active, .badge-confirmed { background: var(--green-soft); color: var(--green); }
+    .badge-grace, .badge-pending { background: var(--amber-soft); color: var(--amber); }
+    .badge-suspended, .badge-failed { background: var(--red-soft); color: var(--red); }
   </style>
 </head>
 <body>
