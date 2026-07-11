@@ -4,73 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Billing Statement</title>
+  <link rel="stylesheet" href="/static/css/base.css">
   <style>
-    :root {
-      --bg: #07111f; --bg-soft: #0b1728; --surface: #101f34; --surface-2: #132840;
-      --line: rgba(148, 163, 184, 0.18); --text: #eef6ff; --muted: #91a3b8;
-      --blue: #38bdf8; --red: #ef4444; --green: #22c55e; --amber: #f59e0b;
-      --shadow: 0 18px 45px rgba(0,0,0,0.28); --radius-xl: 22px; --radius-lg: 16px; --radius-md: 12px;
-    }
-    *, *::before, *::after { box-sizing: border-box; }
-    * { margin: 0; padding: 0; }
-    html, body { height: 100%; }
-    body { font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: var(--bg); color: var(--text); }
-    button, input { font: inherit; }
-
-    .nav {
-      position: sticky; top: 0; z-index: 100;
-      background: rgba(7,17,31,0.88); backdrop-filter: blur(14px);
-      border-bottom: 1px solid var(--line);
-      display: flex; align-items: center; gap: 1rem;
-      padding: 0 1.25rem; height: 52px;
-    }
-    .nav-brand {
-      display: flex; align-items: center; gap: .55rem;
-      text-decoration: none; color: var(--text); font-weight: 700; font-size: .9375rem;
-    }
-    .nav-brand-icon {
-      width: 28px; height: 28px;
-      background: linear-gradient(135deg, var(--blue) 0%, #7c3aed 100%);
-      border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: .875rem;
-    }
-    .nav-links { display: flex; align-items: center; gap: .25rem; flex: 1; justify-content: center; }
-    .nav-link {
-      display: flex; align-items: center; gap: .35rem;
-      padding: .35rem .7rem; border-radius: 8px; font-size: .8375rem; font-weight: 500;
-      color: var(--muted); text-decoration: none; transition: color .15s, background .15s;
-    }
-    .nav-link:hover { color: var(--text); background: rgba(148,163,184,.08); }
-    .nav-link.active { color: var(--blue); background: rgba(56,189,248,.1); }
-    .nav-right { display: flex; align-items: center; gap: .75rem; }
-    .user-pill {
-      display: flex; align-items: center; gap: .45rem;
-      padding: .28rem .6rem; background: var(--surface-2); border: 1px solid var(--line);
-      border-radius: 99px; font-size: .8rem; font-weight: 500;
-    }
-    .user-avatar {
-      width: 21px; height: 21px; border-radius: 50%;
-      background: linear-gradient(135deg, var(--blue) 0%, #7c3aed 100%);
-      display: flex; align-items: center; justify-content: center;
-      font-size: .6rem; font-weight: 700; color: #fff;
-    }
-    .btn-signout {
-      padding: .3rem .75rem; background: transparent; border: 1px solid var(--line);
-      border-radius: 8px; color: var(--muted); font-size: .8rem; cursor: pointer;
-    }
-    .btn-signout:hover { color: var(--red); border-color: rgba(239,68,68,.4); }
-
     .page { max-width: 860px; margin: 0 auto; padding: 2rem 1.25rem; }
-    h1 { font-size: 1.4rem; font-weight: 900; letter-spacing: -.03em; margin-bottom: 1.75rem; }
 
-    .section {
-      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.025));
-      border: 1px solid var(--line); border-radius: var(--radius-xl);
-      padding: 1.5rem; margin-bottom: 1.25rem;
-    }
-    .section-title {
-      font-size: .7rem; font-weight: 900; letter-spacing: .1em; text-transform: uppercase;
-      color: var(--muted); margin-bottom: 1rem;
-    }
+    h1 { font-size: 1.4rem; font-weight: 900; letter-spacing: -.03em; margin-bottom: 1.75rem; }
 
     .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; }
     .info-card {
@@ -80,73 +18,20 @@
     .info-card-label { font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: .35rem; }
     .info-card-value { font-size: 1.05rem; font-weight: 800; }
 
-    .badge {
-      display: inline-block; padding: .2rem .6rem; border-radius: 99px;
-      font-size: .75rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05em;
-    }
-    .badge-active { background: rgba(34,197,94,.15); color: #86efac; border: 1px solid rgba(34,197,94,.25); }
-    .badge-grace  { background: rgba(245,158,11,.15); color: #fcd34d; border: 1px solid rgba(245,158,11,.25); }
-    .badge-suspended { background: rgba(239,68,68,.15); color: #fca5a5; border: 1px solid rgba(239,68,68,.25); }
-    .badge-confirmed { background: rgba(34,197,94,.15); color: #86efac; border: 1px solid rgba(34,197,94,.25); }
-    .badge-pending  { background: rgba(245,158,11,.15); color: #fcd34d; border: 1px solid rgba(245,158,11,.25); }
-    .badge-failed   { background: rgba(239,68,68,.15); color: #fca5a5; border: 1px solid rgba(239,68,68,.25); }
-
-    table { width: 100%; border-collapse: collapse; }
-    thead th {
-      padding: .6rem .75rem; text-align: left;
-      font-size: .7rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
-      color: var(--muted); border-bottom: 1px solid var(--line);
-    }
-    tbody td {
-      padding: .75rem .75rem; font-size: .875rem;
-      border-bottom: 1px solid rgba(148,163,184,.08); vertical-align: middle;
-    }
-    tbody tr:last-child td { border-bottom: none; }
-    tbody tr:hover td { background: rgba(255,255,255,.02); }
-
     .receipt { font-family: monospace; font-size: .8rem; color: var(--muted); }
     .empty { text-align: center; padding: 2.5rem 1rem; color: var(--muted); font-size: .9rem; }
 
     .error-box {
-      background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.25);
+      background: rgba(220, 38, 38, 0.1); border: 1px solid rgba(220, 38, 38, 0.2);
       border-radius: var(--radius-md); padding: 1rem 1.25rem;
-      color: #fca5a5; font-size: .875rem;
+      color: var(--red); font-size: .875rem;
     }
   </style>
 </head>
 <body>
 
-<nav class="nav">
-  <a class="nav-brand" href="/">
-    <div class="nav-brand-icon">🎫</div>
-    Ops Ticketing
-  </a>
-  <div class="nav-links">
-    <a class="nav-link" href="/">📋 Live Queue</a>
-    <a class="nav-link" href="/archive">📁 Archive</a>
-    {% if role in ('admin', 'super_admin') %}
-    <a class="nav-link" href="/users">👥 Users</a>
-    {% endif %}
-    <a class="nav-link" href="/summaries">📊 Summaries</a>
-    <a class="nav-link" href="/admin/profile">👤 Profile</a>
-    {% if role == 'super_admin' %}
-    <a class="nav-link" href="/super-admin/categories">⚙️ System Config</a>
-    {% endif %}
-    {% if role in ('admin', 'super_admin') %}
-    <a class="nav-link" href="/settings">🔧 Settings</a>
-    {% endif %}
-    <a class="nav-link active" href="/billing">💳 Billing</a>
-  </div>
-  <div class="nav-right">
-    <div class="user-pill">
-      <div class="user-avatar" id="nav-avatar"></div>
-      <span>{{ username }}</span>
-    </div>
-    <form method="post" action="/logout" style="margin:0">
-      <button class="btn-signout" type="submit">Sign out</button>
-    </form>
-  </div>
-</nav>
+{% set active_page = 'billing' %}
+{% include "_nav.html" %}
 
 <div class="page">
   <h1>Billing Statement</h1>
@@ -155,7 +40,7 @@
   <div class="error-box">{{ error }}</div>
 
   {% elif statement %}
-  <div class="section">
+  <div class="section-card">
     <div class="section-title">Account Overview</div>
     <div class="info-grid">
       <div class="info-card">
@@ -179,10 +64,10 @@
     </div>
   </div>
 
-  <div class="section">
+  <div class="section-card">
     <div class="section-title">Payment History</div>
     {% if statement.payments %}
-    <table>
+    <table class="data-table">
       <thead>
         <tr>
           <th>Date</th>
