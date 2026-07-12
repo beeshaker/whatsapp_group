@@ -34,7 +34,7 @@ from models import Incident, IncidentCategory, IncidentMedia, IncidentStatusHist
 from odoo_stub import push_incident
 from summaries import build_summary, format_whatsapp_summary, window_for_date
 from vehicle_plate import is_valid_plate, normalize_plate, resolve_plate_for_issue
-from whatsapp import reply_to_message, send_group_message, list_groups as list_whatsapp_groups
+from whatsapp import reply_to_message, send_group_message
 
 _VALID_STATUSES = {"new", "review", "acknowledged", "resolved", "ignored"}
 _VALID_PRIORITIES = {"low", "medium", "high", "urgent"}
@@ -2083,12 +2083,6 @@ async def api_whatsapp_qr(_: str = Depends(require_admin)):
 
 
 _GROUP_JID_RE = re.compile(r"[\w-]+@g\.us")
-
-
-@app.get("/api/settings/whatsapp-groups")
-async def api_settings_whatsapp_groups(_: str = Depends(require_admin)):
-    groups = await list_whatsapp_groups()
-    return {"groups": groups}
 
 
 @app.get("/api/settings/ticket-groups")
