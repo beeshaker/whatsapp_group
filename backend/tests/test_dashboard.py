@@ -66,7 +66,7 @@ async def test_dashboard_contains_incident_card_markup(authenticated_client):
                               headers={"X-API-Key": "test-secret"})
     response = await authenticated_client.get("/")
     assert response.status_code == 200
-    assert b'class="card' in response.content
+    assert b'class="ticket-row' in response.content
     assert b"Test Property" in response.content
 
 
@@ -74,7 +74,7 @@ async def test_dashboard_has_filter_controls(authenticated_client):
     response = await authenticated_client.get("/")
     assert response.status_code == 200
     assert b'id="search-input"' in response.content
-    assert b'id="sidebar"' in response.content
+    assert b'data-group="status"' in response.content
 
 
 async def test_dashboard_shows_review_badge(authenticated_client):

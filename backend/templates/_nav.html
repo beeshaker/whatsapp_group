@@ -1,0 +1,31 @@
+<nav class="nav">
+  <a class="nav-brand" href="/">
+    <div class="nav-brand-icon">🎫</div>
+    Ops Ticketing
+  </a>
+  <div class="nav-links">
+    <a class="nav-link {% if active_page == 'live' %}active{% endif %}" href="/">📋 Live Queue</a>
+    <a class="nav-link {% if active_page == 'archive' %}active{% endif %}" href="/archive">📁 Archive</a>
+    {% if role in ('admin', 'super_admin') %}
+    <a class="nav-link {% if active_page == 'users' %}active{% endif %}" href="/users">👥 Users</a>
+    {% endif %}
+    <a class="nav-link {% if active_page == 'summaries' %}active{% endif %}" href="/summaries">📊 Summaries</a>
+    <a class="nav-link {% if active_page == 'profile' %}active{% endif %}" href="/admin/profile">👤 Profile</a>
+    {% if role == 'super_admin' %}
+    <a class="nav-link {% if active_page == 'super_admin_categories' %}active{% endif %}" href="/super-admin/categories">⚙️ System Config</a>
+    {% endif %}
+    {% if role in ('admin', 'super_admin') %}
+    <a class="nav-link {% if active_page == 'settings' %}active{% endif %}" href="/settings">🔧 Settings</a>
+    {% endif %}
+    <a class="nav-link {% if active_page == 'billing' %}active{% endif %}" href="/billing">💳 Billing</a>
+  </div>
+  <div class="nav-right">
+    <div class="user-pill">
+      <div class="user-avatar" id="nav-avatar"></div>
+      <span id="nav-username">{{ username }}</span>
+    </div>
+    <form method="post" action="/logout" style="margin:0">
+      <button class="btn-signout" type="submit">Sign out</button>
+    </form>
+  </div>
+</nav>

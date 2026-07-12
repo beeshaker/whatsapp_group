@@ -17,6 +17,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, field_validator
 from sqlalchemy import func, select, update as sa_update
@@ -331,6 +332,8 @@ app.add_middleware(
     https_only=False,
     same_site="lax",
 )
+
+app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
 
 
 _SETUP_HTML = os.path.join(os.path.dirname(__file__), "setup.html")
