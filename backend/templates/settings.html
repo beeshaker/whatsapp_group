@@ -79,7 +79,9 @@
   <div class="section-card">
     <div class="section-title">Ticket-Raising Groups</div>
     <div id="ticket-groups-list" style="font-size:.875rem;color:var(--muted)">Loading&hellip;</div>
+    <div id="groups-warning" style="display:none;margin-top:.5rem;font-size:.8rem;color:var(--muted)"></div>
     <div id="ticket-groups-add" style="margin-top:1rem;display:flex;gap:.5rem;flex-wrap:wrap">
+      <select id="new-group-select" style="display:none;flex:1;min-width:220px;padding:.5rem .75rem;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--text)"></select>
       <input id="new-group-id" placeholder="120363XXXXXXXXXX@g.us"
         style="flex:1;min-width:220px;padding:.5rem .75rem;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--text)">
       <button class="btn btn-primary" onclick="addTicketGroup()">Add Group</button>
@@ -185,9 +187,74 @@ async function pollQr() {
   } catch(e) {}
 }
 
+let whatsappGroupsList = null; // [{id, name}, ...] or null if live fetch unavailable
+let whatsappGroupsLookup = {}; // {id: name}
+
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = String(s);
+  return div.innerHTML;
+}
+
+async function loadWhatsappGroups() {
+  try {
+    const data = await fetch('/api/settings/whatsapp-groups').then(r => r.json());
+    whatsappGroupsList = data.groups === null ? null : data.groups;
+  } catch(e) {
+    whatsappGroupsList = null;
+  }
+  whatsappGroupsLookup = {};
+  (whatsappGroupsList || []).forEach(g => { whatsappGroupsLookup[g.id] = g.name; });
+}
+
+function renderGroupItem(gid) {
+  const name = whatsappGroupsLookup[gid];
+  if (name) {
+    return `<li style="margin-bottom:.35rem">${escapeHtml(name)}<div style="font-size:.75rem;color:var(--muted)">${escapeHtml(gid)}</div></li>`;
+  }
+  return `<li style="margin-bottom:.35rem">${escapeHtml(gid)}</li>`;
+}
+
+function renderAddGroupControl(allowedGroups) {
+  const select = document.getElementById('new-group-select');
+  const input = document.getElementById('new-group-id');
+  const warning = document.getElementById('groups-warning');
+
+  if (whatsappGroupsList === null) {
+    select.style.display = 'none';
+    input.style.display = '';
+    input.placeholder = '120363XXXXXXXXXX@g.us';
+    warning.style.display = '';
+    warning.textContent = "Couldn't load live group list — enter the group ID manually.";
+    return;
+  }
+
+  warning.style.display = 'none';
+  const allowedSet = new Set(allowedGroups || []);
+  const available = whatsappGroupsList
+    .filter(g => !allowedSet.has(g.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  if (available.length === 0) {
+    select.innerHTML = '<option value="">No groups available to add</option>';
+    select.disabled = true;
+    select.style.display = '';
+    input.style.display = '';
+    input.placeholder = 'Or enter a group ID manually';
+    return;
+  }
+
+  select.disabled = false;
+  select.innerHTML = '<option value="" disabled selected>Select a group&hellip;</option>' +
+    available.map(g => `<option value="${escapeHtml(g.id)}">${escapeHtml(g.name)}</option>`).join('');
+  select.style.display = '';
+  input.style.display = 'none';
+}
+
 async function loadTicketGroups() {
   const el = document.getElementById('ticket-groups-list');
   const addForm = document.getElementById('ticket-groups-add');
+  await loadWhatsappGroups();
   try {
     const data = await fetch('/api/settings/ticket-groups').then(r => r.json());
     if (data.allowed_groups === null) {
@@ -198,17 +265,25 @@ async function loadTicketGroups() {
     if (addForm) addForm.style.display = '';
     const limit = data.tier_limit != null ? ` (limit: ${data.tier_limit})` : '';
     el.innerHTML = data.allowed_groups.length
-      ? `<ul style="margin:0;padding-left:1.25rem">${data.allowed_groups.map(g => `<li>${g}</li>`).join('')}</ul>${limit}`
+      ? `<ul style="margin:0;padding-left:1.25rem;list-style:none">${data.allowed_groups.map(renderGroupItem).join('')}</ul>${limit}`
       : `No groups configured yet${limit}`;
+    renderAddGroupControl(data.allowed_groups);
   } catch(e) {
     el.textContent = 'Could not load ticket-raising groups.';
   }
 }
 
+function getNewGroupValue() {
+  const select = document.getElementById('new-group-select');
+  const input = document.getElementById('new-group-id');
+  if (select.style.display !== 'none') return select.value;
+  return input.value.trim();
+}
+
 async function addTicketGroup() {
   const input = document.getElementById('new-group-id');
   const msg = document.getElementById('ticket-groups-msg');
-  const groupId = input.value.trim();
+  const groupId = getNewGroupValue();
   if (!groupId) return;
   msg.textContent = '';
   try {

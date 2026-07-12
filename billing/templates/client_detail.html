@@ -51,7 +51,10 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
 
   <form method="post" action="/clients/{{ client.id }}">
     <label>WhatsApp Group ID (superusers group)</label>
-    <input name="whatsapp_group_id" value="{{ client.whatsapp_group_id or '' }}" placeholder="120363XXXXXXXXXX@g.us">
+    <div id="wa-group-id-warning" style="display:none;color:#856404;font-size:.8rem;margin:.2rem 0 0"></div>
+    <div id="wa-group-id-field">
+      <input name="whatsapp_group_id" value="{{ client.whatsapp_group_id or '' }}" placeholder="120363XXXXXXXXXX@g.us">
+    </div>
     <label>OpenWA URL</label>
     <input name="openwa_url" value="{{ client.openwa_url or '' }}" placeholder="http://localhost:2001">
     <label>OpenWA Session Name</label>
@@ -118,12 +121,13 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
 
 <div class="card">
   <h3 style="margin-top:0">Ticket-Raising Groups</h3>
+  <div id="ticket-groups-warning" style="display:none;color:#856404;font-size:.8rem;margin-bottom:.5rem"></div>
   {% if client.allowed_ticket_groups and (client.allowed_ticket_groups | fromjson) %}
   <table>
-    <tr><th>Group ID</th><th></th></tr>
+    <tr><th>Group</th><th></th></tr>
     {% for gid in client.allowed_ticket_groups | fromjson %}
     <tr>
-      <td>{{ gid }}</td>
+      <td><span class="group-name" data-gid="{{ gid }}">{{ gid }}</span></td>
       <td>
         <form method="post" action="/clients/{{ client.id }}/ticket-groups/remove" style="display:inline">
           <input type="hidden" name="group_id" value="{{ gid }}">
@@ -137,7 +141,9 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
   <p style="color:#666">Unrestricted &mdash; any group can raise tickets. Add a group below to opt this client into tiered limits.</p>
   {% endif %}
   <form method="post" action="/clients/{{ client.id }}/ticket-groups/add" style="margin-top:.75rem">
-    <input name="group_id" placeholder="120363XXXXXXXXXX@g.us" required>
+    <div id="add-ticket-group-field">
+      <input name="group_id" placeholder="120363XXXXXXXXXX@g.us" required>
+    </div>
     <button class="action" type="submit">Add Group</button>
   </form>
   {% if client.allowed_ticket_groups is not none %}
@@ -195,6 +201,106 @@ async function refreshWaStatus() {
 }
 refreshWaStatus();
 setInterval(refreshWaStatus, 30000);
+
+// ---------------------------------------------------------------------
+// Live WhatsApp group names (Ticket-Raising Groups list/add + the
+// superusers-group field) — one fetch drives all three.
+// ---------------------------------------------------------------------
+const CURRENT_WA_GROUP_ID = {{ (client.whatsapp_group_id or '') | tojson }};
+const ALLOWED_TICKET_GROUPS = {{ (client.allowed_ticket_groups | fromjson if client.allowed_ticket_groups else []) | tojson }};
+let liveWaGroups = null; // [{id, name}, ...] or null if unavailable
+
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = String(s);
+  return div.innerHTML;
+}
+
+async function loadLiveWaGroups() {
+  try {
+    const data = await fetch(`/clients/${CLIENT_ID}/whatsapp-groups`).then(r => r.json());
+    liveWaGroups = data.groups;
+  } catch(e) {
+    liveWaGroups = null;
+  }
+  renderWaGroupIdField();
+  renderTicketGroupNames();
+  renderAddTicketGroupField();
+}
+
+function renderWaGroupIdField() {
+  const field = document.getElementById('wa-group-id-field');
+  const warning = document.getElementById('wa-group-id-warning');
+  if (!field) return;
+
+  if (liveWaGroups === null) {
+    warning.style.display = '';
+    warning.textContent = "Couldn't load live group list — enter the group ID manually.";
+    field.innerHTML = `<input name="whatsapp_group_id" value="${escapeHtml(CURRENT_WA_GROUP_ID)}" placeholder="120363XXXXXXXXXX@g.us">`;
+    return;
+  }
+
+  warning.style.display = 'none';
+  const sorted = liveWaGroups.slice().sort((a, b) => a.name.localeCompare(b.name));
+  const currentFound = CURRENT_WA_GROUP_ID && sorted.some(g => g.id === CURRENT_WA_GROUP_ID);
+
+  let optionsHtml = '';
+  if (!CURRENT_WA_GROUP_ID) {
+    optionsHtml += `<option value="" selected>&mdash; none &mdash;</option>`;
+  }
+  optionsHtml += sorted.map(g =>
+    `<option value="${escapeHtml(g.id)}" ${g.id === CURRENT_WA_GROUP_ID ? 'selected' : ''}>${escapeHtml(g.name)}</option>`
+  ).join('');
+  if (CURRENT_WA_GROUP_ID && !currentFound) {
+    optionsHtml += `<option value="${escapeHtml(CURRENT_WA_GROUP_ID)}" selected>Current: ${escapeHtml(CURRENT_WA_GROUP_ID)}</option>`;
+  }
+  field.innerHTML = `<select name="whatsapp_group_id">${optionsHtml}</select>`;
+}
+
+function renderTicketGroupNames() {
+  const lookup = {};
+  (liveWaGroups || []).forEach(g => { lookup[g.id] = g.name; });
+  document.querySelectorAll('.group-name[data-gid]').forEach(el => {
+    const gid = el.getAttribute('data-gid');
+    const name = lookup[gid];
+    if (name) {
+      el.innerHTML = `${escapeHtml(name)}<div style="font-size:.75rem;color:#888">${escapeHtml(gid)}</div>`;
+    }
+    // else: leave the raw JID (already server-rendered) — group not in the live list
+  });
+}
+
+function renderAddTicketGroupField() {
+  const field = document.getElementById('add-ticket-group-field');
+  const warning = document.getElementById('ticket-groups-warning');
+  if (!field) return;
+
+  if (liveWaGroups === null) {
+    if (warning) {
+      warning.style.display = '';
+      warning.textContent = "Couldn't load live group list — enter the group ID manually.";
+    }
+    field.innerHTML = '<input name="group_id" placeholder="120363XXXXXXXXXX@g.us" required>';
+    return;
+  }
+
+  if (warning) warning.style.display = 'none';
+  const allowedSet = new Set(ALLOWED_TICKET_GROUPS);
+  const available = liveWaGroups
+    .filter(g => !allowedSet.has(g.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  if (available.length === 0) {
+    field.innerHTML = '<input name="group_id" placeholder="120363XXXXXXXXXX@g.us (no live groups available)" required>';
+    return;
+  }
+
+  const optionsHtml = '<option value="" disabled selected>Select a group&hellip;</option>' +
+    available.map(g => `<option value="${escapeHtml(g.id)}">${escapeHtml(g.name)}</option>`).join('');
+  field.innerHTML = `<select name="group_id" required>${optionsHtml}</select>`;
+}
+
+loadLiveWaGroups();
 
 async function openReconnect() {
   document.getElementById('qr-overlay').classList.add('open');

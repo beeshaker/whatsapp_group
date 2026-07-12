@@ -473,3 +473,145 @@ async def test_admin_reset_cancels_pending_upgrade_request(auth_http, db_session
     assert client.allowed_ticket_groups is None
     assert client.ticket_group_tier_id is None
     assert upgrade_req.status == "cancelled"
+
+
+# ---------------------------------------------------------------------------
+# _get_groups() / GET /clients/{client_id}/whatsapp-groups
+# ---------------------------------------------------------------------------
+
+def _groups_mock_client(get_side_effect):
+    """Mirror the AsyncClient mocking pattern used in tests/test_whatsapp.py."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    inner = MagicMock()
+    inner.get = AsyncMock(side_effect=get_side_effect)
+    ctx = MagicMock()
+    ctx.__aenter__ = AsyncMock(return_value=inner)
+    ctx.__aexit__ = AsyncMock(return_value=False)
+    return ctx, inner
+
+
+def _sessions_resp(session_name):
+    from unittest.mock import MagicMock
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = [{"id": "sess-uuid-1", "name": session_name}]
+    return resp
+
+
+@pytest.mark.asyncio
+async def test_get_groups_returns_none_when_no_session_configured():
+    from main import _get_groups
+    from models import Client
+
+    client = Client(
+        name="Acme", subdomain="acme-nogroups", plan="monthly",
+        renewal_date=date.today(), created_at=datetime.now(timezone.utc),
+    )
+    result = await _get_groups(client)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_get_groups_returns_parsed_list_on_success():
+    from unittest.mock import MagicMock, patch
+    import main
+    from main import _get_groups
+    from models import Client
+
+    client = Client(
+        name="Acme", subdomain="acme-groupsok", plan="monthly",
+        openwa_url="http://localhost:2001", openwa_session="acme-groupsok",
+        openwa_api_key="key-123", renewal_date=date.today(),
+        created_at=datetime.now(timezone.utc),
+    )
+
+    groups_resp = MagicMock()
+    groups_resp.raise_for_status = MagicMock()
+    groups_resp.json.return_value = [{"id": "111@g.us", "name": "Support Group"}]
+
+    ctx, inner = _groups_mock_client([_sessions_resp("acme-groupsok"), groups_resp])
+
+    with patch("main.httpx.AsyncClient", return_value=ctx):
+        result = await _get_groups(client)
+
+    assert result == [{"id": "111@g.us", "name": "Support Group"}]
+    groups_call = inner.get.call_args_list[1]
+    assert "sess-uuid-1/groups" in groups_call[0][0]
+
+
+@pytest.mark.asyncio
+async def test_get_groups_returns_none_when_session_lookup_fails():
+    from unittest.mock import patch
+    from main import _get_groups
+    from models import Client
+
+    client = Client(
+        name="Acme", subdomain="acme-groupsdown", plan="monthly",
+        openwa_url="http://localhost:2001", openwa_session="acme-groupsdown",
+        openwa_api_key="key-123", renewal_date=date.today(),
+        created_at=datetime.now(timezone.utc),
+    )
+
+    ctx, inner = _groups_mock_client(Exception("connection refused"))
+
+    with patch("main.httpx.AsyncClient", return_value=ctx):
+        result = await _get_groups(client)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_get_groups_returns_none_when_groups_fetch_fails():
+    from unittest.mock import patch
+    from main import _get_groups
+    from models import Client
+
+    client = Client(
+        name="Acme", subdomain="acme-groupsfail", plan="monthly",
+        openwa_url="http://localhost:2001", openwa_session="acme-groupsfail",
+        openwa_api_key="key-123", renewal_date=date.today(),
+        created_at=datetime.now(timezone.utc),
+    )
+
+    ctx, inner = _groups_mock_client([_sessions_resp("acme-groupsfail"), Exception("timed out")])
+
+    with patch("main.httpx.AsyncClient", return_value=ctx):
+        result = await _get_groups(client)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_groups_endpoint_returns_list(auth_http, db_session):
+    from unittest.mock import AsyncMock, patch
+    await auth_http.post("/clients", data={"name": "Acme", "subdomain": "acme-wagroups1", "plan": "monthly"})
+    from models import Client
+    from sqlalchemy import select
+    client = await db_session.scalar(select(Client).where(Client.subdomain == "acme-wagroups1"))
+
+    groups = [{"id": "111@g.us", "name": "Support Group"}]
+    with patch("main._get_groups", new=AsyncMock(return_value=groups)):
+        r = await auth_http.get(f"/clients/{client.id}/whatsapp-groups")
+    assert r.status_code == 200
+    assert r.json() == {"groups": groups}
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_groups_endpoint_returns_null_when_unreachable(auth_http, db_session):
+    from unittest.mock import AsyncMock, patch
+    await auth_http.post("/clients", data={"name": "Acme", "subdomain": "acme-wagroups2", "plan": "monthly"})
+    from models import Client
+    from sqlalchemy import select
+    client = await db_session.scalar(select(Client).where(Client.subdomain == "acme-wagroups2"))
+
+    with patch("main._get_groups", new=AsyncMock(return_value=None)):
+        r = await auth_http.get(f"/clients/{client.id}/whatsapp-groups")
+    assert r.status_code == 200
+    assert r.json() == {"groups": None}
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_groups_endpoint_404_for_missing_client(auth_http):
+    r = await auth_http.get("/clients/999999/whatsapp-groups")
+    assert r.status_code == 404

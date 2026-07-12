@@ -867,6 +867,28 @@ async def _get_session_status(client: Client) -> str:
         return "UNREACHABLE"
 
 
+async def _get_groups(client: Client) -> list[dict] | None:
+    """Fetch the live WhatsApp groups list for a client's OpenWA session.
+
+    Returns [{id, name}, ...] on success, or None (never raises) if no
+    session is configured, the session can't be resolved, or OpenWA is
+    unreachable.
+    """
+    try:
+        session_id = await _get_session_id(client)
+        if not session_id:
+            return None
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            r = await http.get(
+                f"{client.openwa_url}/api/sessions/{session_id}/groups",
+                headers={"X-API-Key": client.openwa_api_key or ""},
+            )
+            r.raise_for_status()
+            return r.json()
+    except Exception:
+        return None
+
+
 @app.get("/clients/{client_id}/whatsapp-status")
 async def whatsapp_status(
     client_id: int,
@@ -878,6 +900,19 @@ async def whatsapp_status(
         raise HTTPException(status_code=404)
     status = await _get_session_status(client)
     return JSONResponse({"status": status})
+
+
+@app.get("/clients/{client_id}/whatsapp-groups")
+async def whatsapp_groups(
+    client_id: int,
+    username: str = Depends(require_login),
+    db=Depends(get_db),
+):
+    client = await db.get(Client, client_id)
+    if not client:
+        raise HTTPException(status_code=404)
+    groups = await _get_groups(client)
+    return JSONResponse({"groups": groups})
 
 
 @app.post("/clients/{client_id}/reconnect-whatsapp", response_class=HTMLResponse)

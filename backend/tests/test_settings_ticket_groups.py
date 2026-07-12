@@ -64,6 +64,61 @@ async def test_settings_ticket_groups_get_proxies_billing(admin_client, monkeypa
 
 
 @pytest.mark.asyncio
+async def test_settings_whatsapp_groups_returns_list_on_success(admin_client):
+    from tests.conftest import _TestSession, _HASHED_TESTPASS
+    from models import User
+    from datetime import datetime, timezone
+
+    async with _TestSession() as session:
+        session.add(User(
+            username="wagroupsadmin1", hashed_password=_HASHED_TESTPASS,
+            created_at=datetime.now(timezone.utc), created_by=None, role="admin",
+        ))
+        await session.commit()
+
+    groups = [{"id": "111@g.us", "name": "Support Group"}, {"id": "222@g.us", "name": "Ops Group"}]
+
+    async with AsyncClient(transport=ASGITransport(app=admin_client.app), base_url="http://test") as c:
+        await c.post("/login", data={"username": "wagroupsadmin1", "password": "testpass"})
+        with patch("main.list_whatsapp_groups", AsyncMock(return_value=groups)):
+            r = await c.get("/api/settings/whatsapp-groups")
+    admin_client.app.dependency_overrides.clear()
+    assert r.status_code == 200
+    assert r.json() == {"groups": groups}
+
+
+@pytest.mark.asyncio
+async def test_settings_whatsapp_groups_returns_null_when_unavailable(admin_client):
+    from tests.conftest import _TestSession, _HASHED_TESTPASS
+    from models import User
+    from datetime import datetime, timezone
+
+    async with _TestSession() as session:
+        session.add(User(
+            username="wagroupsadmin2", hashed_password=_HASHED_TESTPASS,
+            created_at=datetime.now(timezone.utc), created_by=None, role="admin",
+        ))
+        await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=admin_client.app), base_url="http://test") as c:
+        await c.post("/login", data={"username": "wagroupsadmin2", "password": "testpass"})
+        with patch("main.list_whatsapp_groups", AsyncMock(return_value=None)):
+            r = await c.get("/api/settings/whatsapp-groups")
+    admin_client.app.dependency_overrides.clear()
+    assert r.status_code == 200
+    assert r.json() == {"groups": None}
+
+
+@pytest.mark.asyncio
+async def test_settings_whatsapp_groups_requires_admin(admin_client):
+    async with AsyncClient(transport=ASGITransport(app=admin_client.app), base_url="http://test") as c:
+        r = await c.get("/api/settings/whatsapp-groups")
+    admin_client.app.dependency_overrides.clear()
+    # require_admin redirects unauthenticated requests to /login (same as sibling /api/settings/* routes)
+    assert r.status_code == 302
+
+
+@pytest.mark.asyncio
 async def test_settings_ticket_groups_add_rejects_malformed_id(admin_client):
     from tests.conftest import _TestSession, _HASHED_TESTPASS
     from models import User

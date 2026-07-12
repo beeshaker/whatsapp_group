@@ -50,6 +50,26 @@ async def _post_message(path: str, payload: dict) -> str:
         return response.json()["messageId"]
 
 
+async def list_groups() -> list[dict] | None:
+    """Fetch the live list of WhatsApp groups the bot currently belongs to.
+
+    Returns [{id, name}, ...] on success, or None (never raises) if the
+    session can't be resolved or OpenWA is unreachable.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            session_id = await _resolve_session_uuid(client)
+            response = await client.get(
+                f"{OPENWA_URL}/api/sessions/{session_id}/groups",
+                headers={"X-API-Key": OPENWA_API_KEY},
+            )
+            response.raise_for_status()
+            return response.json()
+    except Exception as exc:
+        logger.warning("Failed to fetch WhatsApp groups: %s", exc)
+        return None
+
+
 async def send_group_message(chat_id: str, text: str) -> str:
     """Send a plain text message to a WhatsApp group."""
     return await _post_message("messages/send-text", {"chatId": chat_id, "text": text})
