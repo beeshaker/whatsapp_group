@@ -33,7 +33,8 @@ from media import MEDIA_DIR, download_media
 from models import Incident, IncidentCategory, IncidentMedia, IncidentStatusHistory, IncidentUpdate, User, UserGroup, AuditLog, AdminProfile, AdminGroupSubscription
 from odoo_stub import push_incident
 from summaries import build_summary, format_whatsapp_summary, window_for_date
-from whatsapp import reply_to_message, send_group_message
+from vehicle_plate import is_valid_plate, normalize_plate, resolve_plate_for_issue
+from whatsapp import reply_to_message, send_group_message, list_groups as list_whatsapp_groups
 
 _VALID_STATUSES = {"new", "review", "acknowledged", "resolved", "ignored"}
 _VALID_PRIORITIES = {"low", "medium", "high", "urgent"}
@@ -127,6 +128,7 @@ class TicketDetailUpdateBody(BaseModel):
     end_date: Optional[datetime] = None
     escalated: Optional[bool] = None
     reminder_offset_hours: Optional[int] = None
+    vehicle_plate: Optional[str] = None
 
     @field_validator("end_date")
     @classmethod
@@ -134,6 +136,18 @@ class TicketDetailUpdateBody(BaseModel):
         if v is not None and v.tzinfo is None:
             return v.replace(tzinfo=timezone.utc)
         return v
+
+    @field_validator("vehicle_plate")
+    @classmethod
+    def normalize_vehicle_plate(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            return None
+        if not is_valid_plate(v):
+            raise ValueError("vehicle_plate must match Kenyan plate format, e.g. KMGQ947Z")
+        return normalize_plate(v)
 
 
 logging.basicConfig(level=logging.INFO)
@@ -145,6 +159,7 @@ BILLING_SERVICE_URL = os.getenv("BILLING_SERVICE_URL", "")
 BILLING_WEBHOOK_SECRET = os.getenv("BILLING_WEBHOOK_SECRET", "")
 CLIENT_SUBDOMAIN = os.getenv("CLIENT_SUBDOMAIN", "")
 SUPERUSERS_GROUP_ID = os.getenv("SUPERUSERS_GROUP_ID", "")
+FLEET_PLATE_MODE = os.getenv("FLEET_PLATE_MODE", "false").lower() == "true"
 try:
     SUMMARY_SCHEDULE_HOUR = int(os.getenv("SUMMARY_SCHEDULE_HOUR", "8"))
 except ValueError:
@@ -388,18 +403,42 @@ async def webhook_url():
     return {"url": f"http://{host}:8000/api/v1/ops/ingest"}
 
 
-async def _get_open_tickets(db: AsyncSession, group_id: str) -> list[dict]:
+async def _get_open_tickets(db: AsyncSession, group_id: str, limit: int = 5) -> list[dict]:
     result = await db.execute(
         select(Incident)
         .where(Incident.group_id == group_id)
         .where(~Incident.status.in_(["resolved", "ignored"]))
         .order_by(Incident.received_at.desc())
-        .limit(5)
+        .limit(limit)
     )
     return [
-        {"id": i.id, "category": i.category, "message_body": i.message_body}
+        {"id": i.id, "category": i.category, "message_body": i.message_body, "vehicle_plate": i.vehicle_plate}
         for i in result.scalars().all()
     ]
+
+
+async def _route_issue(issue: dict, full_text: str, open_tickets: list[dict]) -> dict:
+    """Decide whether `issue` belongs to an existing open ticket or starts a new one.
+
+    When FLEET_PLATE_MODE is on, this fully replaces the LLM-based
+    classify_update_or_new call for this issue with a deterministic exact-plate
+    match — mixing a reliable identity signal with a fuzzy LLM judgment risks
+    threading two different bikes' issues together.
+    """
+    if FLEET_PLATE_MODE:
+        plate = resolve_plate_for_issue(issue["message_snippet"], full_text)
+        if plate is not None:
+            for ticket in open_tickets:
+                if ticket.get("vehicle_plate") == plate:
+                    return {"routing": "update", "ticket_id": ticket["id"], "vehicle_plate": plate}
+        return {"routing": "new", "vehicle_plate": plate}
+
+    if open_tickets:
+        routing = await classify_update_or_new(issue["message_snippet"], open_tickets)
+    else:
+        routing = {"routing": "new"}
+    routing["vehicle_plate"] = None
+    return routing
 
 
 async def _distinct_group_ids(db: AsyncSession) -> list[str]:
@@ -538,7 +577,7 @@ async def _handle_text_ingest(
     if survivor_count == 0:
         return {"status": "noise", "message": "Message classified as non-incident"}
 
-    open_tickets = await _get_open_tickets(db, group_id)
+    open_tickets = await _get_open_tickets(db, group_id, limit=(50 if FLEET_PLATE_MODE else 5))
     tickets_created = 0
     updates_created = 0
     duplicates_skipped = 0
@@ -561,10 +600,7 @@ async def _handle_text_ingest(
             duplicates_skipped += 1
             continue
 
-        if open_tickets:
-            routing = await classify_update_or_new(issue["message_snippet"], open_tickets)
-        else:
-            routing = {"routing": "new"}
+        routing = await _route_issue(issue, message_body, open_tickets)
 
         if routing["routing"] == "update":
             incident_id = routing["ticket_id"]
@@ -601,6 +637,7 @@ async def _handle_text_ingest(
             reporter_phone=reporter_phone,
             message_body=issue["message_snippet"],
             category=issue["category"],
+            vehicle_plate=routing["vehicle_plate"],
             priority=issue["priority"],
             confidence=issue["confidence"],
             status="review",
@@ -631,6 +668,7 @@ async def _handle_text_ingest(
 
         open_tickets.append({
             "id": incident.id, "category": incident.category, "message_body": incident.message_body,
+            "vehicle_plate": incident.vehicle_plate,
         })
 
         try:
@@ -673,7 +711,7 @@ async def _handle_media_ingest(
         ]
         if survivors:
             caption_had_survivors = True
-            open_tickets = await _get_open_tickets(db, group_id)
+            open_tickets = await _get_open_tickets(db, group_id, limit=(50 if FLEET_PLATE_MODE else 5))
             highest_idx = max(survivors, key=lambda pair: pair[1]["confidence"])[0]
             tickets_created = 0
             updates_created = 0
@@ -696,10 +734,7 @@ async def _handle_media_ingest(
                     duplicates_skipped += 1
                     continue
 
-                if open_tickets:
-                    routing = await classify_update_or_new(issue["message_snippet"], open_tickets)
-                else:
-                    routing = {"routing": "new"}
+                routing = await _route_issue(issue, caption, open_tickets)
 
                 if routing["routing"] == "update":
                     parent_id = routing["ticket_id"]
@@ -734,6 +769,7 @@ async def _handle_media_ingest(
                         reporter_phone=reporter_phone,
                         message_body=issue["message_snippet"],
                         category=issue["category"],
+                        vehicle_plate=routing["vehicle_plate"],
                         priority=issue["priority"],
                         confidence=issue["confidence"],
                         status="review",
@@ -748,6 +784,7 @@ async def _handle_media_ingest(
                         tickets_created += 1
                         open_tickets.append({
                             "id": new_inc.id, "category": new_inc.category, "message_body": new_inc.message_body,
+                            "vehicle_plate": new_inc.vehicle_plate,
                         })
                         _created_incidents.append(new_inc)
                         if issue_index == highest_idx:
@@ -987,6 +1024,7 @@ async def list_incidents(
             "reporter_name": i.reporter_name,
             "reporter_phone": i.reporter_phone,
             "category": i.category,
+            "vehicle_plate": i.vehicle_plate,
             "priority": i.priority,
             "confidence": round(i.confidence, 2),
             "status": i.status,
@@ -1093,6 +1131,7 @@ async def get_incident_detail(
                 "id": s.id,
                 "property_name": s.property_name,
                 "category": s.category,
+                "vehicle_plate": s.vehicle_plate,
                 "priority": s.priority,
                 "status": s.status,
             }
@@ -1105,6 +1144,7 @@ async def get_incident_detail(
         "reporter_name": incident.reporter_name,
         "reporter_phone": incident.reporter_phone,
         "category": incident.category,
+        "vehicle_plate": incident.vehicle_plate,
         "priority": incident.priority,
         "end_date": incident.end_date.isoformat() if incident.end_date else None,
         "escalated": incident.escalated,
@@ -1334,6 +1374,11 @@ async def update_incident_fields(
             )
             incident.reminder_offset_hours = body.reminder_offset_hours
 
+    if "vehicle_plate" in fields_set:
+        if body.vehicle_plate != incident.vehicle_plate:
+            changes.append(f"vehicle_plate: {incident.vehicle_plate} → {body.vehicle_plate}")
+            incident.vehicle_plate = body.vehicle_plate
+
     db.add(incident)
     for change in changes:
         db.add(AuditLog(
@@ -1350,6 +1395,7 @@ async def update_incident_fields(
         "id": incident.id,
         "priority": incident.priority,
         "category": incident.category,
+        "vehicle_plate": incident.vehicle_plate,
         "end_date": incident.end_date.isoformat() if incident.end_date else None,
         "escalated": incident.escalated,
         "reminder_offset_hours": incident.reminder_offset_hours,
@@ -1803,6 +1849,7 @@ async def dashboard(
             "mode": "live",
             "categories": categories,
             "categories_json": categories_json,
+            "fleet_plate_mode": FLEET_PLATE_MODE,
         },
     )
 
@@ -1858,6 +1905,7 @@ async def archive_dashboard(
             "mode": "archive",
             "categories": categories,
             "categories_json": categories_json,
+            "fleet_plate_mode": FLEET_PLATE_MODE,
         },
     )
 
@@ -2035,6 +2083,12 @@ async def api_whatsapp_qr(_: str = Depends(require_admin)):
 
 
 _GROUP_JID_RE = re.compile(r"[\w-]+@g\.us")
+
+
+@app.get("/api/settings/whatsapp-groups")
+async def api_settings_whatsapp_groups(_: str = Depends(require_admin)):
+    groups = await list_whatsapp_groups()
+    return {"groups": groups}
 
 
 @app.get("/api/settings/ticket-groups")

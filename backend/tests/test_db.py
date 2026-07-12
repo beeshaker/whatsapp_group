@@ -16,7 +16,7 @@ async def test_incident_model_columns():
     cols = {c.name for c in Incident.__table__.columns}
     assert cols == {
         "id", "group_id", "property_name", "reporter_name", "reporter_phone",
-        "message_body", "category", "priority", "confidence", "status", "received_at",
+        "message_body", "category", "vehicle_plate", "priority", "confidence", "status", "received_at",
         "message_id", "updated_at", "end_date", "escalated", "reminder_offset_hours", "reminder_sent_at",
         "issue_index",
     }

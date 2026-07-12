@@ -166,6 +166,13 @@ async def test_incidents_table_has_end_date_column(migrated_engine):
         assert "end_date" in columns
 
 
+async def test_incidents_table_has_vehicle_plate_column(migrated_engine):
+    async with migrated_engine.connect() as conn:
+        result = await conn.execute(text("PRAGMA table_info(incidents)"))
+        columns = [row[1] for row in result.all()]
+        assert "vehicle_plate" in columns
+
+
 async def test_incidents_table_has_escalated_column(migrated_engine):
     async with migrated_engine.connect() as conn:
         result = await conn.execute(text("PRAGMA table_info(incidents)"))

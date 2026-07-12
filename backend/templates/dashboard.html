@@ -631,7 +631,7 @@
           <td class="col-prio"><span class="prio-dot" data-priority="{{ i.priority }}" title="{{ i.priority | capitalize }} priority"></span></td>
           <td class="col-id">#{{ i.id }}</td>
           <td>
-            <div class="cell-strong">{{ i.property_name }}</div>
+            <div class="cell-strong">{{ i.property_name }}{% if fleet_plate_mode %}<span class="badge badge-plate">{{ i.vehicle_plate or "Unassigned" }}</span>{% endif %}</div>
             <div class="cell-sub">{{ i.reporter_name or "Unknown reporter" }}{% if i.reporter_phone %} &middot; +{{ i.reporter_phone }}{% endif %}</div>
           </td>
           <td class="col-cat"><span class="category-icon" data-cat="{{ i.category }}">&#128203;</span>{{ i.category | capitalize }}</td>
@@ -699,6 +699,7 @@ const CURRENT_USER = {{ username | tojson }};
 const CURRENT_ROLE = {{ role | tojson }};
 const CATEGORIES = {{ categories_json | tojson }};
 const MODE = '{{ mode | default("live") }}';
+const FLEET_PLATE_MODE = {{ fleet_plate_mode | default(false) | tojson }};
 const POLL_INTERVAL = 30000;
 
 let allIncidents = [];
@@ -756,6 +757,7 @@ function renderTicketDetailsSection(detail) {
       <div class="ticket-details-readonly">
         <div><span class="label">Priority</span>${esc(cap(detail.priority))}</div>
         <div><span class="label">Category</span>${esc(catLabel)}</div>
+        ${FLEET_PLATE_MODE ? `<div><span class="label">Vehicle plate</span>${esc(detail.vehicle_plate || 'Unassigned')}</div>` : ''}
         <div><span class="label">End date</span>${endDateValue || '—'}</div>
         <div><span class="label">Escalated</span>${detail.escalated ? 'Yes' : 'No'}</div>
         <div><span class="label">Reminder</span>${reminderLabel(detail.reminder_offset_hours)}</div>
@@ -790,6 +792,10 @@ function renderTicketDetailsSection(detail) {
       <label>Category
         <select onchange="updateTicketField(${detail.id}, 'category', this.value)">${categoryOptions}</select>
       </label>
+      ${FLEET_PLATE_MODE ? `<label>Vehicle plate
+        <input type="text" value="${esc(detail.vehicle_plate || '')}" placeholder="e.g. KMGQ947Z"
+          onchange="updateTicketField(${detail.id}, 'vehicle_plate', this.value.trim() || null)">
+      </label>` : ''}
       <label>End date
         <input type="date" value="${endDateValue}"
           onchange="updateTicketField(${detail.id}, 'end_date', this.value || null)">
@@ -1084,6 +1090,7 @@ function normalizeIncident(i) {
     priority: i.priority || 'medium',
     status: i.status || 'new',
     category: i.category || 'other',
+    vehicle_plate: i.vehicle_plate || null,
     message_body: i.message_body || '',
     reporter_name: i.reporter_name || 'Unknown reporter',
     reporter_phone: i.reporter_phone || '',
@@ -1115,7 +1122,7 @@ function buildRow(raw) {
   <td class="col-prio"><span class="prio-dot" data-priority="${esc(i.priority)}" title="${esc(cap(i.priority))} priority"></span></td>
   <td class="col-id">#${i.id}</td>
   <td>
-    <div class="cell-strong">${esc(i.property_name)}</div>
+    <div class="cell-strong">${esc(i.property_name)}${FLEET_PLATE_MODE ? `<span class="badge badge-plate">${esc(i.vehicle_plate || 'Unassigned')}</span>` : ''}</div>
     <div class="cell-sub">${esc(i.reporter_name)}${i.reporter_phone ? ' · +' + esc(i.reporter_phone) : ''}</div>
   </td>
   <td class="col-cat"><span class="category-icon" data-cat="${esc(i.category)}">${icon}</span>${esc(category)}</td>

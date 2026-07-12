@@ -18,6 +18,7 @@ class Incident(Base):
     reporter_phone: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     message_body: Mapped[str] = mapped_column(Text, nullable=False)
     category: Mapped[str] = mapped_column(String(50), nullable=False)
+    vehicle_plate: Mapped[Optional[str]] = mapped_column(String(10), nullable=True, index=True)
     priority: Mapped[str] = mapped_column(String(20), nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="review", server_default="review")

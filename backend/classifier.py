@@ -10,6 +10,11 @@ logger = logging.getLogger(__name__)
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
+CLASSIFIER_CONTEXT = os.getenv(
+    "CLASSIFIER_CONTEXT",
+    "You are classifying WhatsApp messages from a property management company.\n"
+    "Properties include residential blocks, lifts, water systems, electrical infrastructure.",
+)
 try:
     OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "10"))
 except ValueError:
@@ -26,8 +31,7 @@ def _build_prompt(message: str, categories: list[str]) -> str:
     safe_message = json.dumps(message)
     pipe_cats = "|".join(categories)
     return (
-        "You are classifying WhatsApp messages from a property management company.\n"
-        "Properties include residential blocks, lifts, water systems, electrical infrastructure.\n"
+        f"{CLASSIFIER_CONTEXT}\n"
         "A message may describe ONE or MULTIPLE distinct, actionable operational problems.\n"
         "An ISSUE is a concrete, actionable operational problem requiring maintenance or emergency response.\n"
         "NOT an issue: general chat, greetings, scheduling discussions, complaints without a specific fault.\n\n"

@@ -179,3 +179,22 @@ async def test_classify_update_or_new_falls_back_on_llm_failure():
         )
         result = await classify_update_or_new("Still leaking, getting worse", open_tickets)
     assert result == {"routing": "new"}
+
+
+def test_build_prompt_defaults_to_property_management_context():
+    import classifier
+    prompt = classifier._build_prompt("test message", ["plumbing", "other"])
+    assert "property management company" in prompt
+
+
+def test_build_prompt_uses_classifier_context_env_override(monkeypatch):
+    import importlib
+    import classifier
+    monkeypatch.setenv("CLASSIFIER_CONTEXT", "You are classifying messages about bike fleet repairs.")
+    importlib.reload(classifier)
+    try:
+        prompt = classifier._build_prompt("test message", ["brakes", "other"])
+        assert "bike fleet repairs" in prompt
+        assert "property management company" not in prompt
+    finally:
+        importlib.reload(classifier)

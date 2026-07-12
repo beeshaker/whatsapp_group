@@ -288,6 +288,7 @@ input:focus, select:focus, textarea:focus {
 .badge-acknowledged { background: var(--cyan-soft); color: var(--cyan); }
 .badge-resolved { background: var(--green-soft); color: var(--green); }
 .badge-ignored { background: var(--surface-2); color: var(--muted-2); border: 1px solid var(--line); }
+.badge-plate { background: var(--teal-soft); color: var(--teal-deep); margin-left: 6px; }
 
 /* ── Toast ── */
 .toast {

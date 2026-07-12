@@ -257,3 +257,36 @@ async def test_get_incident_detail_includes_reminder_fields(tdu_client):
     data = resp.json()
     assert data["reminder_offset_hours"] == 1
     assert data["reminder_sent_at"] is None
+
+
+async def test_patch_sets_vehicle_plate(tdu_client):
+    incident_id = await _seed_incident()
+    await tdu_client.post("/login", data={"username": "ticketadmin", "password": "pass1234"})
+    resp = await tdu_client.patch(f"/incidents/{incident_id}", json={"vehicle_plate": "kmgq 947z"})
+    assert resp.status_code == 200
+    assert resp.json()["vehicle_plate"] == "KMGQ947Z"
+
+
+async def test_patch_clears_vehicle_plate(tdu_client):
+    incident_id = await _seed_incident()
+    await tdu_client.post("/login", data={"username": "ticketadmin", "password": "pass1234"})
+    await tdu_client.patch(f"/incidents/{incident_id}", json={"vehicle_plate": "KMGQ947Z"})
+    resp = await tdu_client.patch(f"/incidents/{incident_id}", json={"vehicle_plate": None})
+    assert resp.status_code == 200
+    assert resp.json()["vehicle_plate"] is None
+
+
+async def test_patch_rejects_malformed_vehicle_plate(tdu_client):
+    incident_id = await _seed_incident()
+    await tdu_client.post("/login", data={"username": "ticketadmin", "password": "pass1234"})
+    resp = await tdu_client.patch(f"/incidents/{incident_id}", json={"vehicle_plate": "not a plate"})
+    assert resp.status_code == 422
+
+
+async def test_get_incident_detail_includes_vehicle_plate(tdu_client):
+    incident_id = await _seed_incident()
+    await tdu_client.post("/login", data={"username": "ticketadmin", "password": "pass1234"})
+    await tdu_client.patch(f"/incidents/{incident_id}", json={"vehicle_plate": "KMGQ947Z"})
+    resp = await tdu_client.get(f"/incidents/{incident_id}")
+    assert resp.status_code == 200
+    assert resp.json()["vehicle_plate"] == "KMGQ947Z"

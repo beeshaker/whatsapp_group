@@ -322,3 +322,17 @@ async def init_db():
             ))
     except Exception:
         pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE incidents ADD COLUMN vehicle_plate TEXT"))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_incidents_vehicle_plate ON incidents (vehicle_plate)"
+            ))
+    except Exception:
+        pass
