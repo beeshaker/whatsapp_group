@@ -87,17 +87,33 @@ docker compose up -d
 # host.docker.internal (which can't reach a loopback-bound port from another
 # container even though it resolves fine).
 echo ""
-echo "==> Connecting billing-app to ${CLIENT}'s Docker network..."
+echo "==> Connecting billing-app to ${CLIENT}'s Docker network(s)..."
 if docker inspect billing-app >/dev/null 2>&1; then
-  CLIENT_NET=$(docker inspect "${CLIENT}-openwa-1" \
-    --format '{{range $net, $cfg := .NetworkSettings.Networks}}{{$net}}{{end}}' 2>/dev/null || true)
-  if [ -z "$CLIENT_NET" ]; then
-    echo "    WARNING: couldn't determine ${CLIENT}-openwa-1's network — connect billing-app manually:"
+  # One network name per line — do NOT drop the {{"\n"}} separator. Without it,
+  # a container on more than one network (which happens in practice, e.g. a
+  # shared services-net alongside its own per-client network) has its network
+  # names silently concatenated into one bogus string, and every subsequent
+  # `docker network connect` call fails with "network ... not found".
+  CLIENT_NETS=$(docker inspect "${CLIENT}-openwa-1" \
+    --format '{{range $net, $cfg := .NetworkSettings.Networks}}{{$net}}{{"\n"}}{{end}}' 2>/dev/null || true)
+  if [ -z "$CLIENT_NETS" ]; then
+    echo "    WARNING: couldn't determine ${CLIENT}-openwa-1's network(s) — connect billing-app manually:"
     echo "      docker network connect <network> billing-app"
-  elif docker network connect "$CLIENT_NET" billing-app 2>/dev/null; then
-    echo "    Connected billing-app -> $CLIENT_NET"
   else
-    echo "    billing-app already attached to $CLIENT_NET — continuing."
+    while IFS= read -r NET; do
+      [ -z "$NET" ] && continue
+      # Check real membership instead of inferring "already connected" from a
+      # failed connect call — a failure can also mean the network name was
+      # wrong, which should be a visible warning, not a silently-assumed success.
+      if docker network inspect "$NET" --format '{{range $id, $c := .Containers}}{{$c.Name}}{{"\n"}}{{end}}' 2>/dev/null | grep -qx "billing-app"; then
+        echo "    billing-app already attached to $NET — continuing."
+      elif docker network connect "$NET" billing-app 2>/dev/null; then
+        echo "    Connected billing-app -> $NET"
+      else
+        echo "    WARNING: failed to connect billing-app to $NET — connect manually:"
+        echo "      docker network connect $NET billing-app"
+      fi
+    done <<< "$CLIENT_NETS"
   fi
   echo "    In the billing client record, set OpenWA URL to: http://${CLIENT}-openwa-1:2785"
 else
