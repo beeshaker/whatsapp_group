@@ -371,14 +371,18 @@ async def openwa_proxy(path: str, request: Request):
         if k.lower() in ("x-api-key", "content-type")
     }
     body = await request.body()
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.request(
-            method=request.method,
-            url=url,
-            headers=forward_headers,
-            content=body,
-            params=dict(request.query_params),
-        )
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.request(
+                method=request.method,
+                url=url,
+                headers=forward_headers,
+                content=body,
+                params=dict(request.query_params),
+            )
+    except httpx.RequestError as exc:
+        logger.warning("openwa proxy: could not reach %s: %s", url, exc)
+        return JSONResponse({"error": f"Could not reach WhatsApp service: {exc}"}, status_code=502)
     try:
         return JSONResponse(content=resp.json(), status_code=resp.status_code)
     except Exception:
@@ -389,6 +393,12 @@ async def openwa_proxy(path: str, request: Request):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/setup/session-name")
+async def setup_session_name():
+    import whatsapp as _wa
+    return {"sessionName": _wa.OPENWA_SESSION}
 
 
 @app.get("/api/webhook-url")
@@ -2043,13 +2053,23 @@ async def api_whatsapp_reconnect(_: str = Depends(require_admin)):
     import whatsapp as _wa
     try:
         session_id, _ = await _openwa_find_session()
-        if not session_id:
-            return JSONResponse({"ok": False, "detail": "Session not found"}, status_code=404)
         async with httpx.AsyncClient(timeout=15.0) as client:
-            await client.post(
-                f"{_wa.OPENWA_URL}/api/sessions/{session_id}/stop",
-                headers={"X-API-Key": _wa.OPENWA_API_KEY},
-            )
+            if not session_id:
+                create_r = await client.post(
+                    f"{_wa.OPENWA_URL}/api/sessions",
+                    headers={"X-API-Key": _wa.OPENWA_API_KEY, "Content-Type": "application/json"},
+                    json={"name": _wa.OPENWA_SESSION},
+                )
+                if create_r.status_code == 409:
+                    session_id, _ = await _openwa_find_session()
+                else:
+                    create_r.raise_for_status()
+                    session_id = create_r.json()["id"]
+            else:
+                await client.post(
+                    f"{_wa.OPENWA_URL}/api/sessions/{session_id}/stop",
+                    headers={"X-API-Key": _wa.OPENWA_API_KEY},
+                )
             r = await client.post(
                 f"{_wa.OPENWA_URL}/api/sessions/{session_id}/start",
                 headers={"X-API-Key": _wa.OPENWA_API_KEY},

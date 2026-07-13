@@ -848,10 +848,11 @@ async def _get_session_id(client: Client) -> str | None:
     return None
 
 
-async def _get_session_status(client: Client) -> str:
-    """Return the OpenWA session status string, or a descriptive error token."""
+async def _get_session_status(client: Client) -> tuple[str, str | None]:
+    """Return (OpenWA session status, connected phone number) — status is a
+    descriptive error token ("NOT_CONFIGURED"/"NOT_FOUND"/"UNREACHABLE") on failure."""
     if not client.openwa_url or not client.openwa_session:
-        return "NOT_CONFIGURED"
+        return "NOT_CONFIGURED", None
     try:
         async with httpx.AsyncClient(timeout=8.0) as http:
             r = await http.get(
@@ -861,10 +862,10 @@ async def _get_session_status(client: Client) -> str:
             r.raise_for_status()
             for s in r.json():
                 if s.get("name") == client.openwa_session:
-                    return s.get("status", "UNKNOWN")
-            return "NOT_FOUND"
+                    return s.get("status", "UNKNOWN"), s.get("phone")
+            return "NOT_FOUND", None
     except Exception:
-        return "UNREACHABLE"
+        return "UNREACHABLE", None
 
 
 async def _get_groups(client: Client) -> list[dict] | None:
@@ -898,8 +899,16 @@ async def whatsapp_status(
     client = await db.get(Client, client_id)
     if not client:
         raise HTTPException(status_code=404)
-    status = await _get_session_status(client)
-    return JSONResponse({"status": status})
+    status, phone = await _get_session_status(client)
+    admin_norm = _normalize_phone(client.admin_whatsapp_phone or "")
+    live_norm = _normalize_phone(phone or "")
+    mismatch = bool(admin_norm and live_norm and admin_norm != live_norm)
+    return JSONResponse({
+        "status": status,
+        "phone": phone,
+        "admin_phone": client.admin_whatsapp_phone,
+        "phone_mismatch": mismatch,
+    })
 
 
 @app.get("/clients/{client_id}/whatsapp-groups")
@@ -926,20 +935,56 @@ async def reconnect_whatsapp(
         raise HTTPException(status_code=404)
     try:
         session_id = await _get_session_id(client)
-        if session_id:
-            async with httpx.AsyncClient(timeout=15.0) as http:
+        if not session_id and (not client.openwa_url or not client.openwa_session):
+            return RedirectResponse(f"/clients/{client_id}/reconnect", status_code=303)
+        async with httpx.AsyncClient(timeout=15.0) as http:
+            if not session_id:
+                create_r = await http.post(
+                    f"{client.openwa_url}/api/sessions",
+                    headers={"X-API-Key": client.openwa_api_key or "", "Content-Type": "application/json"},
+                    json={"name": client.openwa_session},
+                )
+                if create_r.status_code == 409:
+                    session_id = await _get_session_id(client)
+                else:
+                    create_r.raise_for_status()
+                    session_id = create_r.json()["id"]
+            else:
                 # Stop first so we get a clean QR — ignore errors (may already be stopped)
                 await http.post(
                     f"{client.openwa_url}/api/sessions/{session_id}/stop",
                     headers={"X-API-Key": client.openwa_api_key or ""},
                 )
-                await http.post(
-                    f"{client.openwa_url}/api/sessions/{session_id}/start",
-                    headers={"X-API-Key": client.openwa_api_key or ""},
-                )
+            await http.post(
+                f"{client.openwa_url}/api/sessions/{session_id}/start",
+                headers={"X-API-Key": client.openwa_api_key or ""},
+            )
     except Exception:
         pass
     return RedirectResponse(f"/clients/{client_id}/reconnect", status_code=303)
+
+
+@app.post("/clients/{client_id}/disconnect-whatsapp", response_class=HTMLResponse)
+async def disconnect_whatsapp(
+    request: Request, client_id: int,
+    username: str = Depends(require_login),
+    db=Depends(get_db),
+):
+    client = await db.get(Client, client_id)
+    if not client:
+        raise HTTPException(status_code=404)
+    try:
+        session_id = await _get_session_id(client)
+        if session_id:
+            async with httpx.AsyncClient(timeout=15.0) as http:
+                await http.delete(
+                    f"{client.openwa_url}/api/sessions/{session_id}",
+                    headers={"X-API-Key": client.openwa_api_key or ""},
+                )
+    except Exception as exc:
+        import logging as _log
+        _log.getLogger(__name__).warning("disconnect_whatsapp failed for %s: %s", client.subdomain, exc)
+    return RedirectResponse(f"/clients/{client_id}?disconnected=1", status_code=303)
 
 
 @app.get("/clients/{client_id}/reconnect", response_class=HTMLResponse)

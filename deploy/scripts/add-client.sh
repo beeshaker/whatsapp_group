@@ -81,6 +81,29 @@ cd "$CLIENT_DIR"
 docker compose build
 docker compose up -d
 
+# ── 6. Attach billing dashboard to this client's Docker network ───────────────
+# OpenWA's port is bound to 127.0.0.1 only (see client-template/docker-compose.yml),
+# so billing must reach it via container DNS on this client's network, not
+# host.docker.internal (which can't reach a loopback-bound port from another
+# container even though it resolves fine).
+echo ""
+echo "==> Connecting billing-app to ${CLIENT}'s Docker network..."
+if docker inspect billing-app >/dev/null 2>&1; then
+  CLIENT_NET=$(docker inspect "${CLIENT}-openwa-1" \
+    --format '{{range $net, $cfg := .NetworkSettings.Networks}}{{$net}}{{end}}' 2>/dev/null || true)
+  if [ -z "$CLIENT_NET" ]; then
+    echo "    WARNING: couldn't determine ${CLIENT}-openwa-1's network — connect billing-app manually:"
+    echo "      docker network connect <network> billing-app"
+  elif docker network connect "$CLIENT_NET" billing-app 2>/dev/null; then
+    echo "    Connected billing-app -> $CLIENT_NET"
+  else
+    echo "    billing-app already attached to $CLIENT_NET — continuing."
+  fi
+  echo "    In the billing client record, set OpenWA URL to: http://${CLIENT}-openwa-1:2785"
+else
+  echo "    billing-app not found on this host — skipping (attach manually if/when billing is deployed here)."
+fi
+
 echo ""
 echo "╔══════════════════════════════════════════════════════════╗"
 echo "║  Client '$CLIENT' is starting up.                        "

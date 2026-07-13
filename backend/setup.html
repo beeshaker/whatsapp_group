@@ -74,6 +74,18 @@
     let sessionId = null;
     let qrInterval = null;
     let pollInterval = null;
+    let sessionName = null;
+
+    async function getSessionName() {
+      if (sessionName) return sessionName;
+      try {
+        const data = await fetch(_backendBase + '/api/setup/session-name').then(r => r.json());
+        sessionName = data.sessionName || 'opsgateway';
+      } catch (e) {
+        sessionName = 'opsgateway';
+      }
+      return sessionName;
+    }
 
     function log(msg) {
       const d = document.getElementById('log');
@@ -92,7 +104,14 @@
       const opts = { method, headers: { 'X-API-Key': KEY, 'Content-Type': 'application/json' } };
       if (body) opts.body = JSON.stringify(body);
       const r = await fetch(OPENWA + path, opts);
-      return r.json();
+      let data;
+      try {
+        data = await r.json();
+      } catch (e) {
+        throw new Error(`Bad response (HTTP ${r.status}) — check server logs`);
+      }
+      if (!r.ok && data && data.error) throw new Error(data.error);
+      return data;
     }
 
     async function refreshQR() {
@@ -152,7 +171,7 @@
           // No sessions — create one
           if (!sessionId) {
             log('No session found — creating one…');
-            const s = await api('POST', '/sessions', { name: 'opsgateway' });
+            const s = await api('POST', '/sessions', { name: await getSessionName() });
             sessionId = s.id;
             log('Session created: ' + sessionId);
             await api('POST', '/sessions/' + sessionId + '/start');

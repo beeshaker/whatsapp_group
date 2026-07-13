@@ -184,7 +184,11 @@ async function pollQr() {
     document.getElementById('qr-img').removeAttribute('src');
     document.querySelector('.qr-hint').textContent =
       status ? `Session is ${status.toLowerCase()} — waiting for QR code…` : 'Starting session…';
-  } catch(e) {}
+  } catch(e) {
+    document.getElementById('qr-area').style.display = 'block';
+    document.getElementById('qr-img').removeAttribute('src');
+    document.querySelector('.qr-hint').textContent = 'Error checking status: ' + e.message + ' — retrying…';
+  }
 }
 
 let whatsappGroupsList = null; // [{id, name}, ...] or null if live fetch unavailable

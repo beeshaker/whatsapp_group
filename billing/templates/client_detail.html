@@ -91,6 +91,11 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
       <span class="dot"></span><span id="wa-label">Checking…</span>
     </span>
   </h3>
+  <div id="live-phone-display" style="font-size:.8rem;color:#666;margin-bottom:.5rem"></div>
+  <div id="phone-mismatch-warning" style="display:none;margin-bottom:.75rem;padding:.5rem .75rem;
+       background:#fff3cd;color:#856404;border-radius:6px;font-size:.85rem">
+    ⚠ Connected WhatsApp number differs from the stored Admin WhatsApp Phone.
+  </div>
   <form method="post" action="/clients/{{ client.id }}/push-reminder" style="display:inline">
     <button class="action" type="submit">Push Reminder to Group</button>
   </form>
@@ -98,6 +103,13 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
     {% if not client.openwa_url or not client.openwa_session %}disabled title="Set OpenWA URL and session name first"{% endif %}>
     Reconnect WhatsApp
   </button>
+  <form method="post" action="/clients/{{ client.id }}/disconnect-whatsapp" style="display:inline"
+    onsubmit="return confirm('This fully disconnects {{ client.name }}\'s WhatsApp session — the client will need to scan a fresh QR code. Use this to recover a stuck session or to allow a different phone number to link. Continue?')">
+    <button class="action danger" type="submit"
+      {% if not client.openwa_url or not client.openwa_session %}disabled title="Set OpenWA URL and session name first"{% endif %}>
+      Disconnect Session
+    </button>
+  </form>
   <form method="post" action="/clients/{{ client.id }}/send-invite" style="display:inline">
     <button class="action" type="submit" {% if not client.admin_whatsapp_phone or not client.whatsapp_invite_link %}disabled title="Set admin phone and invite link first"{% endif %}>
       Send Invite to Admin
@@ -105,6 +117,9 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
   </form>
   {% if request.query_params.get('invited') %}
   <p style="color:green;margin-top:.5rem">Invite sent to {{ client.admin_whatsapp_phone }}.</p>
+  {% endif %}
+  {% if request.query_params.get('disconnected') %}
+  <p style="color:#721c24;margin-top:.5rem">WhatsApp session disconnected. Ask the client to scan a fresh QR code (Reconnect WhatsApp).</p>
   {% endif %}
   {% if client.status in ('grace', 'billing_only', 'closed') %}
   <form method="post" action="/clients/{{ client.id }}/reactivate" style="display:inline">
@@ -195,6 +210,10 @@ async function refreshWaStatus() {
     const up = CONNECTED.includes((data.status || '').toUpperCase());
     badge.className = 'wa-status ' + (up ? 'wa-online' : 'wa-offline');
     label.textContent = up ? 'WhatsApp connected' : ('WhatsApp ' + (data.status || 'disconnected').toLowerCase());
+    document.getElementById('live-phone-display').textContent =
+      data.phone ? ('Connected number: ' + data.phone) : '';
+    document.getElementById('phone-mismatch-warning').style.display =
+      data.phone_mismatch ? '' : 'none';
   } catch(e) {
     document.getElementById('wa-label').textContent = 'Status unknown';
   }
