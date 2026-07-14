@@ -119,6 +119,50 @@ async def test_superusers_group_message_not_classified_as_incident(client):
 
 
 @pytest.mark.asyncio
+async def test_billing_command_skips_sales_agent_reply(client):
+    """/payment (and other slash-commands) in the billing group must be handled
+    purely by the billing service's M-Pesa flow — the sales-agent LLM chatbot
+    must not also reply, or it garbles the actual payment/statement flow."""
+    from unittest.mock import patch as p
+    sales_calls = []
+
+    async def fake_sales_query(*args, **kwargs):
+        sales_calls.append(args)
+        return "some sales reply"
+
+    mock_billing_client = AsyncMock()
+    mock_billing_client.__aenter__ = AsyncMock(return_value=mock_billing_client)
+    mock_billing_client.__aexit__ = AsyncMock(return_value=None)
+    mock_billing_client.post = AsyncMock(return_value=MagicMock(status_code=200))
+
+    mock_status_resp = MagicMock()
+    mock_status_resp.status_code = 200
+    mock_status_resp.json = MagicMock(return_value={"status": "active", "whatsapp_group_id": SUPERUSERS_GROUP})
+    mock_billing_client.get = AsyncMock(return_value=mock_status_resp)
+
+    with patch("main.answer_sales_query", new=fake_sales_query):
+        with patch("main.httpx.AsyncClient", return_value=mock_billing_client):
+            r = await client.post(
+                "/api/v1/ops/ingest",
+                headers={"X-API-Key": GATEWAY_TOKEN},
+                json={
+                    "event": "message.received",
+                    "data": {
+                        "chatId": SUPERUSERS_GROUP,
+                        "isGroup": True,
+                        "type": "chat",
+                        "body": "/payment",
+                        "fromMe": False,
+                        "id": "msg-3",
+                        "timestamp": 1700000002,
+                    },
+                },
+            )
+    assert r.status_code == 202
+    assert len(sales_calls) == 0
+
+
+@pytest.mark.asyncio
 async def test_billing_only_status_drops_message(monkeypatch):
     monkeypatch.setenv("BILLING_SERVICE_URL", "http://billing:9000")
     monkeypatch.setenv("BILLING_WEBHOOK_SECRET", "test-secret")

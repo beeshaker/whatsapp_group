@@ -963,7 +963,7 @@ async def ingest(
             asyncio.create_task(_forward_to_billing_by_group(group_id, data))
         if not data.get("fromMe", False):
             msg_body = (data.get("body") or "").strip()
-            if msg_body:
+            if msg_body and not msg_body.startswith("/"):
                 try:
                     reply = await answer_sales_query(msg_body, f"sales:{group_id}", db)
                     await send_group_message(group_id, reply)
