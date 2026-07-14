@@ -95,6 +95,19 @@ async def test_status_endpoint_returns_billing_only(auth_http, db_session):
 
 
 @pytest.mark.asyncio
+async def test_status_endpoint_includes_whatsapp_group_id(auth_http, db_session):
+    await auth_http.post("/clients", data={"name": "Acme", "subdomain": "acmegroupid", "plan": "monthly"})
+    from models import Client
+    from sqlalchemy import select
+    client = await db_session.scalar(select(Client).where(Client.subdomain == "acmegroupid"))
+    client.whatsapp_group_id = "120363xxxx@g.us"
+    await db_session.commit()
+    r = await auth_http.get("/api/clients/acmegroupid/status")
+    assert r.status_code == 200
+    assert r.json()["whatsapp_group_id"] == "120363xxxx@g.us"
+
+
+@pytest.mark.asyncio
 async def test_close_endpoint_sets_status_closed(auth_http, db_session):
     from unittest.mock import patch, AsyncMock
     await auth_http.post("/clients", data={"name": "Close Me", "subdomain": "closeme", "plan": "monthly"})

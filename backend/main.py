@@ -158,7 +158,6 @@ SUMMARY_TIMEZONE = os.getenv("SUMMARY_TIMEZONE", "Africa/Nairobi")
 BILLING_SERVICE_URL = os.getenv("BILLING_SERVICE_URL", "")
 BILLING_WEBHOOK_SECRET = os.getenv("BILLING_WEBHOOK_SECRET", "")
 CLIENT_SUBDOMAIN = os.getenv("CLIENT_SUBDOMAIN", "")
-SUPERUSERS_GROUP_ID = os.getenv("SUPERUSERS_GROUP_ID", "")
 FLEET_PLATE_MODE = os.getenv("FLEET_PLATE_MODE", "false").lower() == "true"
 try:
     SUMMARY_SCHEDULE_HOUR = int(os.getenv("SUMMARY_SCHEDULE_HOUR", "8"))
@@ -177,16 +176,18 @@ if not SECRET_KEY or SECRET_KEY == "change-me":
     sys.exit(1)
 
 
-async def _get_client_billing_status() -> str:
+async def _fetch_billing_client_info() -> dict:
+    """Fetches {status, whatsapp_group_id} for this client from billing, 60s
+    cache, fails open to {"status": "active", "whatsapp_group_id": None}."""
     global _billing_status_cache
     if not BILLING_SERVICE_URL or not CLIENT_SUBDOMAIN:
-        return "active"
+        return {"status": "active", "whatsapp_group_id": None}
     now = datetime.now(timezone.utc)
     if (
         _billing_status_cache is not None
         and (now - _billing_status_cache["fetched_at"]).total_seconds() < _CACHE_TTL_SECONDS
     ):
-        return _billing_status_cache["status"]
+        return _billing_status_cache
     try:
         async with httpx.AsyncClient(timeout=5.0) as http:
             r = await http.get(
@@ -194,12 +195,30 @@ async def _get_client_billing_status() -> str:
                 headers={"X-Billing-Secret": BILLING_WEBHOOK_SECRET},
             )
             r.raise_for_status()
-            status = r.json().get("status", "active")
+            body = r.json()
+            status = body.get("status", "active")
+            whatsapp_group_id = body.get("whatsapp_group_id")
     except Exception:
         logger.warning("Billing status check failed — defaulting to active")
-        return "active"
-    _billing_status_cache = {"status": status, "fetched_at": now}
-    return status
+        return {"status": "active", "whatsapp_group_id": None}
+    _billing_status_cache = {
+        "status": status, "whatsapp_group_id": whatsapp_group_id, "fetched_at": now,
+    }
+    return _billing_status_cache
+
+
+async def _get_client_billing_status() -> str:
+    info = await _fetch_billing_client_info()
+    return info["status"]
+
+
+async def _get_billing_group_id() -> Optional[str]:
+    """Returns the client's configured billing/superusers WhatsApp group JID,
+    fetched live from billing (same cache as _get_client_billing_status) so it
+    stays in sync with whatever is set in the billing dashboard — no separate
+    per-client env var to keep in sync by hand."""
+    info = await _fetch_billing_client_info()
+    return info["whatsapp_group_id"]
 
 
 async def _get_allowed_ticket_groups() -> Optional[list[str]]:
@@ -937,8 +956,11 @@ async def ingest(
         return {"status": "ignored", "message": "Non-group or non-chat event skipped"}
 
     group_id = chat_id
-    # Sales agent — handle the superusers group as a sales/support channel
-    if SUPERUSERS_GROUP_ID and group_id == SUPERUSERS_GROUP_ID:
+    billing_group_id = await _get_billing_group_id()
+    # Sales agent — handle the billing/superusers group as a sales/support channel
+    if billing_group_id and group_id == billing_group_id:
+        if msg_type == "chat" and BILLING_SERVICE_URL:
+            asyncio.create_task(_forward_to_billing_by_group(group_id, data))
         if not data.get("fromMe", False):
             msg_body = (data.get("body") or "").strip()
             if msg_body:

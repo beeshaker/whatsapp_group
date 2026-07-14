@@ -1138,7 +1138,7 @@ async def client_billing_status(subdomain: str, request: Request, db=Depends(get
     client = await db.scalar(select(Client).where(Client.subdomain == subdomain))
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
-    return {"status": client.status}
+    return {"status": client.status, "whatsapp_group_id": client.whatsapp_group_id}
 
 
 @app.get("/api/clients/{subdomain}/ticket-groups")

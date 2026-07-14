@@ -15,7 +15,7 @@ GATEWAY_TOKEN = "ops-gateway-secret-2026"
 async def client(monkeypatch):
     monkeypatch.setenv("BILLING_SERVICE_URL", "http://billing:9000")
     monkeypatch.setenv("BILLING_WEBHOOK_SECRET", "test-secret")
-    monkeypatch.setenv("SUPERUSERS_GROUP_ID", SUPERUSERS_GROUP)
+    monkeypatch.setenv("CLIENT_SUBDOMAIN", "acme")
     monkeypatch.setenv("OPENWA_SESSION", "acme")
     monkeypatch.setenv("GATEWAY_SECRET_TOKEN", GATEWAY_TOKEN)
     import importlib, main as backend_main
@@ -33,14 +33,6 @@ async def client(monkeypatch):
     backend_main.app.dependency_overrides.clear()
 
 
-@pytest.mark.skip(
-    reason="Pre-existing product-logic gap, unrelated to current work: "
-    "_forward_to_billing() (webhook/client/{subdomain}) is dead code and the "
-    "superusers-group branch in main.py always short-circuits to the sales "
-    "agent before any billing forward runs. See memory/"
-    "project_billing_payment_forward_bug.md. Parked per user decision on "
-    "2026-07-02 — do not fix as part of unrelated feature work."
-)
 @pytest.mark.asyncio
 async def test_payment_command_forwarded_to_billing(client):
     posted = []
@@ -50,7 +42,11 @@ async def test_payment_command_forwarded_to_billing(client):
     mock_resp.status_code = 200
     mock_billing_client.__aenter__ = AsyncMock(return_value=mock_billing_client)
     mock_billing_client.__aexit__ = AsyncMock(return_value=None)
-    mock_billing_client.post = AsyncMock(return_value=mock_resp)
+
+    mock_status_resp = MagicMock()
+    mock_status_resp.status_code = 200
+    mock_status_resp.json = MagicMock(return_value={"status": "active", "whatsapp_group_id": SUPERUSERS_GROUP})
+    mock_billing_client.get = AsyncMock(return_value=mock_status_resp)
 
     async def fake_post(url, **kwargs):
         posted.append(url)
@@ -77,7 +73,7 @@ async def test_payment_command_forwarded_to_billing(client):
             },
         )
     assert r.status_code == 202
-    assert any("webhook/client/acme" in url for url in posted)
+    assert any(f"webhook/by-group/{SUPERUSERS_GROUP}" in url for url in posted)
 
 
 @pytest.mark.asyncio
@@ -94,6 +90,11 @@ async def test_superusers_group_message_not_classified_as_incident(client):
     mock_billing_client2.__aenter__ = AsyncMock(return_value=mock_billing_client2)
     mock_billing_client2.__aexit__ = AsyncMock(return_value=None)
     mock_billing_client2.post = AsyncMock()
+
+    mock_status_resp2 = MagicMock()
+    mock_status_resp2.status_code = 200
+    mock_status_resp2.json = MagicMock(return_value={"status": "active", "whatsapp_group_id": SUPERUSERS_GROUP})
+    mock_billing_client2.get = AsyncMock(return_value=mock_status_resp2)
 
     with patch("main.classify_message", new=fake_classify):
         with patch("main.httpx.AsyncClient", return_value=mock_billing_client2):
@@ -173,7 +174,6 @@ async def test_billing_group_messages_always_forwarded_in_billing_only(monkeypat
     monkeypatch.setenv("BILLING_SERVICE_URL", "http://billing:9000")
     monkeypatch.setenv("BILLING_WEBHOOK_SECRET", "test-secret")
     monkeypatch.setenv("CLIENT_SUBDOMAIN", "acme")
-    monkeypatch.setenv("SUPERUSERS_GROUP_ID", SUPERUSERS_GROUP)
     monkeypatch.setenv("GATEWAY_SECRET_TOKEN", GATEWAY_TOKEN)
     import importlib, main as backend_main
     from tests.conftest import _TestSession
@@ -200,7 +200,7 @@ async def test_billing_group_messages_always_forwarded_in_billing_only(monkeypat
 
         mock_status_resp = MagicMock()
         mock_status_resp.status_code = 200
-        mock_status_resp.json = MagicMock(return_value={"status": "billing_only"})
+        mock_status_resp.json = MagicMock(return_value={"status": "billing_only", "whatsapp_group_id": SUPERUSERS_GROUP})
         mock_billing_client.get = AsyncMock(return_value=mock_status_resp)
         mock_billing_client.post = AsyncMock(side_effect=mock_post)
 
@@ -273,6 +273,76 @@ async def test_billing_gate_fails_open_on_error(monkeypatch):
     backend_main.app.dependency_overrides.clear()
     assert r.status_code == 202
     assert r.json().get("status") != "billing_only_drop"
+
+
+@pytest.mark.asyncio
+async def test_billing_group_exempt_from_ticket_groups_tier_lock(monkeypatch):
+    """Reproduces the pixiilive production bug: ticket-groups tier lock restricts
+    to an allow-list that doesn't include the billing group, and SUPERUSERS_GROUP_ID
+    is unset (never configured for this client). The billing group must still be
+    recognized (via the live whatsapp_group_id billing returns) and forwarded, not
+    blocked with group_not_licensed."""
+    monkeypatch.setenv("BILLING_SERVICE_URL", "http://billing:9000")
+    monkeypatch.setenv("BILLING_WEBHOOK_SECRET", "test-secret")
+    monkeypatch.setenv("CLIENT_SUBDOMAIN", "acme")
+    monkeypatch.setenv("GATEWAY_SECRET_TOKEN", GATEWAY_TOKEN)
+    monkeypatch.delenv("SUPERUSERS_GROUP_ID", raising=False)
+    import importlib, main as backend_main
+    from tests.conftest import _TestSession
+    from database import get_db
+    importlib.reload(backend_main)
+
+    async def _override_get_db():
+        async with _TestSession() as session:
+            yield session
+
+    backend_main.app.dependency_overrides[get_db] = _override_get_db
+
+    posted = []
+
+    async with AsyncClient(transport=ASGITransport(app=backend_main.app), base_url="http://test") as c:
+        mock_billing_client = AsyncMock()
+        mock_billing_client.__aenter__ = AsyncMock(return_value=mock_billing_client)
+        mock_billing_client.__aexit__ = AsyncMock(return_value=None)
+
+        def fake_get(url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            if "ticket-groups" in url:
+                # Tier-locked to an unrelated fleet group — billing group not on the list
+                resp.json = MagicMock(return_value={"allowed_groups": ["fleet-group@g.us"], "tier_limit": 5})
+            else:
+                resp.json = MagicMock(return_value={"status": "active", "whatsapp_group_id": SUPERUSERS_GROUP})
+            return resp
+
+        async def fake_post(url, **kwargs):
+            posted.append(url)
+            return MagicMock(status_code=200)
+
+        mock_billing_client.get = AsyncMock(side_effect=fake_get)
+        mock_billing_client.post = AsyncMock(side_effect=fake_post)
+
+        with patch("main.httpx.AsyncClient", return_value=mock_billing_client):
+            r = await c.post(
+                "/api/v1/ops/ingest",
+                headers={"X-API-Key": GATEWAY_TOKEN},
+                json={
+                    "event": "message.received",
+                    "data": {
+                        "chatId": SUPERUSERS_GROUP,
+                        "isGroup": True,
+                        "type": "chat",
+                        "body": "/payment",
+                        "fromMe": False,
+                        "id": "msg-pixiilive-repro",
+                        "timestamp": 1700000030,
+                    },
+                },
+            )
+    backend_main.app.dependency_overrides.clear()
+    assert r.status_code == 202
+    assert r.json().get("status") != "group_not_licensed"
+    assert any(f"webhook/by-group/{SUPERUSERS_GROUP}" in url for url in posted)
 
 
 @pytest.mark.asyncio
