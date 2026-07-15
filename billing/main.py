@@ -20,6 +20,7 @@ from database import get_db, init_db, AsyncSessionLocal, engine
 from docker_manager import start_client, stop_client
 from models import AdminUser, Client, GroupTierPrice, GroupUpgradeRequest, Payment, PaymentSession
 from mpesa import initiate_stk_push
+from payment_history import unified_payment_history
 from scheduler import start_scheduler
 from nginx_manager import add_client_port, remove_client_port
 from whatsapp import send_to_group, send_dm_text, send_document_to_group
@@ -253,9 +254,7 @@ async def client_detail(
     client = await db.get(Client, client_id)
     if not client:
         return HTMLResponse("Not found", status_code=404)
-    payments = (await db.execute(
-        select(Payment).where(Payment.client_id == client_id).order_by(Payment.initiated_at.desc())
-    )).scalars().all()
+    payments = await unified_payment_history(db, client_id, confirmed_only=False)
     group_tiers = await _get_or_seed_group_tiers(db)
     current_tier = (
         await db.get(GroupTierPrice, client.ticket_group_tier_id)
@@ -595,28 +594,14 @@ async def _process_client_message(client: Client, data: dict, db) -> dict:
     if message_text.lower() == "/statement":
         try:
             from pdf import generate_statement
-            all_payments = (await db.execute(
-                select(Payment).where(Payment.client_id == client.id, Payment.status == "confirmed").order_by(Payment.initiated_at.desc())
-            )).scalars().all()
-            history = [
-                {
-                    "date": p.initiated_at.strftime("%Y-%m-%d %H:%M"),
-                    "phone": p.phone,
-                    "amount": str(p.amount),
-                    "receipt": p.mpesa_transaction_id,
-                    "status": p.status,
-                    "period_start": str(p.period_start),
-                    "period_end": str(p.period_end),
-                }
-                for p in all_payments
-            ]
+            history = await unified_payment_history(db, client.id, confirmed_only=True)
             tier = (
                 await db.get(GroupTierPrice, client.ticket_group_tier_id)
                 if client.ticket_group_tier_id else None
             )
             pdf_bytes = generate_statement(
                 client_name=client.name,
-                client_plan=tier.name if tier else "Unassigned",
+                tier_name=tier.name if tier else None,
                 client_status=client.status,
                 renewal_date=client.renewal_date,
                 payments=history,
@@ -867,9 +852,6 @@ async def mpesa_callback(request: Request, db=Depends(get_db)):
         # Generate and send PDF statement
         try:
             from pdf import generate_statement
-            all_payments = (await db.execute(
-                select(Payment).where(Payment.client_id == client.id, Payment.status == "confirmed").order_by(Payment.initiated_at.desc())
-            )).scalars().all()
             invoice_data = {
                 "amount": str(amount),
                 "receipt": mpesa_id,
@@ -878,25 +860,14 @@ async def mpesa_callback(request: Request, db=Depends(get_db)):
                 "period_end": str(period_end),
                 "date": confirmed_at,
             } if payment else None
-            history = [
-                {
-                    "date": p.initiated_at.strftime("%Y-%m-%d %H:%M"),
-                    "phone": p.phone,
-                    "amount": str(p.amount),
-                    "receipt": p.mpesa_transaction_id,
-                    "status": p.status,
-                    "period_start": str(p.period_start),
-                    "period_end": str(p.period_end),
-                }
-                for p in all_payments
-            ]
+            history = await unified_payment_history(db, client.id, confirmed_only=True)
             tier_row = (
                 await db.get(GroupTierPrice, client.ticket_group_tier_id)
                 if client.ticket_group_tier_id else None
             )
             pdf_bytes = generate_statement(
                 client_name=client.name,
-                client_plan=tier_row.name if tier_row else "Unassigned",
+                tier_name=tier_row.name if tier_row else None,
                 client_status=client.status,
                 renewal_date=client.renewal_date,
                 payments=history,
@@ -1194,9 +1165,7 @@ async def client_statement(subdomain: str, request: Request, db=Depends(get_db))
     client = await db.scalar(select(Client).where(Client.subdomain == subdomain))
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
-    payments = (await db.execute(
-        select(Payment).where(Payment.client_id == client.id).order_by(Payment.initiated_at.desc())
-    )).scalars().all()
+    payments = await unified_payment_history(db, client.id, confirmed_only=False)
     tier = (
         await db.get(GroupTierPrice, client.ticket_group_tier_id)
         if client.ticket_group_tier_id else None
@@ -1209,18 +1178,7 @@ async def client_statement(subdomain: str, request: Request, db=Depends(get_db))
             "status": client.status,
             "renewal_date": str(client.renewal_date),
         },
-        "payments": [
-            {
-                "date": p.initiated_at.strftime("%Y-%m-%d %H:%M"),
-                "phone": p.phone,
-                "amount": str(p.amount),
-                "receipt": p.mpesa_transaction_id,
-                "status": p.status,
-                "period_start": str(p.period_start),
-                "period_end": str(p.period_end),
-            }
-            for p in payments
-        ],
+        "payments": payments,
     }
 
 

@@ -38,7 +38,7 @@ class _StatementPDF(FPDF):
 
 def generate_statement(
     client_name: str,
-    client_plan: str,
+    tier_name: Optional[str],
     client_status: str,
     renewal_date: date,
     payments: list[dict],
@@ -46,7 +46,8 @@ def generate_statement(
 ) -> bytes:
     """
     Generate a PDF statement. Returns raw bytes.
-    payments: list of dicts with keys: date, phone, amount, receipt, status, period_start, period_end
+    payments: list of dicts with keys: date, kind, phone, amount, receipt, status, period_start, period_end
+      (kind is "renewal" or "tier_upgrade" — see billing/payment_history.py)
     invoice_payment: the most recent confirmed payment to highlight as invoice (optional)
     """
     pdf = _StatementPDF(client_name)
@@ -66,7 +67,7 @@ def generate_statement(
     pdf.set_xy(14, pdf.get_y() + 7)
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(*_MUTED)
-    pdf.cell(40, 5, f"Plan: {client_plan.capitalize()}")
+    pdf.cell(40, 5, f"Tier: {tier_name or 'Not assigned'}")
     pdf.cell(50, 5, f"Status: {client_status.upper()}")
 
     pdf.set_xy(14, pdf.get_y() + 6)
@@ -120,7 +121,10 @@ def generate_statement(
     pdf.ln(8)
 
     # Table header
-    cols = [("Date", 36), ("Phone", 30), ("Amount", 24), ("Receipt", 36), ("Status", 22), ("Period", 42)]
+    cols = [
+        ("Date", 32), ("Type", 24), ("Phone", 26), ("Amount", 22),
+        ("Receipt", 30), ("Status", 20), ("Period", 36),
+    ]
     pdf.set_fill_color(*_DARK)
     for label, w in cols:
         pdf.set_font("Helvetica", "B", 8)
@@ -129,6 +133,8 @@ def generate_statement(
         pdf.cell(w, 6, label, fill=True)
     pdf.ln(6)
 
+    _KIND_LABELS = {"renewal": "Renewal", "tier_upgrade": "Tier Upgrade"}
+
     # Table rows
     for i, p in enumerate(payments):
         fill = i % 2 == 0
@@ -136,12 +142,13 @@ def generate_statement(
         pdf.set_text_color(*_DARK)
         pdf.set_font("Helvetica", "", 7.5)
         row_data = [
-            (p.get("date", "")[:16], 36),
-            (p.get("phone", ""), 30),
-            (f"KES {p.get('amount', '')}", 24),
-            (p.get("receipt") or "-", 36),
-            (p.get("status", "").upper(), 22),
-            (f"{p.get('period_start','')} - {p.get('period_end','')}", 42),
+            (p.get("date", "")[:16], 32),
+            (_KIND_LABELS.get(p.get("kind"), p.get("kind") or "-"), 24),
+            (p.get("phone", ""), 26),
+            (f"KES {p.get('amount', '')}", 22),
+            (p.get("receipt") or "-", 30),
+            (p.get("status", "").upper(), 20),
+            (f"{p.get('period_start','')} - {p.get('period_end','')}", 36),
         ]
         for val, w in row_data:
             pdf.cell(w, 5.5, str(val), fill=fill)
