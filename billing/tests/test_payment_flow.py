@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from httpx import AsyncClient, ASGITransport
 from unittest.mock import AsyncMock, patch
 import database, main
-from models import Client, Payment, PaymentSession, PlanPrice
+from models import Client, GroupTierPrice, Payment, PaymentSession
 
 
 @pytest.fixture(autouse=True)
@@ -31,8 +31,13 @@ async def http(db_session, monkeypatch):
 
 @pytest_asyncio.fixture
 async def grace_client(db_session):
+    # ticket_group_tier_id deliberately left unset (None) here: several tests
+    # (e.g. test_upgrade_endpoint_rejected_for_unrestricted_client) depend on a
+    # freshly-built grace_client being an "unrestricted, no tier" client. Tests
+    # that need a priced tier should use the `priced_tier` fixture below and
+    # assign it explicitly.
     c = Client(
-        name="Acme", subdomain="acme", plan="monthly", status="grace",
+        name="Acme", subdomain="acme", status="grace",
         renewal_date=date.today() - timedelta(days=1),
         grace_started_at=datetime.now(timezone.utc) - timedelta(hours=2),
         whatsapp_group_id="group@g.us",
@@ -42,14 +47,21 @@ async def grace_client(db_session):
         docker_project="acme",
         created_at=datetime.now(timezone.utc),
     )
-    price = PlanPrice(
-        plan_type="monthly", amount=Decimal("1500"), currency="KES",
-        set_at=datetime.now(timezone.utc), set_by="admin",
-    )
     db_session.add(c)
-    db_session.add(price)
     await db_session.commit()
     return c
+
+
+@pytest_asyncio.fixture
+async def priced_tier(db_session):
+    tier = GroupTierPrice(
+        name="Tier 1", min_groups=1, max_groups=5, amount=Decimal("1500"),
+        set_at=datetime.now(timezone.utc), set_by="admin",
+    )
+    db_session.add(tier)
+    await db_session.commit()
+    await db_session.refresh(tier)
+    return tier
 
 
 def _signed_body(body: bytes, secret: str = "test-secret") -> dict:
@@ -77,7 +89,13 @@ async def test_bot_messages_ignored(http, grace_client):
 
 
 @pytest.mark.asyncio
-async def test_phone_reply_triggers_stk_push(http, grace_client, db_session):
+async def test_phone_reply_triggers_stk_push(http, grace_client, db_session, priced_tier):
+    # The renewal charge is resolved from the client's assigned group tier, so
+    # this test (the one that actually exercises that tier-amount lookup) needs
+    # a priced tier assigned — grace_client itself deliberately has none.
+    grace_client.ticket_group_tier_id = priced_tier.id
+    await db_session.commit()
+
     ps = PaymentSession(
         client_id=grace_client.id, state="awaiting_phone",
         created_at=datetime.now(timezone.utc),
@@ -86,9 +104,17 @@ async def test_phone_reply_triggers_stk_push(http, grace_client, db_session):
     db_session.add(ps)
     await db_session.commit()
 
+    # Step 1: reply with a phone number. Current flow asks for confirmation
+    # before charging — it does NOT push STK yet.
     body = b'{"event":"message","body":"0712345678","fromMe":false,"chatId":"group@g.us"}'
     r = await http.post("/webhook/client/acme", content=body, headers=_signed_body(body))
     assert r.status_code == 200
+    main.initiate_stk_push.assert_not_called()
+
+    # Step 2: confirm with YES — now the STK push fires.
+    body2 = b'{"event":"message","body":"YES","fromMe":false,"chatId":"group@g.us"}'
+    r2 = await http.post("/webhook/client/acme", content=body2, headers=_signed_body(body2))
+    assert r2.status_code == 200
     main.initiate_stk_push.assert_called_once()
     call = main.initiate_stk_push.call_args
     assert "254712345678" in str(call)
@@ -232,7 +258,7 @@ async def test_close_command_sets_status_closed(db_session, monkeypatch):
     os.environ["BILLING_WEBHOOK_SECRET"] = ""
 
     client = Client(
-        name="CloseCo", subdomain="closeco", plan="monthly", status="active",
+        name="CloseCo", subdomain="closeco", status="active",
         renewal_date=date.today() + timedelta(days=30),
         whatsapp_group_id="closeco-group@g.us",
         openwa_url="http://localhost:2001",
@@ -268,8 +294,8 @@ async def test_upgrade_endpoint_triggers_stk_push(http, grace_client, db_session
     from sqlalchemy import select
     from datetime import datetime, timezone
     from decimal import Decimal
-    tier1 = GroupTierPrice(min_groups=1, max_groups=5, amount=Decimal("500"), set_at=datetime.now(timezone.utc), set_by="admin")
-    tier2 = GroupTierPrice(min_groups=6, max_groups=10, amount=Decimal("1200"), set_at=datetime.now(timezone.utc), set_by="admin")
+    tier1 = GroupTierPrice(name="Tier 1", min_groups=1, max_groups=5, amount=Decimal("500"), set_at=datetime.now(timezone.utc), set_by="admin")
+    tier2 = GroupTierPrice(name="Tier 2", min_groups=6, max_groups=10, amount=Decimal("1200"), set_at=datetime.now(timezone.utc), set_by="admin")
     db_session.add_all([tier1, tier2])
     await db_session.flush()
     grace_client.allowed_ticket_groups = "[]"
@@ -297,7 +323,7 @@ async def test_upgrade_endpoint_reuses_pending_request(http, grace_client, db_se
     from models import GroupTierPrice, GroupUpgradeRequest
     from datetime import datetime, timezone
     from decimal import Decimal
-    tier1 = GroupTierPrice(min_groups=1, max_groups=5, amount=Decimal("500"), set_at=datetime.now(timezone.utc), set_by="admin")
+    tier1 = GroupTierPrice(name="Tier 1", min_groups=1, max_groups=5, amount=Decimal("500"), set_at=datetime.now(timezone.utc), set_by="admin")
     db_session.add(tier1)
     await db_session.flush()
     grace_client.allowed_ticket_groups = "[]"
@@ -318,6 +344,37 @@ async def test_upgrade_endpoint_reuses_pending_request(http, grace_client, db_se
     assert r.status_code == 200
     assert r.json()["status"] == "pending_exists"
     main.initiate_stk_push.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_upgrade_endpoint_refuses_unpriced_next_tier(http, grace_client, db_session, monkeypatch):
+    """Same hazard class already guarded against on the renewal /payment flow
+    (see test_tier_billing.py::test_payment_confirm_with_no_tier_never_pushes_stk):
+    tiers seed at amount=0 until an admin sets real prices via /prices, so a
+    client whose NEXT tier hasn't been priced yet must not trigger an M-Pesa
+    STK push for KES 0."""
+    monkeypatch.setattr(main, "BILLING_WEBHOOK_SECRET", "test-secret")
+    from models import GroupTierPrice, GroupUpgradeRequest
+    from sqlalchemy import select
+    from datetime import datetime, timezone
+    from decimal import Decimal
+    tier1 = GroupTierPrice(name="Tier 1", min_groups=1, max_groups=5, amount=Decimal("500"), set_at=datetime.now(timezone.utc), set_by="admin")
+    tier2 = GroupTierPrice(name="Tier 2", min_groups=6, max_groups=10, amount=Decimal("0"), set_at=datetime.now(timezone.utc), set_by="admin")
+    db_session.add_all([tier1, tier2])
+    await db_session.flush()
+    grace_client.allowed_ticket_groups = "[]"
+    grace_client.ticket_group_tier_id = tier1.id
+    await db_session.commit()
+
+    r = await http.post(
+        "/api/clients/acme/ticket-groups/upgrade",
+        json={"group_id": "g-new@g.us", "phone": "0712345678"},
+        headers={"X-Billing-Secret": "test-secret"},
+    )
+    assert r.status_code == 400
+    main.initiate_stk_push.assert_not_called()
+    reqs = (await db_session.execute(select(GroupUpgradeRequest))).scalars().all()
+    assert reqs == []
 
 
 @pytest.mark.asyncio
@@ -352,7 +409,7 @@ async def test_mpesa_callback_confirms_group_upgrade(http, grace_client, db_sess
     from models import GroupTierPrice, GroupUpgradeRequest
     from datetime import datetime, timezone
     from decimal import Decimal
-    tier2 = GroupTierPrice(min_groups=6, max_groups=10, amount=Decimal("1200"), set_at=datetime.now(timezone.utc), set_by="admin")
+    tier2 = GroupTierPrice(name="Tier 2", min_groups=6, max_groups=10, amount=Decimal("1200"), set_at=datetime.now(timezone.utc), set_by="admin")
     db_session.add(tier2)
     await db_session.flush()
     grace_client.allowed_ticket_groups = "[]"
@@ -388,7 +445,7 @@ async def test_mpesa_callback_marks_group_upgrade_failed(http, grace_client, db_
     from models import GroupTierPrice, GroupUpgradeRequest
     from datetime import datetime, timezone
     from decimal import Decimal
-    tier2 = GroupTierPrice(min_groups=6, max_groups=10, amount=Decimal("1200"), set_at=datetime.now(timezone.utc), set_by="admin")
+    tier2 = GroupTierPrice(name="Tier 2", min_groups=6, max_groups=10, amount=Decimal("1200"), set_at=datetime.now(timezone.utc), set_by="admin")
     db_session.add(tier2)
     await db_session.flush()
     grace_client.allowed_ticket_groups = "[]"
@@ -416,7 +473,7 @@ async def test_mpesa_callback_group_upgrade_handles_deleted_client(http, db_sess
     from models import GroupTierPrice, GroupUpgradeRequest
     from datetime import datetime, timezone
     from decimal import Decimal
-    tier2 = GroupTierPrice(min_groups=6, max_groups=10, amount=Decimal("1200"), set_at=datetime.now(timezone.utc), set_by="admin")
+    tier2 = GroupTierPrice(name="Tier 2", min_groups=6, max_groups=10, amount=Decimal("1200"), set_at=datetime.now(timezone.utc), set_by="admin")
     db_session.add(tier2)
     await db_session.flush()
     req = GroupUpgradeRequest(

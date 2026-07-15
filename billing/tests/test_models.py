@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from decimal import Decimal
 import pytest
-from models import AdminUser, Client, Payment, PlanPrice, PaymentSession
+from models import AdminUser, Client, Payment, PaymentSession
 
 
 def test_admin_user_fields():
@@ -11,7 +11,7 @@ def test_admin_user_fields():
 
 def test_client_default_status():
     c = Client(
-        name="Acme", subdomain="acme", plan="monthly",
+        name="Acme", subdomain="acme",
         renewal_date=date.today(), created_at=datetime.now(timezone.utc),
     )
     assert c.status == "active"
@@ -31,7 +31,7 @@ def test_payment_session_states():
 async def test_client_has_new_billing_columns(db_session):
     now = datetime.now(timezone.utc)
     c = Client(
-        name="Test", subdomain="test", plan="monthly",
+        name="Test", subdomain="test",
         status="active", renewal_date=date.today(),
         created_at=now,
     )
@@ -50,7 +50,7 @@ async def test_client_ticket_group_columns_default_none(db_session):
     from models import Client
     from datetime import date, datetime, timezone
     c = Client(
-        name="Acme", subdomain="acme-tg", plan="monthly",
+        name="Acme", subdomain="acme-tg",
         renewal_date=date.today(), created_at=datetime.now(timezone.utc),
     )
     db_session.add(c)
@@ -66,13 +66,13 @@ async def test_group_upgrade_request_defaults_to_pending(db_session):
     from datetime import date, datetime, timezone
     from decimal import Decimal
     c = Client(
-        name="Acme", subdomain="acme-tg2", plan="monthly",
+        name="Acme", subdomain="acme-tg2",
         renewal_date=date.today(), created_at=datetime.now(timezone.utc),
     )
     db_session.add(c)
     await db_session.flush()
     tier = GroupTierPrice(
-        min_groups=6, max_groups=10, amount=Decimal("500"),
+        name="Tier 2", min_groups=6, max_groups=10, amount=Decimal("500"),
         set_at=datetime.now(timezone.utc), set_by="admin",
     )
     db_session.add(tier)

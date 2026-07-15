@@ -1203,7 +1203,15 @@ async def client_ticket_groups(subdomain: str, request: Request, db=Depends(get_
     client = await db.scalar(select(Client).where(Client.subdomain == subdomain))
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
-    tier = await db.get(GroupTierPrice, client.ticket_group_tier_id) if client.ticket_group_tier_id else None
+    # Billing tier (ticket_group_tier_id) and the ticket-groups gating tier are
+    # orthogonal: every client gets a billing tier auto-assigned at creation, but
+    # the group-count cap should only apply once the client has actually opted
+    # into ticket-groups restriction (allowed_ticket_groups is not None).
+    tier = (
+        await db.get(GroupTierPrice, client.ticket_group_tier_id)
+        if client.ticket_group_tier_id and client.allowed_ticket_groups is not None
+        else None
+    )
     return {
         "allowed_groups": json.loads(client.allowed_ticket_groups) if client.allowed_ticket_groups else None,
         "tier_limit": tier.max_groups if tier else None,
@@ -1313,6 +1321,8 @@ async def client_self_service_upgrade_tier(subdomain: str, request: Request, db=
     )
     if not next_tier:
         raise HTTPException(status_code=400, detail="Already on the highest tier")
+    if next_tier.amount <= 0:
+        raise HTTPException(status_code=400, detail="This tier hasn't been priced yet. Contact support.")
 
     upgrade_req = GroupUpgradeRequest(
         client_id=client.id, group_id=group_id, target_tier_id=next_tier.id,

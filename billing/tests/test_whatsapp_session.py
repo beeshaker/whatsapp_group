@@ -28,7 +28,7 @@ async def auth_http(db_session, monkeypatch):
 
 
 async def _make_configured_client(auth_http, db_session, subdomain):
-    await auth_http.post("/clients", data={"name": "Acme", "subdomain": subdomain, "plan": "monthly"})
+    await auth_http.post("/clients", data={"name": "Acme", "subdomain": subdomain})
     client = await db_session.scalar(select(Client).where(Client.subdomain == subdomain))
     await auth_http.post(f"/clients/{client.id}", data={
         "openwa_url": "http://acme-openwa-1:2785",
@@ -101,7 +101,7 @@ async def test_reconnect_stops_and_starts_existing_session(auth_http, db_session
 
 @pytest.mark.asyncio
 async def test_reconnect_noop_when_not_configured(auth_http, db_session):
-    await auth_http.post("/clients", data={"name": "Bare", "subdomain": "recon-bare", "plan": "monthly"})
+    await auth_http.post("/clients", data={"name": "Bare", "subdomain": "recon-bare"})
     client = await db_session.scalar(select(Client).where(Client.subdomain == "recon-bare"))
 
     with patch("main._get_session_id", new=AsyncMock(return_value=None)), \
@@ -165,7 +165,7 @@ async def test_get_session_status_returns_status_and_phone():
     from main import _get_session_status
 
     client = Client(
-        name="Acme", subdomain="status-phone", plan="monthly",
+        name="Acme", subdomain="status-phone",
         openwa_url="http://acme-openwa-1:2785", openwa_session="status-phone",
         openwa_api_key="key-123", renewal_date=date.today(),
         created_at=datetime.now(timezone.utc),

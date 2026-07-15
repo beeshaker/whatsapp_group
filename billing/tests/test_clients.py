@@ -66,11 +66,18 @@ async def test_update_client_openwa_config(auth_http, db_session):
 
 @pytest.mark.asyncio
 async def test_set_and_read_prices(auth_http):
-    r = await auth_http.post("/prices", data={"monthly_amount": "1500.00", "annual_amount": "15000.00"})
+    # Pricing is now group-tier-only (monthly/annual PlanPrice was removed) —
+    # /prices itself is a read-only page; setting prices goes through
+    # /prices/group-tiers, and the GET page should then reflect the new amounts.
+    r = await auth_http.post("/prices/group-tiers", data={
+        "tier1_name": "Tier 1", "tier1_amount": "1500.00",
+        "tier2_name": "Tier 2", "tier2_amount": "3000.00",
+        "tier3_name": "Tier 3", "tier3_amount": "5000.00",
+    })
     assert r.status_code in (200, 303)
     r2 = await auth_http.get("/prices")
     assert b"1500" in r2.content
-    assert b"15000" in r2.content
+    assert b"5000" in r2.content
 
 
 @pytest.mark.asyncio
@@ -168,7 +175,9 @@ async def test_prices_page_shows_group_tiers(auth_http):
 @pytest.mark.asyncio
 async def test_set_group_tier_prices(auth_http, db_session):
     r = await auth_http.post("/prices/group-tiers", data={
-        "tier1_amount": "500.00", "tier2_amount": "1200.00", "tier3_amount": "2500.00",
+        "tier1_name": "Tier 1", "tier1_amount": "500.00",
+        "tier2_name": "Tier 2", "tier2_amount": "1200.00",
+        "tier3_name": "Tier 3", "tier3_amount": "2500.00",
     })
     assert r.status_code in (200, 303)
     from models import GroupTierPrice
@@ -247,21 +256,23 @@ async def test_admin_remove_ticket_group_never_opted_in_is_noop(auth_http, db_se
     """Removing a group from a client that never opted in must not opt them in.
 
     Regression test: allowed_ticket_groups must stay None (not flip to "[]"),
-    and ticket_group_tier_id must stay None, preserving the invariant that
-    once allowed_ticket_groups is non-None the client has a tier assigned.
+    and ticket_group_tier_id must stay unchanged (every new client gets a
+    default billing tier auto-assigned at creation, independent of the
+    ticket-groups opt-in), preserving the invariant that once
+    allowed_ticket_groups is non-None the client has a tier assigned.
     """
     await auth_http.post("/clients", data={"name": "Acme", "subdomain": "acme-rm-noop", "plan": "monthly"})
     from models import Client
     from sqlalchemy import select
     client = await db_session.scalar(select(Client).where(Client.subdomain == "acme-rm-noop"))
     assert client.allowed_ticket_groups is None
-    assert client.ticket_group_tier_id is None
+    tier_id_before = client.ticket_group_tier_id
 
     r = await auth_http.post(f"/clients/{client.id}/ticket-groups/remove", data={"group_id": "g1@g.us"})
     assert r.status_code in (200, 303)
     await db_session.refresh(client)
     assert client.allowed_ticket_groups is None
-    assert client.ticket_group_tier_id is None
+    assert client.ticket_group_tier_id == tier_id_before
 
 
 @pytest.mark.asyncio
@@ -337,7 +348,9 @@ async def test_self_service_add_beyond_limit_returns_limit_reached(auth_http, db
     for i in range(5):
         await auth_http.post(f"/clients/{client.id}/ticket-groups/add", data={"group_id": f"g{i}@g.us"})
     await auth_http.post("/prices/group-tiers", data={
-        "tier1_amount": "500.00", "tier2_amount": "1200.00", "tier3_amount": "2500.00",
+        "tier1_name": "Tier 1", "tier1_amount": "500.00",
+        "tier2_name": "Tier 2", "tier2_amount": "1200.00",
+        "tier3_name": "Tier 3", "tier3_amount": "2500.00",
     })
 
     r = await auth_http.post(
@@ -397,6 +410,7 @@ async def test_self_service_add_rejected_for_unrestricted_client(auth_http, db_s
     from sqlalchemy import select
     client = await db_session.scalar(select(Client).where(Client.subdomain == "acme-self5"))
     assert client.allowed_ticket_groups is None
+    tier_id_before = client.ticket_group_tier_id
 
     r = await auth_http.post(
         "/api/clients/acme-self5/ticket-groups/add",
@@ -406,7 +420,10 @@ async def test_self_service_add_rejected_for_unrestricted_client(auth_http, db_s
     assert r.status_code == 403
     await db_session.refresh(client)
     assert client.allowed_ticket_groups is None
-    assert client.ticket_group_tier_id is None
+    # Billing tier is auto-assigned at client creation (orthogonal to the
+    # ticket-groups opt-in) — the real regression guard is that a rejected
+    # self-service add doesn't touch it.
+    assert client.ticket_group_tier_id == tier_id_before
 
 
 @pytest.mark.asyncio
@@ -450,7 +467,7 @@ async def test_admin_reset_cancels_pending_upgrade_request(auth_http, db_session
     assert client.allowed_ticket_groups is not None
 
     tier2 = GroupTierPrice(
-        min_groups=6, max_groups=10, amount=Decimal("1200"),
+        name="Tier 2", min_groups=6, max_groups=10, amount=Decimal("1200"),
         set_at=datetime.now(timezone.utc), set_by="admin",
     )
     db_session.add(tier2)
@@ -518,7 +535,7 @@ async def test_get_groups_returns_none_when_no_session_configured():
     from models import Client
 
     client = Client(
-        name="Acme", subdomain="acme-nogroups", plan="monthly",
+        name="Acme", subdomain="acme-nogroups",
         renewal_date=date.today(), created_at=datetime.now(timezone.utc),
     )
     result = await _get_groups(client)
@@ -533,7 +550,7 @@ async def test_get_groups_returns_parsed_list_on_success():
     from models import Client
 
     client = Client(
-        name="Acme", subdomain="acme-groupsok", plan="monthly",
+        name="Acme", subdomain="acme-groupsok",
         openwa_url="http://localhost:2001", openwa_session="acme-groupsok",
         openwa_api_key="key-123", renewal_date=date.today(),
         created_at=datetime.now(timezone.utc),
@@ -560,7 +577,7 @@ async def test_get_groups_returns_none_when_session_lookup_fails():
     from models import Client
 
     client = Client(
-        name="Acme", subdomain="acme-groupsdown", plan="monthly",
+        name="Acme", subdomain="acme-groupsdown",
         openwa_url="http://localhost:2001", openwa_session="acme-groupsdown",
         openwa_api_key="key-123", renewal_date=date.today(),
         created_at=datetime.now(timezone.utc),
@@ -581,7 +598,7 @@ async def test_get_groups_returns_none_when_groups_fetch_fails():
     from models import Client
 
     client = Client(
-        name="Acme", subdomain="acme-groupsfail", plan="monthly",
+        name="Acme", subdomain="acme-groupsfail",
         openwa_url="http://localhost:2001", openwa_session="acme-groupsfail",
         openwa_api_key="key-123", renewal_date=date.today(),
         created_at=datetime.now(timezone.utc),

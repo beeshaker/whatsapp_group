@@ -18,7 +18,6 @@ def _client(
     c.id = 1
     c.name = "Test"
     c.subdomain = "test"
-    c.plan = "monthly"
     c.status = status
     c.renewal_date = renewal_date or date.today()
     c.grace_started_at = grace_started_at
