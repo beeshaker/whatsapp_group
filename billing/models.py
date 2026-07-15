@@ -15,29 +15,12 @@ class AdminUser(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
-class PlanPrice(Base):
-    __tablename__ = "plan_prices"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    plan_type: Mapped[str] = mapped_column(String(10), nullable=False)  # "monthly" | "annual"
-    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
-    currency: Mapped[str] = mapped_column(String(5), nullable=False, default="KES")
-    set_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    set_by: Mapped[str] = mapped_column(Text, nullable=False)
-
-    def __init__(self, **kw):
-        if "currency" not in kw:
-            kw["currency"] = "KES"
-        super().__init__(**kw)
-
-
 class Client(Base):
     __tablename__ = "clients"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     subdomain: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
-    plan: Mapped[str] = mapped_column(String(10), nullable=False)  # "monthly" | "annual"
     status: Mapped[str] = mapped_column(String(15), nullable=False, default="active")
     renewal_date: Mapped[date] = mapped_column(Date, nullable=False)
     grace_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -104,6 +87,7 @@ class GroupTierPrice(Base):
     __tablename__ = "group_tier_prices"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
     min_groups: Mapped[int] = mapped_column(Integer, nullable=False)
     max_groups: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # None = no upper bound
     amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
@@ -131,6 +115,7 @@ class GroupUpgradeRequest(Base):
     phone: Mapped[str] = mapped_column(Text, nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     checkout_request_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    mpesa_transaction_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(15), nullable=False, default="pending")
     # "pending" | "confirmed" | "failed"
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

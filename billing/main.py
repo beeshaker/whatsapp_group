@@ -18,7 +18,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from auth import hash_password, verify_password, require_login
 from database import get_db, init_db, AsyncSessionLocal, engine
 from docker_manager import start_client, stop_client
-from models import AdminUser, Client, GroupTierPrice, GroupUpgradeRequest, Payment, PaymentSession, PlanPrice
+from models import AdminUser, Client, GroupTierPrice, GroupUpgradeRequest, Payment, PaymentSession
 from mpesa import initiate_stk_push
 from scheduler import start_scheduler
 from nginx_manager import add_client_port, remove_client_port
@@ -43,9 +43,9 @@ async def _seed_group_tier_prices():
             return
         now = datetime.now(timezone.utc)
         db.add_all([
-            GroupTierPrice(min_groups=1, max_groups=5, amount=Decimal("0"), set_at=now, set_by="system"),
-            GroupTierPrice(min_groups=6, max_groups=10, amount=Decimal("0"), set_at=now, set_by="system"),
-            GroupTierPrice(min_groups=11, max_groups=None, amount=Decimal("0"), set_at=now, set_by="system"),
+            GroupTierPrice(name="Tier 1", min_groups=1, max_groups=5, amount=Decimal("0"), set_at=now, set_by="system"),
+            GroupTierPrice(name="Tier 2", min_groups=6, max_groups=10, amount=Decimal("0"), set_at=now, set_by="system"),
+            GroupTierPrice(name="Tier 3", min_groups=11, max_groups=None, amount=Decimal("0"), set_at=now, set_by="system"),
         ])
         await db.commit()
 
@@ -63,7 +63,20 @@ async def _seed_admin():
 
 
 async def _migrate_db():
-    """Add new columns to existing tables without a migration framework."""
+    """Evolve existing tables/columns without a migration framework.
+
+    Additive changes (new columns) follow the original safe pattern: try an
+    ADD COLUMN, swallow the failure if it already exists. That's a harmless
+    no-op for ADD COLUMN specifically — "column already exists" is the only
+    realistic failure mode.
+
+    Destructive changes (DROP TABLE / DROP COLUMN) do NOT use that blanket
+    try/except: swallowing a real failure there would leave the app silently
+    broken (e.g. every future `INSERT INTO clients` crashing on a NOT NULL
+    constraint the model no longer supplies a value for) instead of a
+    harmless no-op. They're made idempotent explicitly instead, and any
+    unexpected failure is left to propagate and crash app boot loudly.
+    """
     async with engine.begin() as conn:
         migrations = [
             ("clients", "admin_whatsapp_phone TEXT"),
@@ -79,12 +92,42 @@ async def _migrate_db():
             ("clients", "pre_expiry_2_warned BOOLEAN DEFAULT 0"),
             ("clients", "allowed_ticket_groups TEXT"),
             ("clients", "ticket_group_tier_id INTEGER"),
+            ("group_tier_prices", "name TEXT DEFAULT ''"),
+            ("group_upgrade_requests", "mpesa_transaction_id TEXT"),
         ]
         for table, col_def in migrations:
             try:
                 await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col_def}"))
             except Exception:
                 pass  # Column already exists
+
+        # Backfill placeholder names for the 3 fixed group-count tiers. Idempotent:
+        # only touches rows whose name is still unset, so it's safe to run on every
+        # boot and won't clobber a real name an admin has since set.
+        for min_groups, placeholder in ((1, "Tier 1"), (6, "Tier 2"), (11, "Tier 3")):
+            await conn.execute(
+                text(
+                    "UPDATE group_tier_prices SET name = :placeholder "
+                    "WHERE min_groups = :min_groups AND (name IS NULL OR name = '')"
+                ),
+                {"placeholder": placeholder, "min_groups": min_groups},
+            )
+
+        # --- Destructive migrations: replaced by group-tier-only pricing. ---
+        # Naturally idempotent via IF EXISTS.
+        await conn.execute(text("DROP TABLE IF EXISTS plan_prices"))
+
+        # clients.plan predates the app's add-column migration mechanism (it was
+        # part of the original CREATE TABLE, NOT NULL with no DB-level default),
+        # so it must be dropped explicitly rather than left for SQLAlchemy to stop
+        # populating. Only attempt the drop if the column is still present, so
+        # repeated boots are a no-op; let any failure raise and crash app boot
+        # rather than swallowing it — a boot-time crash is loud and actionable,
+        # a silently-broken client-creation path is not.
+        result = await conn.execute(text("PRAGMA table_info(clients)"))
+        existing_columns = {row[1] for row in result.fetchall()}
+        if "plan" in existing_columns:
+            await conn.execute(text("ALTER TABLE clients DROP COLUMN plan"))
 
 
 @asynccontextmanager
