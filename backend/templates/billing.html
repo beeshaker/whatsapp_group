@@ -53,8 +53,8 @@
         <div class="info-card-value">{{ statement.client.name }}</div>
       </div>
       <div class="info-card">
-        <div class="info-card-label">Plan</div>
-        <div class="info-card-value" style="text-transform:capitalize">{{ statement.client.plan }}</div>
+        <div class="info-card-label">Tier</div>
+        <div class="info-card-value">{{ statement.client.tier_name or 'Not assigned' }}</div>
       </div>
       <div class="info-card">
         <div class="info-card-label">Status</div>
