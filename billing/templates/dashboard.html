@@ -35,12 +35,12 @@ a.btn{display:inline-block;padding:.4rem .9rem;background:#25d366;color:white;te
     <a href="/prices" class="btn" style="background:#075e54">Set Prices</a>
   </div>
   <table>
-    <tr><th>Name</th><th>Subdomain</th><th>Plan</th><th>Status</th><th>Renewal Date</th><th></th></tr>
+    <tr><th>Name</th><th>Subdomain</th><th>Tier</th><th>Status</th><th>Renewal Date</th><th></th></tr>
     {% for c in clients %}
     <tr>
       <td>{{ c.name }}</td>
       <td>{{ c.subdomain }}</td>
-      <td>{{ c.plan }}</td>
+      <td>{% if c.ticket_group_tier_id in tiers_by_id %}{{ tiers_by_id[c.ticket_group_tier_id].name }}{% else %}<span style="color:#c00">No tier</span>{% endif %}</td>
       <td><span class="badge {{ c.status }}">{{ c.status }}</span></td>
       <td>{{ c.renewal_date }}</td>
       <td><a href="/clients/{{ c.id }}">View &#8594;</a></td>

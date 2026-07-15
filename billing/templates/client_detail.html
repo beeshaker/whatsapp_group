@@ -47,7 +47,9 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
 
 <div class="card">
   <h2>{{ client.name }} <span class="badge {{ client.status }}">{{ client.status }}</span></h2>
-  <p style="color:#666">Subdomain: <strong>{{ client.subdomain }}</strong> &nbsp;&middot;&nbsp; Plan: <strong>{{ client.plan }}</strong> &nbsp;&middot;&nbsp; Renewal: <strong>{{ client.renewal_date }}</strong></p>
+  <p style="color:#666">Subdomain: <strong>{{ client.subdomain }}</strong> &nbsp;&middot;&nbsp;
+    {% if current_tier %}Tier: <strong>{{ current_tier.name }} (KES {{ current_tier.amount }})</strong>{% else %}<strong style="color:#c00">&#9888; No billing tier assigned</strong>{% endif %}
+    &nbsp;&middot;&nbsp; Renewal: <strong>{{ client.renewal_date }}</strong></p>
 
   <form method="post" action="/clients/{{ client.id }}">
     <label>WhatsApp Group ID (superusers group)</label>
@@ -69,10 +71,11 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
     <input name="admin_whatsapp_phone" value="{{ client.admin_whatsapp_phone or '' }}" placeholder="0712345678">
     <label>WhatsApp Group Invite Link</label>
     <input name="whatsapp_invite_link" value="{{ client.whatsapp_invite_link or '' }}" placeholder="https://chat.whatsapp.com/...">
-    <label>Plan</label>
-    <select name="plan">
-      <option value="monthly" {% if client.plan == 'monthly' %}selected{% endif %}>Monthly</option>
-      <option value="annual" {% if client.plan == 'annual' %}selected{% endif %}>Annual</option>
+    <label>Billing Tier</label>
+    <select name="ticket_group_tier_id">
+      {% for t in group_tiers %}
+      <option value="{{ t.id }}" {% if current_tier and t.id == current_tier.id %}selected{% endif %}>{{ t.name }} &mdash; KES {{ t.amount }}</option>
+      {% endfor %}
     </select>
     <label>Renewal Date</label>
     <input type="date" name="renewal_date" value="{{ client.renewal_date }}">
@@ -172,18 +175,19 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
 <div class="card">
   <h3 style="margin-top:0">Payment History</h3>
   <table>
-    <tr><th>Date</th><th>Phone</th><th>Amount</th><th>MPesa Receipt</th><th>Status</th><th>Period</th></tr>
+    <tr><th>Date</th><th>Type</th><th>Phone</th><th>Amount</th><th>MPesa Receipt</th><th>Status</th><th>Period</th></tr>
     {% for p in payments %}
     <tr>
-      <td>{{ p.initiated_at.strftime('%Y-%m-%d %H:%M') }}</td>
+      <td>{{ p.date }}</td>
+      <td>{{ 'Renewal' if p.kind == 'renewal' else 'Tier Upgrade' }}</td>
       <td>{{ p.phone }}</td>
       <td>KES {{ p.amount }}</td>
-      <td>{{ p.mpesa_transaction_id or '&#8212;' }}</td>
+      <td>{{ p.receipt or '&#8212;' }}</td>
       <td class="{{ p.status }}">{{ p.status }}</td>
       <td>{{ p.period_start }} &#8594; {{ p.period_end }}</td>
     </tr>
     {% else %}
-    <tr><td colspan="6" style="text-align:center;color:#888;padding:1rem">No payments yet</td></tr>
+    <tr><td colspan="7" style="text-align:center;color:#888;padding:1rem">No payments yet</td></tr>
     {% endfor %}
   </table>
 </div>

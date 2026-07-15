@@ -23,10 +23,11 @@ button{padding:.6rem 1.2rem;background:#25d366;color:white;border:none;border-ra
   <input name="backend_port" type="number" placeholder="8001">
   <label>Admin WhatsApp Phone (optional)</label>
   <input name="admin_whatsapp_phone" placeholder="0712345678">
-  <label>Plan</label>
-  <select name="plan">
-    <option value="monthly">Monthly</option>
-    <option value="annual">Annual</option>
+  <label>Starting Tier</label>
+  <select name="ticket_group_tier_id">
+    {% for t in group_tiers %}
+    <option value="{{ t.id }}" {% if loop.first %}selected{% endif %}>{{ t.name }} &mdash; KES {{ t.amount }}</option>
+    {% endfor %}
   </select>
   <button type="submit">Create Client</button>
 </form>

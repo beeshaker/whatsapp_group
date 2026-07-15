@@ -186,8 +186,10 @@ def _next_renewal() -> date:
 async def dashboard(request: Request, username: str = Depends(require_login), db=Depends(get_db)):
     clients = (await db.execute(select(Client).order_by(Client.name))).scalars().all()
     group_tiers = await _get_or_seed_group_tiers(db)
+    tiers_by_id = {t.id: t for t in group_tiers}
     return templates.TemplateResponse(request, "dashboard.html", {
-        "request": request, "clients": clients, "group_tiers": group_tiers, "username": username,
+        "request": request, "clients": clients, "group_tiers": group_tiers,
+        "tiers_by_id": tiers_by_id, "username": username,
     })
 
 
