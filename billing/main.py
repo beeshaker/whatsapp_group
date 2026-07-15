@@ -36,18 +36,14 @@ SECRET_KEY = os.getenv("SECRET_KEY", "billing-secret-change-in-prod")
 
 
 async def _seed_group_tier_prices():
-    """Seed the three fixed, non-overlapping group-count tiers if absent."""
+    """Seed the three fixed, non-overlapping group-count tiers if absent.
+
+    Thin boot-time wrapper around _get_or_seed_group_tiers() so the seed-row
+    definitions (names, group ranges, amount 0) live in exactly one place rather
+    than being duplicated between boot-time and request-scoped seeding.
+    """
     async with AsyncSessionLocal() as db:
-        existing = (await db.execute(select(GroupTierPrice))).scalars().all()
-        if existing:
-            return
-        now = datetime.now(timezone.utc)
-        db.add_all([
-            GroupTierPrice(name="Tier 1", min_groups=1, max_groups=5, amount=Decimal("0"), set_at=now, set_by="system"),
-            GroupTierPrice(name="Tier 2", min_groups=6, max_groups=10, amount=Decimal("0"), set_at=now, set_by="system"),
-            GroupTierPrice(name="Tier 3", min_groups=11, max_groups=None, amount=Decimal("0"), set_at=now, set_by="system"),
-        ])
-        await db.commit()
+        await _get_or_seed_group_tiers(db)
 
 
 async def _seed_admin():
@@ -181,22 +177,25 @@ async def logout(request: Request):
     return RedirectResponse("/login", status_code=303)
 
 
-def _next_renewal(plan: str) -> date:
-    return date.today() + timedelta(days=30 if plan == "monthly" else 365)
+def _next_renewal() -> date:
+    return date.today() + timedelta(days=30)
 
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request, username: str = Depends(require_login), db=Depends(get_db)):
     clients = (await db.execute(select(Client).order_by(Client.name))).scalars().all()
-    prices = {p.plan_type: p for p in (await db.execute(select(PlanPrice))).scalars().all()}
+    group_tiers = await _get_or_seed_group_tiers(db)
     return templates.TemplateResponse(request, "dashboard.html", {
-        "request": request, "clients": clients, "prices": prices, "username": username,
+        "request": request, "clients": clients, "group_tiers": group_tiers, "username": username,
     })
 
 
 @app.get("/clients/new", response_class=HTMLResponse)
-async def new_client_form(request: Request, username: str = Depends(require_login)):
-    return templates.TemplateResponse(request, "client_form.html", {"request": request, "error": None})
+async def new_client_form(request: Request, username: str = Depends(require_login), db=Depends(get_db)):
+    group_tiers = await _get_or_seed_group_tiers(db)
+    return templates.TemplateResponse(request, "client_form.html", {
+        "request": request, "error": None, "group_tiers": group_tiers,
+    })
 
 
 @app.post("/clients", response_class=HTMLResponse)
@@ -204,24 +203,38 @@ async def create_client(
     request: Request,
     name: str = Form(...),
     subdomain: str = Form(...),
-    plan: str = Form(...),
+    ticket_group_tier_id: str = Form(default=""),
     admin_whatsapp_phone: str = Form(default=""),
     backend_port: str = Form(default=""),
     username: str = Depends(require_login),
     db=Depends(get_db),
 ):
     subdomain = subdomain.lower().strip()
+    group_tiers = await _get_or_seed_group_tiers(db)
     if await db.scalar(select(Client).where(Client.subdomain == subdomain)):
         return templates.TemplateResponse(request, "client_form.html", {
             "request": request,
             "error": f"Subdomain '{subdomain}' already exists",
+            "group_tiers": group_tiers,
         })
     port_int = int(backend_port.strip()) if backend_port.strip().isdigit() else None
+    # New clients get a billing tier auto-assigned so the fixed 30-day renewal
+    # billing works from day one. Default to the lowest tier when the form leaves
+    # it blank/invalid. This deliberately does NOT touch allowed_ticket_groups:
+    # tier assignment and the ticket-groups allow-list are orthogonal concerns —
+    # setting the allow-list here would silently block all ticket ingestion at the
+    # backend gate (allowed_groups is not None => restricted). Leave it None.
+    tier_id = group_tiers[0].id
+    if ticket_group_tier_id.strip().isdigit():
+        chosen = int(ticket_group_tier_id.strip())
+        if any(t.id == chosen for t in group_tiers):
+            tier_id = chosen
     client = Client(
-        name=name, subdomain=subdomain, plan=plan, status="active",
-        renewal_date=_next_renewal(plan), created_at=datetime.now(timezone.utc),
+        name=name, subdomain=subdomain, status="active",
+        renewal_date=_next_renewal(), created_at=datetime.now(timezone.utc),
         admin_whatsapp_phone=admin_whatsapp_phone.strip() or None,
         backend_port=port_int,
+        ticket_group_tier_id=tier_id,
     )
     db.add(client)
     await db.commit()
@@ -243,8 +256,14 @@ async def client_detail(
     payments = (await db.execute(
         select(Payment).where(Payment.client_id == client_id).order_by(Payment.initiated_at.desc())
     )).scalars().all()
+    group_tiers = await _get_or_seed_group_tiers(db)
+    current_tier = (
+        await db.get(GroupTierPrice, client.ticket_group_tier_id)
+        if client.ticket_group_tier_id else None
+    )
     return templates.TemplateResponse(request, "client_detail.html", {
-        "request": request, "client": client, "payments": payments, "username": username,
+        "request": request, "client": client, "payments": payments,
+        "group_tiers": group_tiers, "current_tier": current_tier, "username": username,
     })
 
 
@@ -257,7 +276,7 @@ async def update_client(
     openwa_api_key: str = Form(default=""),
     docker_project: str = Form(default=""),
     renewal_date: str = Form(default=""),
-    plan: str = Form(default=""),
+    ticket_group_tier_id: str = Form(default=""),
     admin_whatsapp_phone: str = Form(default=""),
     whatsapp_invite_link: str = Form(default=""),
     backend_port: str = Form(default=""),
@@ -280,8 +299,14 @@ async def update_client(
         client.docker_project = docker_project.strip()
     if renewal_date:
         client.renewal_date = date.fromisoformat(renewal_date)
-    if plan in ("monthly", "annual"):
-        client.plan = plan
+    if ticket_group_tier_id.strip().isdigit():
+        # Admin (re)assigns the client's billing tier directly. This is the
+        # mechanism for manually assigning tiers to legacy clients (which are not
+        # auto-migrated and start at ticket_group_tier_id=None). Only accept an id
+        # that maps to a real tier row; ignore anything else.
+        tid = int(ticket_group_tier_id.strip())
+        if await db.get(GroupTierPrice, tid):
+            client.ticket_group_tier_id = tid
     if data_retention_days.strip().isdigit():
         val = int(data_retention_days.strip())
         if 1 <= val <= 365:
@@ -398,14 +423,19 @@ async def send_invite(
 
 
 async def _get_or_seed_group_tiers(db) -> list[GroupTierPrice]:
+    """Return the 3 fixed group-count tiers ordered by min_groups, seeding them
+    (placeholder names, amount 0) if the table is empty. This is the single
+    source of truth for the seed rows — both boot-time seeding
+    (_seed_group_tier_prices) and every request-scoped tier lookup route it here.
+    """
     tiers = (await db.execute(select(GroupTierPrice).order_by(GroupTierPrice.min_groups))).scalars().all()
     if tiers:
         return list(tiers)
     now = datetime.now(timezone.utc)
     tiers = [
-        GroupTierPrice(min_groups=1, max_groups=5, amount=Decimal("0"), set_at=now, set_by="system"),
-        GroupTierPrice(min_groups=6, max_groups=10, amount=Decimal("0"), set_at=now, set_by="system"),
-        GroupTierPrice(min_groups=11, max_groups=None, amount=Decimal("0"), set_at=now, set_by="system"),
+        GroupTierPrice(name="Tier 1", min_groups=1, max_groups=5, amount=Decimal("0"), set_at=now, set_by="system"),
+        GroupTierPrice(name="Tier 2", min_groups=6, max_groups=10, amount=Decimal("0"), set_at=now, set_by="system"),
+        GroupTierPrice(name="Tier 3", min_groups=11, max_groups=None, amount=Decimal("0"), set_at=now, set_by="system"),
     ]
     db.add_all(tiers)
     await db.commit()
@@ -416,74 +446,53 @@ async def _get_or_seed_group_tiers(db) -> list[GroupTierPrice]:
 
 @app.get("/prices", response_class=HTMLResponse)
 async def prices_page(request: Request, username: str = Depends(require_login), db=Depends(get_db)):
-    prices = {p.plan_type: p for p in (await db.execute(select(PlanPrice))).scalars().all()}
     group_tiers = await _get_or_seed_group_tiers(db)
     return templates.TemplateResponse(request, "prices.html", {
-        "request": request, "prices": prices, "group_tiers": group_tiers, "username": username,
+        "request": request, "group_tiers": group_tiers, "username": username,
     })
 
 
 @app.post("/prices/group-tiers", response_class=HTMLResponse)
 async def set_group_tier_prices(
     request: Request,
+    tier1_name: str = Form(...),
     tier1_amount: str = Form(...),
+    tier2_name: str = Form(...),
     tier2_amount: str = Form(...),
+    tier3_name: str = Form(...),
     tier3_amount: str = Form(...),
     username: str = Depends(require_login),
     db=Depends(get_db),
 ):
     now = datetime.now(timezone.utc)
     group_tiers = await _get_or_seed_group_tiers(db)
+    names = [tier1_name.strip(), tier2_name.strip(), tier3_name.strip()]
+
+    def _reject(msg: str):
+        return templates.TemplateResponse(request, "prices.html", {
+            "request": request, "group_tiers": group_tiers, "username": username,
+            "group_tier_error": msg,
+        })
+
+    # Group-count ranges are fixed; only name + amount are editable here.
+    if any(not n for n in names):
+        return _reject("Tier names cannot be blank.")
+    if len({n.lower() for n in names}) != len(names):
+        return _reject("Tier names must be unique.")
     try:
         amounts = [Decimal(tier1_amount), Decimal(tier2_amount), Decimal(tier3_amount)]
-        if any(v < 0 for v in amounts):
-            raise ValueError("Amount must be non-negative")
     except Exception as e:
-        prices = {p.plan_type: p for p in (await db.execute(select(PlanPrice))).scalars().all()}
-        return templates.TemplateResponse(request, "prices.html", {
-            "prices": prices, "group_tiers": group_tiers, "username": username,
-            "group_tier_error": f"Invalid amount: {e}",
-        })
-    for tier, amount in zip(group_tiers, amounts):
+        return _reject(f"Invalid amount: {e}")
+    if any(v <= 0 for v in amounts):
+        return _reject("Each tier amount must be greater than zero.")
+    if not (amounts[0] <= amounts[1] <= amounts[2]):
+        return _reject("Higher tiers cannot cost less than lower tiers.")
+
+    for tier, name, amount in zip(group_tiers, names, amounts):
+        tier.name = name
         tier.amount = amount
         tier.set_at = now
         tier.set_by = username
-    await db.commit()
-    return RedirectResponse("/prices", status_code=303)
-
-
-@app.post("/prices", response_class=HTMLResponse)
-async def set_prices(
-    request: Request,
-    monthly_amount: str = Form(...),
-    annual_amount: str = Form(...),
-    username: str = Depends(require_login),
-    db=Depends(get_db),
-):
-    now = datetime.now(timezone.utc)
-    try:
-        amounts = {
-            "monthly": Decimal(monthly_amount),
-            "annual": Decimal(annual_amount),
-        }
-        if any(v < 0 for v in amounts.values()):
-            raise ValueError("Amount must be non-negative")
-    except Exception as e:
-        prices = {p.plan_type: p for p in (await db.execute(select(PlanPrice))).scalars().all()}
-        return templates.TemplateResponse(request, "prices.html", {
-            "prices": prices, "username": username, "error": f"Invalid amount: {e}",
-        })
-    for plan_type, amount in amounts.items():
-        existing = await db.scalar(select(PlanPrice).where(PlanPrice.plan_type == plan_type))
-        if existing:
-            existing.amount = amount
-            existing.set_at = now
-            existing.set_by = username
-        else:
-            db.add(PlanPrice(
-                plan_type=plan_type, amount=amount,
-                currency="KES", set_at=now, set_by=username,
-            ))
     await db.commit()
     return RedirectResponse("/prices", status_code=303)
 
@@ -506,8 +515,27 @@ def _normalize_phone(raw: str) -> str | None:
     return None
 
 
-def _period_end(plan: str, start: date) -> date:
-    return start + timedelta(days=30 if plan == "monthly" else 365)
+def _period_end(start: date) -> date:
+    return start + timedelta(days=30)
+
+
+async def _resolve_renewal_charge(client: Client, db) -> tuple["Decimal | None", "GroupTierPrice | None"]:
+    """Resolve a client's fixed 30-day renewal charge from its assigned group tier.
+
+    Returns (amount, tier). A None amount signals the client CANNOT be charged and
+    the caller must fail gracefully (inform the user, no STK push) — this happens
+    when either:
+      * no tier is assigned (legacy clients aren't auto-migrated to a tier), or
+      * the assigned tier is still unpriced (tiers seed at amount 0 until an admin
+        sets real prices via /prices) — charging KES 0 is never valid.
+    """
+    tier = (
+        await db.get(GroupTierPrice, client.ticket_group_tier_id)
+        if client.ticket_group_tier_id else None
+    )
+    if tier is None or tier.amount is None or tier.amount <= 0:
+        return None, tier
+    return tier.amount, tier
 
 
 # ---------------------------------------------------------------------------
@@ -582,9 +610,13 @@ async def _process_client_message(client: Client, data: dict, db) -> dict:
                 }
                 for p in all_payments
             ]
+            tier = (
+                await db.get(GroupTierPrice, client.ticket_group_tier_id)
+                if client.ticket_group_tier_id else None
+            )
             pdf_bytes = generate_statement(
                 client_name=client.name,
-                client_plan=client.plan,
+                client_plan=tier.name if tier else "Unassigned",
                 client_status=client.status,
                 renewal_date=client.renewal_date,
                 payments=history,
@@ -630,13 +662,16 @@ async def _process_client_message(client: Client, data: dict, db) -> dict:
             await send_to_group(client, "❌ Invalid number. Please reply with your M-Pesa number (e.g. 0712345678):")
             return {"ok": True}
 
-        prices = {p.plan_type: p for p in (await db.execute(select(PlanPrice))).scalars().all()}
-        if client.plan not in prices:
-            await send_to_group(client, "❌ Payment is not configured yet. Please contact your administrator.")
+        amount, tier = await _resolve_renewal_charge(client, db)
+        if amount is None:
+            await send_to_group(
+                client,
+                "❌ Your billing tier isn't set up yet, so we can't process a payment. "
+                "Please contact your administrator to configure your pricing.",
+            )
             await db.delete(active_session)
             await db.commit()
             return {"ok": True}
-        amount = prices[client.plan].amount
 
         active_session.state = "awaiting_confirm"
         active_session.phone = phone
@@ -645,7 +680,7 @@ async def _process_client_message(client: Client, data: dict, db) -> dict:
 
         await send_to_group(
             client,
-            f"💳 You'll be charged *KES {amount}* for your {client.plan} plan to {phone}.\n"
+            f"💳 You'll be charged *KES {amount}* for your *{tier.name}* tier to {phone}.\n"
             f"Reply *YES* to confirm or *NO* to cancel.",
         )
         return {"ok": True}
@@ -663,18 +698,21 @@ async def _process_client_message(client: Client, data: dict, db) -> dict:
             return {"ok": True}
 
         phone = active_session.phone
-        prices = {p.plan_type: p for p in (await db.execute(select(PlanPrice))).scalars().all()}
-        if client.plan not in prices:
-            await send_to_group(client, "❌ Payment is not configured yet. Please contact your administrator.")
+        amount, tier = await _resolve_renewal_charge(client, db)
+        if amount is None:
+            await send_to_group(
+                client,
+                "❌ Your billing tier isn't set up yet, so we can't process a payment. "
+                "Please contact your administrator to configure your pricing.",
+            )
             await db.delete(active_session)
             await db.commit()
             return {"ok": True}
-        amount = prices[client.plan].amount
 
         today = date.today()
         payment = Payment(
             client_id=client.id, phone=phone, amount=amount, status="pending",
-            initiated_at=now, period_start=today, period_end=_period_end(client.plan, today),
+            initiated_at=now, period_start=today, period_end=_period_end(today),
         )
         db.add(payment)
         await db.flush()
@@ -741,6 +779,14 @@ async def mpesa_callback(request: Request, db=Depends(get_db)):
     if not checkout_id:
         return {"ResultCode": 0, "ResultDesc": "Accepted"}
     result_code = callback.get("ResultCode")
+    # Extract the M-Pesa receipt up-front so BOTH the renewal branch and the
+    # tier-upgrade branch can capture it. Previously only the renewal branch
+    # pulled it, so a confirmed GroupUpgradeRequest never recorded its receipt.
+    mpesa_id = next(
+        (item["Value"] for item in callback.get("CallbackMetadata", {}).get("Item", [])
+         if item["Name"] == "MpesaReceiptNumber"),
+        None,
+    )
 
     session = await db.scalar(
         select(PaymentSession).where(PaymentSession.checkout_request_id == checkout_id)
@@ -769,6 +815,7 @@ async def mpesa_callback(request: Request, db=Depends(get_db)):
                 groups.append(upgrade_req.group_id)
             client.allowed_ticket_groups = json.dumps(groups)
             client.ticket_group_tier_id = upgrade_req.target_tier_id
+            upgrade_req.mpesa_transaction_id = mpesa_id
             upgrade_req.status = "confirmed"
         else:
             upgrade_req.status = "failed"
@@ -783,11 +830,6 @@ async def mpesa_callback(request: Request, db=Depends(get_db)):
     payment = await db.get(Payment, session.payment_id) if session.payment_id else None
 
     if result_code == 0:
-        mpesa_id = next(
-            (item["Value"] for item in callback.get("CallbackMetadata", {}).get("Item", [])
-             if item["Name"] == "MpesaReceiptNumber"),
-            None,
-        )
         if payment:
             payment.status = "confirmed"
             payment.mpesa_transaction_id = mpesa_id
@@ -799,7 +841,7 @@ async def mpesa_callback(request: Request, db=Depends(get_db)):
         client.last_warning_sent_at = None
         client.pre_expiry_14_warned = False
         client.pre_expiry_2_warned = False
-        client.renewal_date = payment.period_end if payment else _period_end(client.plan, date.today())
+        client.renewal_date = payment.period_end if payment else _period_end(date.today())
         await db.delete(session)
         await db.commit()
 
@@ -848,9 +890,13 @@ async def mpesa_callback(request: Request, db=Depends(get_db)):
                 }
                 for p in all_payments
             ]
+            tier_row = (
+                await db.get(GroupTierPrice, client.ticket_group_tier_id)
+                if client.ticket_group_tier_id else None
+            )
             pdf_bytes = generate_statement(
                 client_name=client.name,
-                client_plan=client.plan,
+                client_plan=tier_row.name if tier_row else "Unassigned",
                 client_status=client.status,
                 renewal_date=client.renewal_date,
                 payments=history,
@@ -1151,10 +1197,15 @@ async def client_statement(subdomain: str, request: Request, db=Depends(get_db))
     payments = (await db.execute(
         select(Payment).where(Payment.client_id == client.id).order_by(Payment.initiated_at.desc())
     )).scalars().all()
+    tier = (
+        await db.get(GroupTierPrice, client.ticket_group_tier_id)
+        if client.ticket_group_tier_id else None
+    )
     return {
         "client": {
             "name": client.name,
-            "plan": client.plan,
+            "tier_name": tier.name if tier else None,
+            "tier_amount": str(tier.amount) if tier else None,
             "status": client.status,
             "renewal_date": str(client.renewal_date),
         },
