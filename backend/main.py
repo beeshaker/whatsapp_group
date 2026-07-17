@@ -160,6 +160,7 @@ BILLING_WEBHOOK_SECRET = os.getenv("BILLING_WEBHOOK_SECRET", "")
 CLIENT_SUBDOMAIN = os.getenv("CLIENT_SUBDOMAIN", "")
 FLEET_PLATE_MODE = os.getenv("FLEET_PLATE_MODE", "false").lower() == "true"
 LEAD_MODE = os.getenv("LEAD_MODE", "false").lower() == "true"
+_LEAD_INITIAL_STATUS = "new"
 try:
     SUMMARY_SCHEDULE_HOUR = int(os.getenv("SUMMARY_SCHEDULE_HOUR", "8"))
 except ValueError:
@@ -672,15 +673,22 @@ async def _handle_text_ingest(
             property_name=group_name,
             reporter_name=reporter_name,
             reporter_phone=reporter_phone,
-            message_body=issue["message_snippet"],
+            message_body=message_body if LEAD_MODE else issue["message_snippet"],
             category=issue["category"],
             vehicle_plate=routing["vehicle_plate"],
             priority=issue["priority"],
             confidence=issue["confidence"],
-            status="review",
+            status=_LEAD_INITIAL_STATUS if LEAD_MODE else "review",
             received_at=received_at,
             message_id=message_id,
             issue_index=issue_index,
+            lead_agent=issue.get("lead_agent"),
+            contact_name=issue.get("contact_name"),
+            contact_phone=issue.get("contact_phone"),
+            lead_location=issue.get("lead_location"),
+            lead_budget=issue.get("lead_budget"),
+            transaction_type=issue.get("transaction_type"),
+            lead_source=issue.get("lead_source"),
         )
         try:
             db.add(incident)
@@ -688,7 +696,7 @@ async def _handle_text_ingest(
             db.add(IncidentStatusHistory(
                 incident_id=incident.id,
                 from_status=None,
-                to_status="review",
+                to_status=_LEAD_INITIAL_STATUS if LEAD_MODE else "review",
                 changed_at=received_at,
             ))
             await db.commit()
@@ -804,15 +812,22 @@ async def _handle_media_ingest(
                         property_name=group_name,
                         reporter_name=reporter_name,
                         reporter_phone=reporter_phone,
-                        message_body=issue["message_snippet"],
+                        message_body=caption if LEAD_MODE else issue["message_snippet"],
                         category=issue["category"],
                         vehicle_plate=routing["vehicle_plate"],
                         priority=issue["priority"],
                         confidence=issue["confidence"],
-                        status="review",
+                        status=_LEAD_INITIAL_STATUS if LEAD_MODE else "review",
                         received_at=received_at,
                         message_id=message_id,
                         issue_index=issue_index,
+                        lead_agent=issue.get("lead_agent"),
+                        contact_name=issue.get("contact_name"),
+                        contact_phone=issue.get("contact_phone"),
+                        lead_location=issue.get("lead_location"),
+                        lead_budget=issue.get("lead_budget"),
+                        transaction_type=issue.get("transaction_type"),
+                        lead_source=issue.get("lead_source"),
                     )
                     try:
                         async with db.begin_nested():
