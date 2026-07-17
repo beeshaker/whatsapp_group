@@ -159,6 +159,7 @@ BILLING_SERVICE_URL = os.getenv("BILLING_SERVICE_URL", "")
 BILLING_WEBHOOK_SECRET = os.getenv("BILLING_WEBHOOK_SECRET", "")
 CLIENT_SUBDOMAIN = os.getenv("CLIENT_SUBDOMAIN", "")
 FLEET_PLATE_MODE = os.getenv("FLEET_PLATE_MODE", "false").lower() == "true"
+LEAD_MODE = os.getenv("LEAD_MODE", "false").lower() == "true"
 try:
     SUMMARY_SCHEDULE_HOUR = int(os.getenv("SUMMARY_SCHEDULE_HOUR", "8"))
 except ValueError:
@@ -453,7 +454,14 @@ async def _route_issue(issue: dict, full_text: str, open_tickets: list[dict]) ->
     classify_update_or_new call for this issue with a deterministic exact-plate
     match — mixing a reliable identity signal with a fuzzy LLM judgment risks
     threading two different bikes' issues together.
+
+    When LEAD_MODE is on, every enquiry is always a new lead — there's no
+    natural "update to an existing lead" concept the way a recurring
+    maintenance fault has one.
     """
+    if LEAD_MODE:
+        return {"routing": "new", "vehicle_plate": None}
+
     if FLEET_PLATE_MODE:
         plate = resolve_plate_for_issue(issue["message_snippet"], full_text)
         if plate is not None:

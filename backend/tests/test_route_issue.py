@@ -65,3 +65,25 @@ async def test_route_issue_always_new_when_no_plate_resolved(monkeypatch):
         result = await main_module._route_issue(issue, issue["message_snippet"], open_tickets)
     mock_router.assert_not_called()
     assert result == {"routing": "new", "vehicle_plate": None}
+
+
+async def test_route_issue_always_new_when_lead_mode_on(monkeypatch):
+    monkeypatch.setenv("LEAD_MODE", "true")
+    importlib.reload(main_module)
+    issue = {"message_snippet": "looking for a 2br apartment for rent"}
+    open_tickets = [{"id": 1, "category": "apartment", "message_body": "old lead", "vehicle_plate": None}]
+    with patch("main.classify_update_or_new", new=AsyncMock()) as mock_router:
+        result = await main_module._route_issue(issue, issue["message_snippet"], open_tickets)
+    mock_router.assert_not_called()
+    assert result == {"routing": "new", "vehicle_plate": None}
+
+
+async def test_route_issue_lead_mode_ignores_fleet_plate_mode(monkeypatch):
+    monkeypatch.setenv("LEAD_MODE", "true")
+    monkeypatch.setenv("FLEET_PLATE_MODE", "true")
+    importlib.reload(main_module)
+    issue = {"message_snippet": "looking for a plot, ref KMGQ947Z"}
+    with patch("main.classify_update_or_new", new=AsyncMock()) as mock_router:
+        result = await main_module._route_issue(issue, issue["message_snippet"], [])
+    mock_router.assert_not_called()
+    assert result == {"routing": "new", "vehicle_plate": None}
