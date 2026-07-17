@@ -215,3 +215,36 @@ async def test_closed_lead_appears_in_archive_not_live(client):
     assert f'data-id="{incident_id}"' not in live.text
     archived = await client.get("/archive")
     assert f'data-id="{incident_id}"' in archived.text
+
+
+async def test_list_and_detail_endpoints_expose_lead_fields(client):
+    body = "@~Jabeen kindly contact Samson 0746823554 for a 4br, budget 3000usd (Website Enquiry)"
+    classification = {"issues": [_lead_issue("4br for Samson")]}
+    with patch("main.classify_message", new=AsyncMock(return_value=classification)):
+        with patch("main.push_incident", new=AsyncMock()):
+            await client.post(
+                "/api/v1/ops/ingest", headers={"X-API-Key": GATEWAY_TOKEN}, json=_payload("lead-fields-1", body)
+            )
+    from sqlalchemy import select
+    from models import Incident
+    from tests.conftest import _TestSession
+    async with _TestSession() as session:
+        result = await session.execute(select(Incident).where(Incident.message_id == "lead-fields-1"))
+        incident_id = result.scalar_one().id
+
+    listed = await client.get("/incidents")
+    row = next(i for i in listed.json() if i["id"] == incident_id)
+    assert row["lead_agent"] == "Jabeen"
+    assert row["contact_name"] == "Samson"
+    assert row["contact_phone"] == "254746823554"
+    assert row["lead_location"] == "General Mathenge"
+    assert row["lead_budget"] == "3000usd"
+    assert row["transaction_type"] == "rent"
+    assert row["lead_source"] == "Website Enquiry"
+
+    detail = await client.get(f"/incidents/{incident_id}")
+    detail_body = detail.json()
+    assert detail_body["lead_agent"] == "Jabeen"
+    assert detail_body["contact_name"] == "Samson"
+    assert detail_body["contact_phone"] == "254746823554"
+    assert detail_body["message_body"] == body
