@@ -15,6 +15,13 @@ CLASSIFIER_CONTEXT = os.getenv(
     "You are classifying WhatsApp messages from a property management company.\n"
     "Properties include residential blocks, lifts, water systems, electrical infrastructure.",
 )
+
+from lead_fields import extract_agent_tag, extract_source_tag, is_valid_phone, normalize_phone, resolve_phone_for_issue
+
+LEAD_MODE = os.getenv("LEAD_MODE", "false").lower() == "true"
+LEAD_DEFAULT_PRIORITY = "low"
+_VALID_TRANSACTION_TYPES = {"sale", "rent", "unknown"}
+
 try:
     OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "10"))
 except ValueError:
@@ -49,7 +56,96 @@ def _build_prompt(message: str, categories: list[str]) -> str:
     )
 
 
+def _build_lead_prompt(message: str, categories: list[str]) -> str:
+    safe_message = json.dumps(message)
+    pipe_cats = "|".join(categories)
+    return (
+        f"{CLASSIFIER_CONTEXT}\n"
+        "A message may describe ONE or MULTIPLE distinct property enquiries, each usually "
+        "tagging a different agent with @~Name.\n"
+        "An ENQUIRY is a request from a prospective client to view, rent, or buy a property.\n"
+        "NOT an enquiry: general chat, greetings, scheduling discussions, acknowledgements with "
+        "no new property request.\n\n"
+        "Return ONLY valid JSON, no explanation, no markdown — a JSON array, one entry per "
+        "distinct enquiry (empty array if there is no enquiry):\n"
+        "[\n"
+        "  {\n"
+        '    "message_snippet": "<the relevant portion of the message for this enquiry>",\n'
+        f'    "category": "{pipe_cats}",\n'
+        "    \"contact_name\": \"<the prospective client's name, or empty string if not stated>\",\n"
+        '    "lead_location": "<desired area, or empty string if not stated>",\n'
+        '    "lead_budget": "<budget exactly as written, or empty string if not stated>",\n'
+        '    "transaction_type": "sale|rent|unknown",\n'
+        '    "confidence": 0.0 to 1.0\n'
+        "  }\n"
+        "]\n\n"
+        f"Message: {safe_message}"
+    )
+
+
+async def classify_lead_message(message: str, db: AsyncSession) -> dict:
+    try:
+        from models import IncidentCategory
+        result = await db.execute(select(IncidentCategory))
+        slugs = [row.slug for row in result.scalars().all()]
+        if not slugs:
+            slugs = ["other"]
+        valid_set = set(slugs)
+        prompt = _build_lead_prompt(message, slugs)
+        async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
+            response = await client.post(
+                f"{OLLAMA_HOST}/api/generate",
+                json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+            )
+            response.raise_for_status()
+            raw = response.json().get("response", "")
+            parsed = json.loads(raw)
+            if not isinstance(parsed, list):
+                return _FALLBACK.copy()
+
+            issues = []
+            for item in parsed:
+                if not isinstance(item, dict):
+                    continue
+                raw_category = str(item.get("category", "other")).lower()
+                raw_confidence = float(item.get("confidence", 0.0))
+                raw_txn = str(item.get("transaction_type", "unknown")).lower()
+                snippet = str(item.get("message_snippet", message))
+
+                phone = resolve_phone_for_issue(snippet, message)
+                if phone is None:
+                    llm_phone = str(item.get("contact_phone", "")).strip()
+                    if llm_phone and is_valid_phone(llm_phone):
+                        phone = normalize_phone(llm_phone)
+
+                issues.append({
+                    "category": raw_category if raw_category in valid_set else "other",
+                    "priority": LEAD_DEFAULT_PRIORITY,
+                    "confidence": max(0.0, min(1.0, raw_confidence)),
+                    "message_snippet": snippet,
+                    "contact_name": str(item.get("contact_name", "")).strip() or None,
+                    "lead_location": str(item.get("lead_location", "")).strip() or None,
+                    "lead_budget": str(item.get("lead_budget", "")).strip() or None,
+                    "transaction_type": raw_txn if raw_txn in _VALID_TRANSACTION_TYPES else "unknown",
+                    "contact_phone": phone,
+                    "lead_agent": extract_agent_tag(snippet) or extract_agent_tag(message),
+                    "lead_source": extract_source_tag(message),
+                })
+
+            if len(issues) > _MAX_ISSUES:
+                kept = sorted(issues, key=lambda i: i["confidence"], reverse=True)[:_MAX_ISSUES]
+                kept_ids = {id(i) for i in kept}
+                issues = [i for i in issues if id(i) in kept_ids]
+
+            return {"issues": issues}
+    except Exception as exc:
+        logger.error("Ollama lead classification failed: %s", exc)
+        return _FALLBACK.copy()
+
+
 async def classify_message(message: str, db: AsyncSession) -> dict:
+    if LEAD_MODE:
+        return await classify_lead_message(message, db)
     try:
         from models import IncidentCategory
         result = await db.execute(select(IncidentCategory))

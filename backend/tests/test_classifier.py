@@ -198,3 +198,116 @@ def test_build_prompt_uses_classifier_context_env_override(monkeypatch):
         assert "property management company" not in prompt
     finally:
         importlib.reload(classifier)
+
+
+import importlib
+import pytest
+import classifier as classifier_module
+
+
+@pytest.fixture(autouse=True)
+def _restore_classifier_module_state():
+    yield
+    importlib.reload(classifier_module)
+
+
+def _make_mock_lead_db():
+    mock_db = AsyncMock()
+    mock_rows = [MagicMock(slug=s) for s in ["apartment", "house", "godown", "commercial", "plot", "land", "other"]]
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = mock_rows
+    mock_db.execute = AsyncMock(return_value=mock_result)
+    return mock_db
+
+
+async def test_lead_mode_empty_array_means_noise(monkeypatch):
+    monkeypatch.setenv("LEAD_MODE", "true")
+    importlib.reload(classifier_module)
+    mock_db = _make_mock_lead_db()
+    with patch("classifier.httpx.AsyncClient") as mock_client:
+        _mock_response(mock_client, "[]")
+        result = await classifier_module.classify_message("Good morning team!", mock_db)
+    assert result == {"issues": []}
+
+
+async def test_lead_mode_extracts_all_fields_from_real_sample_message(monkeypatch):
+    monkeypatch.setenv("LEAD_MODE", "true")
+    importlib.reload(classifier_module)
+    mock_db = _make_mock_lead_db()
+    body = "@~Jabeen kindly contact Samson 0746823554, looking for a 4br along for rent General mathege , budget 3000usd (Website Enquiry)"
+    with patch("classifier.httpx.AsyncClient") as mock_client:
+        _mock_response(mock_client, '''
+            [{"message_snippet": "looking for a 4br along for rent General mathege, budget 3000usd",
+              "category": "apartment", "contact_name": "Samson", "lead_location": "General Mathenge",
+              "lead_budget": "3000usd", "transaction_type": "rent", "confidence": 0.91}]
+        ''')
+        result = await classifier_module.classify_message(body, mock_db)
+    assert len(result["issues"]) == 1
+    issue = result["issues"][0]
+    assert issue["category"] == "apartment"
+    assert issue["priority"] == "low"
+    assert issue["contact_name"] == "Samson"
+    assert issue["lead_location"] == "General Mathenge"
+    assert issue["lead_budget"] == "3000usd"
+    assert issue["transaction_type"] == "rent"
+    assert issue["contact_phone"] == "254746823554"
+    assert issue["lead_agent"] == "Jabeen"
+    assert issue["lead_source"] == "Website Enquiry"
+
+
+async def test_lead_mode_unrecognized_category_falls_back_to_other(monkeypatch):
+    monkeypatch.setenv("LEAD_MODE", "true")
+    importlib.reload(classifier_module)
+    mock_db = _make_mock_lead_db()
+    body = "@~Victoria kindly contact Mercy on 0784549538 looking for a yacht (Website Enquiry)"
+    with patch("classifier.httpx.AsyncClient") as mock_client:
+        _mock_response(mock_client, '''
+            [{"message_snippet": "looking for a yacht", "category": "marine",
+              "contact_name": "Mercy", "lead_location": "", "lead_budget": "",
+              "transaction_type": "unknown", "confidence": 0.6}]
+        ''')
+        result = await classifier_module.classify_message(body, mock_db)
+    assert result["issues"][0]["category"] == "other"
+
+
+async def test_lead_mode_regex_phone_overrides_llm_proposed_phone(monkeypatch):
+    monkeypatch.setenv("LEAD_MODE", "true")
+    importlib.reload(classifier_module)
+    mock_db = _make_mock_lead_db()
+    body = "@~Harsha kindly contact Sarah at 0718449483 for a plot (Board Enquiry)"
+    with patch("classifier.httpx.AsyncClient") as mock_client:
+        _mock_response(mock_client, '''
+            [{"message_snippet": "for a plot", "category": "plot", "contact_name": "Sarah",
+              "lead_location": "", "lead_budget": "", "transaction_type": "sale",
+              "confidence": 0.8, "contact_phone": "0700000000"}]
+        ''')
+        result = await classifier_module.classify_message(body, mock_db)
+    assert result["issues"][0]["contact_phone"] == "254718449483"
+
+
+async def test_lead_mode_invalid_transaction_type_falls_back_to_unknown(monkeypatch):
+    monkeypatch.setenv("LEAD_MODE", "true")
+    importlib.reload(classifier_module)
+    mock_db = _make_mock_lead_db()
+    body = "@~Peter kindly contact Joy on 0722516801 for a house (Website)"
+    with patch("classifier.httpx.AsyncClient") as mock_client:
+        _mock_response(mock_client, '''
+            [{"message_snippet": "for a house", "category": "house", "contact_name": "Joy",
+              "lead_location": "", "lead_budget": "", "transaction_type": "swap",
+              "confidence": 0.8}]
+        ''')
+        result = await classifier_module.classify_message(body, mock_db)
+    assert result["issues"][0]["transaction_type"] == "unknown"
+
+
+async def test_lead_mode_off_uses_original_maintenance_classifier(monkeypatch):
+    monkeypatch.setenv("LEAD_MODE", "false")
+    importlib.reload(classifier_module)
+    mock_db = _make_mock_db()
+    with patch("classifier.httpx.AsyncClient") as mock_client:
+        _mock_response(mock_client, '''
+            [{"message_snippet": "pump leaking", "category": "plumbing", "priority": "high", "confidence": 0.9}]
+        ''')
+        result = await classifier_module.classify_message("pump leaking", mock_db)
+    assert result["issues"][0]["category"] == "plumbing"
+    assert "contact_phone" not in result["issues"][0]
