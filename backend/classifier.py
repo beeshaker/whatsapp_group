@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from typing import Optional
 
 import httpx
 from sqlalchemy import select
@@ -56,6 +57,13 @@ def _build_prompt(message: str, categories: list[str]) -> str:
     )
 
 
+def _clean_optional_str(value) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 def _build_lead_prompt(message: str, categories: list[str]) -> str:
     safe_message = json.dumps(message)
     pipe_cats = "|".join(categories)
@@ -63,6 +71,8 @@ def _build_lead_prompt(message: str, categories: list[str]) -> str:
         f"{CLASSIFIER_CONTEXT}\n"
         "A message may describe ONE or MULTIPLE distinct property enquiries, each usually "
         "tagging a different agent with @~Name.\n"
+        "If an enquiry is tagged with an @~Name agent mention, include that exact @~Name tag "
+        "verbatim inside that enquiry's own message_snippet.\n"
         "An ENQUIRY is a request from a prospective client to view, rent, or buy a property.\n"
         "NOT an enquiry: general chat, greetings, scheduling discussions, acknowledgements with "
         "no new property request.\n\n"
@@ -123,9 +133,9 @@ async def classify_lead_message(message: str, db: AsyncSession) -> dict:
                     "priority": LEAD_DEFAULT_PRIORITY,
                     "confidence": max(0.0, min(1.0, raw_confidence)),
                     "message_snippet": snippet,
-                    "contact_name": str(item.get("contact_name", "")).strip() or None,
-                    "lead_location": str(item.get("lead_location", "")).strip() or None,
-                    "lead_budget": str(item.get("lead_budget", "")).strip() or None,
+                    "contact_name": _clean_optional_str(item.get("contact_name")),
+                    "lead_location": _clean_optional_str(item.get("lead_location")),
+                    "lead_budget": _clean_optional_str(item.get("lead_budget")),
                     "transaction_type": raw_txn if raw_txn in _VALID_TRANSACTION_TYPES else "unknown",
                     "contact_phone": phone,
                     "lead_agent": extract_agent_tag(snippet) or extract_agent_tag(message),

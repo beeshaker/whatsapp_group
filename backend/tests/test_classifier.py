@@ -300,6 +300,41 @@ async def test_lead_mode_invalid_transaction_type_falls_back_to_unknown(monkeypa
     assert result["issues"][0]["transaction_type"] == "unknown"
 
 
+async def test_lead_mode_null_json_fields_become_none_not_string(monkeypatch):
+    monkeypatch.setenv("LEAD_MODE", "true")
+    importlib.reload(classifier_module)
+    mock_db = _make_mock_lead_db()
+    body = "@~Peter kindly contact someone for a house, no other details (Website)"
+    with patch("classifier.httpx.AsyncClient") as mock_client:
+        _mock_response(mock_client, '''
+            [{"message_snippet": "for a house", "category": "house", "contact_name": null,
+              "lead_location": null, "lead_budget": null, "transaction_type": "unknown",
+              "confidence": 0.7}]
+        ''')
+        result = await classifier_module.classify_message(body, mock_db)
+    issue = result["issues"][0]
+    assert issue["contact_name"] is None
+    assert issue["lead_location"] is None
+    assert issue["lead_budget"] is None
+
+
+async def test_lead_mode_multi_agent_message_attributes_correctly_when_snippet_has_tag(monkeypatch):
+    monkeypatch.setenv("LEAD_MODE", "true")
+    importlib.reload(classifier_module)
+    mock_db = _make_mock_lead_db()
+    body = "@~Alice kindly contact Sam 0746823554 for a 2br rent. @~Bob kindly contact Jo 0722516801 for a plot sale (Website Enquiry)"
+    with patch("classifier.httpx.AsyncClient") as mock_client:
+        _mock_response(mock_client, '''
+            [{"message_snippet": "@~Alice kindly contact Sam 0746823554 for a 2br rent", "category": "apartment",
+              "contact_name": "Sam", "lead_location": "", "lead_budget": "", "transaction_type": "rent", "confidence": 0.85},
+             {"message_snippet": "@~Bob kindly contact Jo 0722516801 for a plot sale", "category": "plot",
+              "contact_name": "Jo", "lead_location": "", "lead_budget": "", "transaction_type": "sale", "confidence": 0.85}]
+        ''')
+        result = await classifier_module.classify_message(body, mock_db)
+    assert result["issues"][0]["lead_agent"] == "Alice"
+    assert result["issues"][1]["lead_agent"] == "Bob"
+
+
 async def test_lead_mode_off_uses_original_maintenance_classifier(monkeypatch):
     monkeypatch.setenv("LEAD_MODE", "false")
     importlib.reload(classifier_module)
