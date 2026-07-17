@@ -290,3 +290,39 @@ async def test_get_incident_detail_includes_vehicle_plate(tdu_client):
     resp = await tdu_client.get(f"/incidents/{incident_id}")
     assert resp.status_code == 200
     assert resp.json()["vehicle_plate"] == "KMGQ947Z"
+
+
+async def test_patch_updates_contact_phone(tdu_client):
+    incident_id = await _seed_incident()
+    await tdu_client.post("/login", data={"username": "ticketadmin", "password": "pass1234"})
+    resp = await tdu_client.patch(f"/incidents/{incident_id}", json={"contact_phone": "0746823554"})
+    assert resp.status_code == 200
+    assert resp.json()["contact_phone"] == "254746823554"
+
+
+async def test_patch_rejects_invalid_contact_phone(tdu_client):
+    incident_id = await _seed_incident()
+    await tdu_client.post("/login", data={"username": "ticketadmin", "password": "pass1234"})
+    resp = await tdu_client.patch(f"/incidents/{incident_id}", json={"contact_phone": "not a phone"})
+    assert resp.status_code == 422
+
+
+async def test_patch_updates_lead_text_fields(tdu_client):
+    incident_id = await _seed_incident()
+    await tdu_client.post("/login", data={"username": "ticketadmin", "password": "pass1234"})
+    resp = await tdu_client.patch(f"/incidents/{incident_id}", json={
+        "lead_agent": "Harsha",
+        "contact_name": "Samson",
+        "lead_location": "General Mathenge",
+        "lead_budget": "3000usd",
+        "transaction_type": "rent",
+        "lead_source": "Website Enquiry",
+    })
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["lead_agent"] == "Harsha"
+    assert body["contact_name"] == "Samson"
+    assert body["lead_location"] == "General Mathenge"
+    assert body["lead_budget"] == "3000usd"
+    assert body["transaction_type"] == "rent"
+    assert body["lead_source"] == "Website Enquiry"

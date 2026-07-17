@@ -33,6 +33,7 @@ from media import MEDIA_DIR, download_media
 from models import Incident, IncidentCategory, IncidentMedia, IncidentStatusHistory, IncidentUpdate, User, UserGroup, AuditLog, AdminProfile, AdminGroupSubscription
 from odoo_stub import push_incident
 from summaries import build_summary, format_whatsapp_summary, window_for_date
+from lead_fields import is_valid_phone, normalize_phone
 from vehicle_plate import is_valid_plate, normalize_plate, resolve_plate_for_issue
 from whatsapp import reply_to_message, send_group_message, list_groups as list_whatsapp_groups
 
@@ -129,6 +130,13 @@ class TicketDetailUpdateBody(BaseModel):
     escalated: Optional[bool] = None
     reminder_offset_hours: Optional[int] = None
     vehicle_plate: Optional[str] = None
+    lead_agent: Optional[str] = None
+    contact_name: Optional[str] = None
+    contact_phone: Optional[str] = None
+    lead_location: Optional[str] = None
+    lead_budget: Optional[str] = None
+    transaction_type: Optional[str] = None
+    lead_source: Optional[str] = None
 
     @field_validator("end_date")
     @classmethod
@@ -148,6 +156,18 @@ class TicketDetailUpdateBody(BaseModel):
         if not is_valid_plate(v):
             raise ValueError("vehicle_plate must match Kenyan plate format, e.g. KMGQ947Z")
         return normalize_plate(v)
+
+    @field_validator("contact_phone")
+    @classmethod
+    def normalize_contact_phone(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            return None
+        if not is_valid_phone(v):
+            raise ValueError("contact_phone must be a valid Kenyan phone number, e.g. 0712345678")
+        return normalize_phone(v)
 
 
 logging.basicConfig(level=logging.INFO)
@@ -1446,6 +1466,41 @@ async def update_incident_fields(
             changes.append(f"vehicle_plate: {incident.vehicle_plate} → {body.vehicle_plate}")
             incident.vehicle_plate = body.vehicle_plate
 
+    if "lead_agent" in fields_set:
+        if body.lead_agent != incident.lead_agent:
+            changes.append(f"lead_agent: {incident.lead_agent} → {body.lead_agent}")
+            incident.lead_agent = body.lead_agent
+
+    if "contact_name" in fields_set:
+        if body.contact_name != incident.contact_name:
+            changes.append(f"contact_name: {incident.contact_name} → {body.contact_name}")
+            incident.contact_name = body.contact_name
+
+    if "contact_phone" in fields_set:
+        if body.contact_phone != incident.contact_phone:
+            changes.append(f"contact_phone: {incident.contact_phone} → {body.contact_phone}")
+            incident.contact_phone = body.contact_phone
+
+    if "lead_location" in fields_set:
+        if body.lead_location != incident.lead_location:
+            changes.append(f"lead_location: {incident.lead_location} → {body.lead_location}")
+            incident.lead_location = body.lead_location
+
+    if "lead_budget" in fields_set:
+        if body.lead_budget != incident.lead_budget:
+            changes.append(f"lead_budget: {incident.lead_budget} → {body.lead_budget}")
+            incident.lead_budget = body.lead_budget
+
+    if "transaction_type" in fields_set:
+        if body.transaction_type != incident.transaction_type:
+            changes.append(f"transaction_type: {incident.transaction_type} → {body.transaction_type}")
+            incident.transaction_type = body.transaction_type
+
+    if "lead_source" in fields_set:
+        if body.lead_source != incident.lead_source:
+            changes.append(f"lead_source: {incident.lead_source} → {body.lead_source}")
+            incident.lead_source = body.lead_source
+
     db.add(incident)
     for change in changes:
         db.add(AuditLog(
@@ -1467,6 +1522,13 @@ async def update_incident_fields(
         "escalated": incident.escalated,
         "reminder_offset_hours": incident.reminder_offset_hours,
         "reminder_sent_at": incident.reminder_sent_at.isoformat() if incident.reminder_sent_at else None,
+        "lead_agent": incident.lead_agent,
+        "contact_name": incident.contact_name,
+        "contact_phone": incident.contact_phone,
+        "lead_location": incident.lead_location,
+        "lead_budget": incident.lead_budget,
+        "transaction_type": incident.transaction_type,
+        "lead_source": incident.lead_source,
     }
 
 
