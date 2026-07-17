@@ -1,4 +1,5 @@
 import importlib
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -7,6 +8,7 @@ from httpx import AsyncClient, ASGITransport
 
 import main as backend_main
 from database import get_db
+from models import User
 
 GATEWAY_TOKEN = "lead-mode-gateway-secret"
 GROUP_ID = "dunhill-sales@g.us"
@@ -22,7 +24,7 @@ def _restore_main_module_state():
 async def client(monkeypatch):
     monkeypatch.setenv("LEAD_MODE", "true")
     monkeypatch.setenv("GATEWAY_SECRET_TOKEN", GATEWAY_TOKEN)
-    from tests.conftest import _TestSession
+    from tests.conftest import _TestSession, _HASHED_TESTPASS
     importlib.reload(backend_main)
 
     async def _override_get_db():
@@ -31,6 +33,18 @@ async def client(monkeypatch):
 
     backend_main.app.dependency_overrides[get_db] = _override_get_db
     async with AsyncClient(transport=ASGITransport(app=backend_main.app), base_url="http://test") as c:
+        # Seed a test admin and log in so session-gated routes (e.g. GET
+        # /incidents) work alongside the X-API-Key-gated ingest/status routes.
+        async with _TestSession() as session:
+            session.add(User(
+                username="leadtestadmin",
+                hashed_password=_HASHED_TESTPASS,
+                created_at=datetime.now(timezone.utc),
+                created_by=None,
+                role="admin",
+            ))
+            await session.commit()
+        await c.post("/login", data={"username": "leadtestadmin", "password": "testpass"})
         yield c
     backend_main.app.dependency_overrides.clear()
 
@@ -135,3 +149,69 @@ async def test_noise_message_creates_no_leads(client):
                 "/api/v1/ops/ingest", headers={"X-API-Key": GATEWAY_TOKEN}, json=_payload("lead-m3", body)
             )
     assert r.json() == {"status": "noise", "message": "Message classified as non-incident"}
+
+
+async def test_lead_status_transition_new_to_contacted_to_closed_won(client):
+    body = "@~Jabeen kindly contact Samson 0746823554 for a 4br (Website Enquiry)"
+    classification = {"issues": [_lead_issue("4br for Samson")]}
+    with patch("main.classify_message", new=AsyncMock(return_value=classification)):
+        with patch("main.push_incident", new=AsyncMock()):
+            r = await client.post(
+                "/api/v1/ops/ingest", headers={"X-API-Key": GATEWAY_TOKEN}, json=_payload("lead-status-1", body)
+            )
+    from sqlalchemy import select
+    from models import Incident
+    from tests.conftest import _TestSession
+    async with _TestSession() as session:
+        result = await session.execute(select(Incident).where(Incident.message_id == "lead-status-1"))
+        incident_id = result.scalar_one().id
+
+    r1 = await client.patch(f"/incidents/{incident_id}/status", json={"status": "contacted"})
+    assert r1.status_code == 200
+    assert r1.json()["status"] == "contacted"
+
+    r2 = await client.patch(f"/incidents/{incident_id}/status", json={"status": "closed_won"})
+    assert r2.status_code == 200
+    assert r2.json()["status"] == "closed_won"
+
+
+async def test_lead_status_rejects_maintenance_status_values(client):
+    body = "@~Jabeen kindly contact Samson 0746823554 for a 4br (Website Enquiry)"
+    classification = {"issues": [_lead_issue("4br for Samson")]}
+    with patch("main.classify_message", new=AsyncMock(return_value=classification)):
+        with patch("main.push_incident", new=AsyncMock()):
+            await client.post(
+                "/api/v1/ops/ingest", headers={"X-API-Key": GATEWAY_TOKEN}, json=_payload("lead-status-2", body)
+            )
+    from sqlalchemy import select
+    from models import Incident
+    from tests.conftest import _TestSession
+    async with _TestSession() as session:
+        result = await session.execute(select(Incident).where(Incident.message_id == "lead-status-2"))
+        incident_id = result.scalar_one().id
+
+    r = await client.patch(f"/incidents/{incident_id}/status", json={"status": "resolved"})
+    assert r.status_code == 422
+
+
+async def test_closed_lead_appears_in_archive_not_live(client):
+    body = "@~Jabeen kindly contact Samson 0746823554 for a 4br (Website Enquiry)"
+    classification = {"issues": [_lead_issue("4br for Samson")]}
+    with patch("main.classify_message", new=AsyncMock(return_value=classification)):
+        with patch("main.push_incident", new=AsyncMock()):
+            await client.post(
+                "/api/v1/ops/ingest", headers={"X-API-Key": GATEWAY_TOKEN}, json=_payload("lead-status-3", body)
+            )
+    from sqlalchemy import select
+    from models import Incident
+    from tests.conftest import _TestSession
+    async with _TestSession() as session:
+        result = await session.execute(select(Incident).where(Incident.message_id == "lead-status-3"))
+        incident_id = result.scalar_one().id
+
+    await client.patch(f"/incidents/{incident_id}/status", json={"status": "closed_lost"})
+
+    live = await client.get("/")
+    assert f'data-id="{incident_id}"' not in live.text
+    archived = await client.get("/archive")
+    assert f'data-id="{incident_id}"' in archived.text

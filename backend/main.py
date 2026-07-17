@@ -161,6 +161,18 @@ CLIENT_SUBDOMAIN = os.getenv("CLIENT_SUBDOMAIN", "")
 FLEET_PLATE_MODE = os.getenv("FLEET_PLATE_MODE", "false").lower() == "true"
 LEAD_MODE = os.getenv("LEAD_MODE", "false").lower() == "true"
 _LEAD_INITIAL_STATUS = "new"
+_LEAD_STATUSES = {"new", "contacted", "closed_won", "closed_lost"}
+_LEAD_TERMINAL_STATUSES = {"closed_won", "closed_lost"}
+
+
+def _valid_statuses() -> set[str]:
+    return _LEAD_STATUSES if LEAD_MODE else _VALID_STATUSES
+
+
+def _archived_statuses() -> set[str]:
+    return _LEAD_TERMINAL_STATUSES if LEAD_MODE else {"resolved"}
+
+
 try:
     SUMMARY_SCHEDULE_HOUR = int(os.getenv("SUMMARY_SCHEDULE_HOUR", "8"))
 except ValueError:
@@ -1331,8 +1343,8 @@ async def update_incident_status(
     db: AsyncSession = Depends(get_db),
 ):
     await check_incident_group_access(actor, incident_id, db)
-    if body.status not in _VALID_STATUSES:
-        raise HTTPException(status_code=422, detail=f"status must be one of {sorted(_VALID_STATUSES)}")
+    if body.status not in _valid_statuses():
+        raise HTTPException(status_code=422, detail=f"status must be one of {sorted(_valid_statuses())}")
     result = await db.execute(select(Incident).where(Incident.id == incident_id))
     incident = result.scalar_one_or_none()
     if not incident:
@@ -1871,7 +1883,7 @@ async def dashboard(
     )
     query = (
         select(Incident, update_count_sq.label("uc"), media_count_sq.label("mc"))
-        .where(~Incident.status.in_(["resolved"]))
+        .where(~Incident.status.in_(_archived_statuses()))
         .order_by(Incident.received_at.desc())
     )
     allowed = await _get_allowed_groups(username, db)
@@ -1905,6 +1917,8 @@ async def dashboard(
             "categories": categories,
             "categories_json": categories_json,
             "fleet_plate_mode": FLEET_PLATE_MODE,
+            "lead_mode": LEAD_MODE,
+            "terminal_statuses": sorted(_archived_statuses()),
         },
     )
 
@@ -1929,7 +1943,7 @@ async def archive_dashboard(
     )
     query = (
         select(Incident, update_count_sq.label("uc"), media_count_sq.label("mc"))
-        .where(Incident.status == "resolved")
+        .where(Incident.status.in_(_archived_statuses()))
         .order_by(Incident.received_at.desc())
     )
     allowed = await _get_allowed_groups(username, db)
@@ -1961,6 +1975,8 @@ async def archive_dashboard(
             "categories": categories,
             "categories_json": categories_json,
             "fleet_plate_mode": FLEET_PLATE_MODE,
+            "lead_mode": LEAD_MODE,
+            "terminal_statuses": sorted(_archived_statuses()),
         },
     )
 
