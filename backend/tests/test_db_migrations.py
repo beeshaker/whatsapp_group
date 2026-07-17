@@ -419,3 +419,55 @@ async def test_legacy_pre_migration_incidents_upgrade_preserves_rows_and_enforce
         ))).scalar()
         assert count == 2
     await upgrade_engine.dispose()
+
+
+async def test_incidents_table_has_lead_columns(migrated_engine):
+    async with migrated_engine.connect() as conn:
+        result = await conn.execute(text("PRAGMA table_info(incidents)"))
+        columns = [row[1] for row in result.all()]
+    for col in ("lead_agent", "contact_name", "contact_phone", "lead_location",
+                "lead_budget", "transaction_type", "lead_source"):
+        assert col in columns
+
+
+async def test_lead_columns_default_to_null(db_session):
+    from models import Incident
+    now = datetime.now(timezone.utc)
+    incident = Incident(
+        group_id="g1@g.us", property_name="Block A", reporter_name="Alice",
+        message_body="Pump leaking", category="plumbing", priority="high",
+        confidence=0.9, status="review", received_at=now,
+    )
+    db_session.add(incident)
+    await db_session.commit()
+    await db_session.refresh(incident)
+    assert incident.lead_agent is None
+    assert incident.contact_name is None
+    assert incident.contact_phone is None
+    assert incident.lead_location is None
+    assert incident.lead_budget is None
+    assert incident.transaction_type is None
+    assert incident.lead_source is None
+
+
+async def test_lead_mode_seeds_real_estate_categories():
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    import database
+    original_engine = database.engine
+    original_lead_mode = database.LEAD_MODE
+    database.engine = engine
+    database.LEAD_MODE = True
+    try:
+        await init_db()
+        async with engine.connect() as conn:
+            result = await conn.execute(text("SELECT slug FROM incident_categories ORDER BY slug"))
+            slugs = {row[0] for row in result.all()}
+    finally:
+        database.engine = original_engine
+        database.LEAD_MODE = original_lead_mode
+        await engine.dispose()
+    assert slugs == {"apartment", "house", "godown", "commercial", "plot", "land", "other"}

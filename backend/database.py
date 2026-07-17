@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from sqlalchemy.orm import DeclarativeBase
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./incidents.db")
+LEAD_MODE = os.getenv("LEAD_MODE", "false").lower() == "true"
 
 engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
@@ -210,16 +211,27 @@ async def init_db():
             count = result.scalar()
             if count == 0:
                 now = datetime.now(timezone.utc)
-                seeds = [
-                    ("plumbing",    "Plumbing",    False),
-                    ("electrical",  "Electrical",  False),
-                    ("lift",        "Lift",        False),
-                    ("security",    "Security",    False),
-                    ("structural",  "Structural",  False),
-                    ("cleaning",    "Cleaning",    False),
-                    ("access",      "Access",      False),
-                    ("other",       "Other",       True),
-                ]
+                if LEAD_MODE:
+                    seeds = [
+                        ("apartment",  "Apartment",  False),
+                        ("house",      "House",      False),
+                        ("godown",     "Godown",     False),
+                        ("commercial", "Commercial", False),
+                        ("plot",       "Plot",       False),
+                        ("land",       "Land",       False),
+                        ("other",      "Other",      True),
+                    ]
+                else:
+                    seeds = [
+                        ("plumbing",    "Plumbing",    False),
+                        ("electrical",  "Electrical",  False),
+                        ("lift",        "Lift",        False),
+                        ("security",    "Security",    False),
+                        ("structural",  "Structural",  False),
+                        ("cleaning",    "Cleaning",    False),
+                        ("access",      "Access",      False),
+                        ("other",       "Other",       True),
+                    ]
                 for slug, label, protected in seeds:
                     await conn.execute(text(
                         "INSERT INTO incident_categories (slug, label, is_protected, created_at) "
@@ -334,5 +346,47 @@ async def init_db():
             await conn.execute(text(
                 "CREATE INDEX IF NOT EXISTS ix_incidents_vehicle_plate ON incidents (vehicle_plate)"
             ))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE incidents ADD COLUMN lead_agent TEXT"))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE incidents ADD COLUMN contact_name TEXT"))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE incidents ADD COLUMN contact_phone TEXT"))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE incidents ADD COLUMN lead_location TEXT"))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE incidents ADD COLUMN lead_budget TEXT"))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE incidents ADD COLUMN transaction_type TEXT"))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE incidents ADD COLUMN lead_source TEXT"))
     except Exception:
         pass
