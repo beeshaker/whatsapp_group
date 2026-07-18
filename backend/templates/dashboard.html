@@ -62,6 +62,13 @@
 
     /* stats pills */
     .stats-bar { display: flex; gap: 10px; flex-wrap: wrap; }
+    .property-type-breakdown { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .pt-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 999px;
+      background: var(--surface-2); border: 1px solid var(--line);
+      font-size: 12px; color: var(--muted-2);
+    }
     .stat {
       background: var(--surface);
       border: 1px solid var(--line);
@@ -539,23 +546,41 @@
       </div>
       <div class="toolbar-actions">
         {% if mode != 'archive' %}
-        <div class="stats-bar">
-          <div class="stat red"><div class="n" id="stat-high">0</div><div class="l">High &middot; Open</div></div>
-          <div class="stat purple"><div class="n" id="stat-review">0</div><div class="l">In Review</div></div>
-          <div class="stat"><div class="n" id="stat-total">0</div><div class="l">Total</div></div>
-        </div>
+          {% if lead_mode %}
+          <div class="stats-bar">
+            <div class="stat"><div class="n" id="stat-new">0</div><div class="l">New</div></div>
+            <div class="stat"><div class="n" id="stat-contacted">0</div><div class="l">Contacted</div></div>
+            <div class="stat"><div class="n" id="stat-total">0</div><div class="l">Total</div></div>
+            <div class="stat" style="opacity:.5" title="Per-listing matching arrives in Phase 2"><div class="n">&mdash;</div><div class="l">Matches (Phase 2)</div></div>
+          </div>
+          {% else %}
+          <div class="stats-bar">
+            <div class="stat red"><div class="n" id="stat-high">0</div><div class="l">High &middot; Open</div></div>
+            <div class="stat purple"><div class="n" id="stat-review">0</div><div class="l">In Review</div></div>
+            <div class="stat"><div class="n" id="stat-total">0</div><div class="l">Total</div></div>
+          </div>
+          {% endif %}
         {% else %}
         <div class="stats-bar">
-          <div class="stat"><div class="n" id="stat-total">0</div><div class="l">Resolved</div></div>
+          <div class="stat"><div class="n" id="stat-total">0</div><div class="l">{{ "Closed" if lead_mode else "Resolved" }}</div></div>
         </div>
         {% endif %}
+        {% if not lead_mode %}
         <div class="legend">
           <span class="legend-pill"><span class="dot" style="background:var(--red)"></span>High</span>
           <span class="legend-pill"><span class="dot" style="background:var(--amber)"></span>Med</span>
           <span class="legend-pill"><span class="dot" style="background:var(--green)"></span>Low</span>
         </div>
+        {% endif %}
       </div>
     </div>
+    {% if lead_mode and mode != 'archive' %}
+    <div class="property-type-breakdown" id="property-type-breakdown">
+      {% for cat in categories %}
+      <div class="pt-pill">{{ cat.label }} <span data-cnt-cat="{{ cat.slug }}">0</span></div>
+      {% endfor %}
+    </div>
+    {% endif %}
 
     <div class="toolbar-controls">
       <div class="search-wrap">
@@ -567,14 +592,20 @@
         <div class="chip-dropdown" data-group="status">
           <button type="button" class="chip-btn" onclick="toggleFilterGroup(this)">Status <span class="cnt chip-count" id="selected-status-count">0</span><span class="chip-caret">&#8964;</span></button>
           <div class="chip-menu">
+            {% if lead_mode %}
+            <div class="fopt" data-filter="status" data-val="new" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:var(--blue)"></span>New</span><span class="cnt" data-cnt="new">0</span></div>
+            <div class="fopt" data-filter="status" data-val="contacted" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:var(--cyan)"></span>Contacted</span><span class="cnt" data-cnt="contacted">0</span></div>
+            {% else %}
             <div class="fopt" data-filter="status" data-val="review" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:var(--purple)"></span>Review</span><span class="cnt" data-cnt="review">0</span></div>
             <div class="fopt" data-filter="status" data-val="new" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:var(--blue)"></span>New</span><span class="cnt" data-cnt="new">0</span></div>
             <div class="fopt" data-filter="status" data-val="acknowledged" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:var(--cyan)"></span>Acknowledged</span><span class="cnt" data-cnt="acknowledged">0</span></div>
             <div class="fopt" data-filter="status" data-val="ignored" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:var(--muted-2)"></span>Ignored</span><span class="cnt" data-cnt="ignored">0</span></div>
+            {% endif %}
           </div>
         </div>
         {% endif %}
 
+        {% if not lead_mode %}
         <div class="chip-dropdown" data-group="priority">
           <button type="button" class="chip-btn" onclick="toggleFilterGroup(this)">Priority <span class="cnt chip-count" id="selected-priority-count">0</span><span class="chip-caret">&#8964;</span></button>
           <div class="chip-menu">
@@ -584,16 +615,24 @@
             <div class="fopt" data-filter="priority" data-val="low" onclick="toggleFilter(this)"><span class="left"><span class="dot" style="background:var(--green)"></span>Low</span><span class="cnt" data-cnt-priority="low">0</span></div>
           </div>
         </div>
+        {% endif %}
 
         <div class="chip-dropdown" data-group="category">
-          <button type="button" class="chip-btn" onclick="toggleFilterGroup(this)">Category <span class="cnt chip-count" id="selected-cat-count">0</span><span class="chip-caret">&#8964;</span></button>
+          <button type="button" class="chip-btn" onclick="toggleFilterGroup(this)">{{ "Property type" if lead_mode else "Category" }} <span class="cnt chip-count" id="selected-cat-count">0</span><span class="chip-caret">&#8964;</span></button>
           <div class="chip-menu">
-            {% set cat_icons = {'plumbing':'&#128295;','electrical':'&#9889;','lift':'&#128727;','security':'&#128274;','structural':'&#127959;','cleaning':'&#129529;','access':'&#128682;','other':'&#128203;'} %}
+            {% set cat_icons = {'apartment':'&#127970;','house':'&#127968;','godown':'&#127981;','commercial':'&#127974;','plot':'&#128209;','land':'&#127757;','other':'&#128203;'} if lead_mode else {'plumbing':'&#128295;','electrical':'&#9889;','lift':'&#128727;','security':'&#128274;','structural':'&#127959;','cleaning':'&#129529;','access':'&#128682;','other':'&#128203;'} %}
             {% for cat in categories %}
             <div class="fopt" data-filter="cat" data-val="{{ cat.slug }}" onclick="toggleFilter(this)"><span class="left">{{ cat_icons.get(cat.slug, '&#128203;') | safe }} {{ cat.label }}</span><span class="cnt" data-cnt-cat="{{ cat.slug }}">0</span></div>
             {% endfor %}
           </div>
         </div>
+
+        {% if lead_mode %}
+        <div class="chip-dropdown" data-group="agent">
+          <button type="button" class="chip-btn" onclick="toggleFilterGroup(this)">Agent <span class="cnt chip-count" id="selected-agent-count">0</span><span class="chip-caret">&#8964;</span></button>
+          <div class="chip-menu" id="agent-filter-menu"></div>
+        </div>
+        {% endif %}
 
         <button type="button" class="btn btn-ghost" onclick="clearFilters()">Clear filters</button>
       </div>
@@ -603,10 +642,10 @@
   <table class="data-table" id="ticket-table">
     <thead>
       <tr>
-        <th class="col-prio" aria-label="Priority"></th>
+        {% if not lead_mode %}<th class="col-prio" aria-label="Priority"></th>{% endif %}
         <th>ID</th>
-        <th>Reporter / Property</th>
-        <th>Category</th>
+        <th>{{ "Contact" if lead_mode else "Reporter / Property" }}</th>
+        <th>{{ "Property type" if lead_mode else "Category" }}</th>
         <th>Status</th>
         <th>Activity</th>
         <th>Age</th>
@@ -615,6 +654,7 @@
     </thead>
     <tbody id="ticket-table-body">
       {% if incidents_with_counts %}
+        {% set lead_status_labels = {'new': 'New', 'contacted': 'Contacted', 'closed_won': 'Closed (Won)', 'closed_lost': 'Closed (Lost)'} %}
         {% for row in incidents_with_counts %}
         {% set i = row.incident %}
         {% set update_count = row.update_count %}
@@ -624,18 +664,26 @@
             data-priority="{{ i.priority }}"
             data-status="{{ i.status }}"
             data-cat="{{ i.category }}"
+            data-agent="{{ i.lead_agent or '' }}"
             data-updates="{{ update_count }}"
             data-media="{{ media_count }}"
-            data-search="{{ (i.property_name ~ ' ' ~ (i.reporter_name or '') ~ ' ' ~ i.message_body ~ ' ' ~ i.status ~ ' ' ~ i.priority ~ ' ' ~ i.category) | lower }}"
+            data-search="{{ (i.property_name ~ ' ' ~ (i.reporter_name or '') ~ ' ' ~ (i.contact_name or '') ~ ' ' ~ (i.lead_agent or '') ~ ' ' ~ i.message_body ~ ' ' ~ i.status ~ ' ' ~ i.priority ~ ' ' ~ i.category) | lower }}"
             onclick="openDetailModal({{ i.id }})">
+          {% if not lead_mode %}
           <td class="col-prio"><span class="prio-dot" data-priority="{{ i.priority }}" title="{{ i.priority | capitalize }} priority"></span></td>
+          {% endif %}
           <td class="col-id">#{{ i.id }}</td>
           <td>
+            {% if lead_mode %}
+            <div class="cell-strong">{{ i.contact_name or "Unknown contact" }}{% if i.transaction_type and i.transaction_type != 'unknown' %}<span class="badge badge-plate">{{ i.transaction_type | capitalize }}</span>{% endif %}</div>
+            <div class="cell-sub">{{ i.lead_agent or "Unassigned" }}{% if i.contact_phone %} &middot; +{{ i.contact_phone }}{% endif %}</div>
+            {% else %}
             <div class="cell-strong">{{ i.property_name }}{% if fleet_plate_mode %}<span class="badge badge-plate">{{ i.vehicle_plate or "Unassigned" }}</span>{% endif %}</div>
             <div class="cell-sub">{{ i.reporter_name or "Unknown reporter" }}{% if i.reporter_phone %} &middot; +{{ i.reporter_phone }}{% endif %}</div>
+            {% endif %}
           </td>
           <td class="col-cat"><span class="category-icon" data-cat="{{ i.category }}">&#128203;</span>{{ i.category | capitalize }}</td>
-          <td class="col-status"><span class="badge badge-{{ i.status }}" id="status-badge-{{ i.id }}">{{ i.status }}</span></td>
+          <td class="col-status"><span class="badge badge-{{ i.status }}" id="status-badge-{{ i.id }}">{{ lead_status_labels.get(i.status, i.status) if lead_mode else i.status }}</span></td>
           <td class="col-activity">
             {% if update_count > 0 or media_count > 0 %}
               {% if update_count > 0 %}<span class="activity-chip">&#8617; {{ update_count }}</span>{% endif %}
@@ -647,13 +695,23 @@
           <td class="col-age" data-received="{{ i.received_at.isoformat() }}">{{ i.received_at.strftime("%H:%M") }}</td>
           <td class="col-actions">
             <div class="row-actions" id="actions-{{ i.id }}">
-              {% if mode == 'archive' %}
-              <button class="row-act btn-review" title="Reopen" onclick="setStatus({{ i.id }}, 'review', event)">Reopen</button>
+              {% if lead_mode %}
+                {% if mode == 'archive' %}
+                <button class="row-act btn-review" title="Reopen" onclick="setStatus({{ i.id }}, 'new', event)">Reopen</button>
+                {% else %}
+                <button class="row-act btn-ack" title="Mark Contacted" onclick="setStatus({{ i.id }}, 'contacted', event)">Contacted</button>
+                <button class="row-act btn-resolve" title="Closed Won" onclick="setStatus({{ i.id }}, 'closed_won', event)">Won</button>
+                <button class="row-act btn-ignore" title="Closed Lost" onclick="setStatus({{ i.id }}, 'closed_lost', event)">Lost</button>
+                {% endif %}
               {% else %}
-              <button class="row-act btn-ack" title="Acknowledge" onclick="setStatus({{ i.id }}, 'acknowledged', event)">Ack</button>
-              <button class="row-act btn-resolve" title="Resolve" onclick="setStatus({{ i.id }}, 'resolved', event)">Resolve</button>
-              <button class="row-act btn-ignore" title="Ignore" onclick="setStatus({{ i.id }}, 'ignored', event)">Ignore</button>
-              <button class="row-act btn-review" title="Review" onclick="setStatus({{ i.id }}, 'review', event)">Review</button>
+                {% if mode == 'archive' %}
+                <button class="row-act btn-review" title="Reopen" onclick="setStatus({{ i.id }}, 'review', event)">Reopen</button>
+                {% else %}
+                <button class="row-act btn-ack" title="Acknowledge" onclick="setStatus({{ i.id }}, 'acknowledged', event)">Ack</button>
+                <button class="row-act btn-resolve" title="Resolve" onclick="setStatus({{ i.id }}, 'resolved', event)">Resolve</button>
+                <button class="row-act btn-ignore" title="Ignore" onclick="setStatus({{ i.id }}, 'ignored', event)">Ignore</button>
+                <button class="row-act btn-review" title="Review" onclick="setStatus({{ i.id }}, 'review', event)">Review</button>
+                {% endif %}
               {% endif %}
             </div>
           </td>
@@ -700,14 +758,18 @@ const CURRENT_ROLE = {{ role | tojson }};
 const CATEGORIES = {{ categories_json | tojson }};
 const MODE = '{{ mode | default("live") }}';
 const FLEET_PLATE_MODE = {{ fleet_plate_mode | default(false) | tojson }};
+const LEAD_MODE = {{ lead_mode | default(false) | tojson }};
+const TERMINAL_STATUSES = {{ terminal_statuses | default(["resolved"]) | tojson }};
 const POLL_INTERVAL = 30000;
 
 let allIncidents = [];
 let pendingNew = [];
-let activeFilters = { status: new Set(), priority: new Set(), cat: new Set() };
+let activeFilters = { status: new Set(), priority: new Set(), cat: new Set(), agent: new Set() };
 let maxId = 0;
 
-const statusLabels = { new: 'new', review: 'review', acknowledged: 'acknowledged', resolved: 'resolved', ignored: 'ignored' };
+const statusLabels = LEAD_MODE
+  ? { new: 'New', contacted: 'Contacted', closed_won: 'Closed (Won)', closed_lost: 'Closed (Lost)' }
+  : { new: 'new', review: 'review', acknowledged: 'acknowledged', resolved: 'resolved', ignored: 'ignored' };
 
 let _openIncidents = [];
 let _currentDetailId = null;
@@ -750,9 +812,64 @@ function reminderLabel(hours) {
 function renderTicketDetailsSection(detail) {
   const isAdmin = CURRENT_ROLE === 'admin' || CURRENT_ROLE === 'super_admin';
   const endDateValue = detail.end_date ? detail.end_date.slice(0, 10) : '';
+  const catLabel = (CATEGORIES.find(c => c.slug === detail.category) || {}).label || detail.category;
+
+  if (LEAD_MODE) {
+    if (!isAdmin) {
+      return `
+        <div class="ticket-details-readonly">
+          <div><span class="label">Agent</span>${esc(detail.lead_agent || 'Unassigned')}</div>
+          <div><span class="label">Contact</span>${esc(detail.contact_name || '—')}</div>
+          <div><span class="label">Phone</span>${detail.contact_phone ? '+' + esc(detail.contact_phone) : '—'}</div>
+          <div><span class="label">Property type</span>${esc(catLabel)}</div>
+          <div><span class="label">Location</span>${esc(detail.lead_location || '—')}</div>
+          <div><span class="label">Budget</span>${esc(detail.lead_budget || '—')}</div>
+          <div><span class="label">Transaction</span>${esc(cap(detail.transaction_type || 'unknown'))}</div>
+          <div><span class="label">Source</span>${esc(detail.lead_source || '—')}</div>
+        </div>`;
+    }
+    const categoryOptions = CATEGORIES.map(c =>
+      `<option value="${c.slug}" ${c.slug === detail.category ? 'selected' : ''}>${esc(c.label)}</option>`
+    ).join('');
+    const txnOptions = ['sale', 'rent', 'unknown'].map(t =>
+      `<option value="${t}" ${t === (detail.transaction_type || 'unknown') ? 'selected' : ''}>${cap(t)}</option>`
+    ).join('');
+    return `
+      <div class="ticket-details-grid">
+        <label>Agent
+          <input type="text" value="${esc(detail.lead_agent || '')}" placeholder="e.g. Harsha"
+            onchange="updateTicketField(${detail.id}, 'lead_agent', this.value.trim() || null)">
+        </label>
+        <label>Contact name
+          <input type="text" value="${esc(detail.contact_name || '')}"
+            onchange="updateTicketField(${detail.id}, 'contact_name', this.value.trim() || null)">
+        </label>
+        <label>Contact phone
+          <input type="text" value="${esc(detail.contact_phone || '')}" placeholder="e.g. 0712345678"
+            onchange="updateTicketField(${detail.id}, 'contact_phone', this.value.trim() || null)">
+        </label>
+        <label>Property type
+          <select onchange="updateTicketField(${detail.id}, 'category', this.value)">${categoryOptions}</select>
+        </label>
+        <label>Location
+          <input type="text" value="${esc(detail.lead_location || '')}"
+            onchange="updateTicketField(${detail.id}, 'lead_location', this.value.trim() || null)">
+        </label>
+        <label>Budget
+          <input type="text" value="${esc(detail.lead_budget || '')}"
+            onchange="updateTicketField(${detail.id}, 'lead_budget', this.value.trim() || null)">
+        </label>
+        <label>Transaction
+          <select onchange="updateTicketField(${detail.id}, 'transaction_type', this.value)">${txnOptions}</select>
+        </label>
+        <label>Source
+          <input type="text" value="${esc(detail.lead_source || '')}"
+            onchange="updateTicketField(${detail.id}, 'lead_source', this.value.trim() || null)">
+        </label>
+      </div>`;
+  }
 
   if (!isAdmin) {
-    const catLabel = (CATEGORIES.find(c => c.slug === detail.category) || {}).label || detail.category;
     return `
       <div class="ticket-details-readonly">
         <div><span class="label">Priority</span>${esc(cap(detail.priority))}</div>
@@ -1097,6 +1214,13 @@ function normalizeIncident(i) {
     received_at: i.received_at || new Date().toISOString(),
     update_count: i.update_count || 0,
     media_count: i.media_count || 0,
+    lead_agent: i.lead_agent || null,
+    contact_name: i.contact_name || null,
+    contact_phone: i.contact_phone || null,
+    lead_location: i.lead_location || null,
+    lead_budget: i.lead_budget || null,
+    transaction_type: i.transaction_type || null,
+    lead_source: i.lead_source || null,
   };
 }
 
@@ -1104,29 +1228,44 @@ function buildRow(raw) {
   const i = normalizeIncident(raw);
   const icon = categoryIcon(i.category);
   const category = cap(i.category);
-  const search = `${i.property_name} ${i.reporter_name} ${i.message_body} ${i.status} ${i.priority} ${i.category}`.toLowerCase();
+  const search = LEAD_MODE
+    ? `${i.contact_name || ''} ${i.lead_agent || ''} ${i.message_body} ${i.status} ${i.category}`.toLowerCase()
+    : `${i.property_name} ${i.reporter_name} ${i.message_body} ${i.status} ${i.priority} ${i.category}`.toLowerCase();
 
   const activity = (i.update_count > 0 || i.media_count > 0)
     ? `${i.update_count > 0 ? `<span class="activity-chip">↩ ${i.update_count}</span>` : ''}${i.media_count > 0 ? `<span class="activity-chip">📎 ${i.media_count}</span>` : ''}`
     : '<span class="activity-none">—</span>';
 
-  const actions = MODE === 'archive'
-    ? `<button class="row-act btn-review" title="Reopen" onclick="setStatus(${i.id}, 'review', event)">Reopen</button>`
-    : `<button class="row-act btn-ack" title="Acknowledge" onclick="setStatus(${i.id}, 'acknowledged', event)">Ack</button>
-       <button class="row-act btn-resolve" title="Resolve" onclick="setStatus(${i.id}, 'resolved', event)">Resolve</button>
-       <button class="row-act btn-ignore" title="Ignore" onclick="setStatus(${i.id}, 'ignored', event)">Ignore</button>
-       <button class="row-act btn-review" title="Review" onclick="setStatus(${i.id}, 'review', event)">Review</button>`;
+  const actions = LEAD_MODE
+    ? (MODE === 'archive'
+        ? `<button class="row-act btn-review" title="Reopen" onclick="setStatus(${i.id}, 'new', event)">Reopen</button>`
+        : `<button class="row-act btn-ack" title="Mark Contacted" onclick="setStatus(${i.id}, 'contacted', event)">Contacted</button>
+           <button class="row-act btn-resolve" title="Closed Won" onclick="setStatus(${i.id}, 'closed_won', event)">Won</button>
+           <button class="row-act btn-ignore" title="Closed Lost" onclick="setStatus(${i.id}, 'closed_lost', event)">Lost</button>`)
+    : (MODE === 'archive'
+        ? `<button class="row-act btn-review" title="Reopen" onclick="setStatus(${i.id}, 'review', event)">Reopen</button>`
+        : `<button class="row-act btn-ack" title="Acknowledge" onclick="setStatus(${i.id}, 'acknowledged', event)">Ack</button>
+           <button class="row-act btn-resolve" title="Resolve" onclick="setStatus(${i.id}, 'resolved', event)">Resolve</button>
+           <button class="row-act btn-ignore" title="Ignore" onclick="setStatus(${i.id}, 'ignored', event)">Ignore</button>
+           <button class="row-act btn-review" title="Review" onclick="setStatus(${i.id}, 'review', event)">Review</button>`);
+
+  const prioCell = LEAD_MODE ? '' : `<td class="col-prio"><span class="prio-dot" data-priority="${esc(i.priority)}" title="${esc(cap(i.priority))} priority"></span></td>`;
+  const contactCell = LEAD_MODE
+    ? `<div class="cell-strong">${esc(i.contact_name || 'Unknown contact')}${i.transaction_type && i.transaction_type !== 'unknown' ? `<span class="badge badge-plate">${esc(cap(i.transaction_type))}</span>` : ''}</div>
+       <div class="cell-sub">${esc(i.lead_agent || 'Unassigned')}${i.contact_phone ? ' · +' + esc(i.contact_phone) : ''}</div>`
+    : `<div class="cell-strong">${esc(i.property_name)}${FLEET_PLATE_MODE ? `<span class="badge badge-plate">${esc(i.vehicle_plate || 'Unassigned')}</span>` : ''}</div>
+       <div class="cell-sub">${esc(i.reporter_name)}${i.reporter_phone ? ' · +' + esc(i.reporter_phone) : ''}</div>`;
+  const statusLabel = esc(statusLabels[i.status] || i.status);
 
   return `
-<tr class="ticket-row" data-id="${i.id}" data-priority="${esc(i.priority)}" data-status="${esc(i.status)}" data-cat="${esc(i.category)}" data-updates="${i.update_count}" data-media="${i.media_count}" data-search="${esc(search)}" onclick="openDetailModal(${i.id})">
-  <td class="col-prio"><span class="prio-dot" data-priority="${esc(i.priority)}" title="${esc(cap(i.priority))} priority"></span></td>
+<tr class="ticket-row" data-id="${i.id}" data-priority="${esc(i.priority)}" data-status="${esc(i.status)}" data-cat="${esc(i.category)}" data-agent="${esc(i.lead_agent || '')}" data-updates="${i.update_count}" data-media="${i.media_count}" data-search="${esc(search)}" onclick="openDetailModal(${i.id})">
+  ${prioCell}
   <td class="col-id">#${i.id}</td>
   <td>
-    <div class="cell-strong">${esc(i.property_name)}${FLEET_PLATE_MODE ? `<span class="badge badge-plate">${esc(i.vehicle_plate || 'Unassigned')}</span>` : ''}</div>
-    <div class="cell-sub">${esc(i.reporter_name)}${i.reporter_phone ? ' · +' + esc(i.reporter_phone) : ''}</div>
+    ${contactCell}
   </td>
   <td class="col-cat"><span class="category-icon" data-cat="${esc(i.category)}">${icon}</span>${esc(category)}</td>
-  <td class="col-status"><span class="badge badge-${esc(i.status)}" id="status-badge-${i.id}">${esc(statusLabels[i.status] || i.status)}</span></td>
+  <td class="col-status"><span class="badge badge-${esc(i.status)}" id="status-badge-${i.id}">${statusLabel}</span></td>
   <td class="col-activity">${activity}</td>
   <td class="col-age" data-received="${esc(i.received_at)}">${formatAge(i.received_at)}</td>
   <td class="col-actions">
@@ -1153,8 +1292,8 @@ async function setStatus(id, newStatus, event) {
     if (inc) inc.status = newStatus;
 
     const shouldRemove =
-      (MODE === 'live' && newStatus === 'resolved') ||
-      (MODE === 'archive' && newStatus !== 'resolved');
+      (MODE === 'live' && TERMINAL_STATUSES.includes(newStatus)) ||
+      (MODE === 'archive' && !TERMINAL_STATUSES.includes(newStatus));
 
     if (shouldRemove) {
       const row = document.querySelector(`.ticket-row[data-id="${id}"]`);
@@ -1210,9 +1349,11 @@ function updateSelectedFilterCounts() {
   const statusCount = document.getElementById('selected-status-count');
   const priorityCount = document.getElementById('selected-priority-count');
   const catCount = document.getElementById('selected-cat-count');
+  const agentCount = document.getElementById('selected-agent-count');
   if (statusCount) statusCount.textContent = activeFilters.status.size;
   if (priorityCount) priorityCount.textContent = activeFilters.priority.size;
   if (catCount) catCount.textContent = activeFilters.cat.size;
+  if (agentCount) agentCount.textContent = activeFilters.agent.size;
 }
 
 function hydrateCategoryIcons(root = document) {
@@ -1222,7 +1363,7 @@ function hydrateCategoryIcons(root = document) {
 }
 
 function clearFilters() {
-  activeFilters = { status: new Set(), priority: new Set(), cat: new Set() };
+  activeFilters = { status: new Set(), priority: new Set(), cat: new Set(), agent: new Set() };
   document.getElementById('search-input').value = '';
   document.querySelectorAll('.fopt.active').forEach(el => el.classList.remove('active'));
   updateSelectedFilterCounts();
@@ -1237,8 +1378,9 @@ function applyFilters() {
     const matchStatus = activeFilters.status.size === 0 || activeFilters.status.has(row.dataset.status);
     const matchPriority = activeFilters.priority.size === 0 || activeFilters.priority.has(row.dataset.priority);
     const matchCat = activeFilters.cat.size === 0 || activeFilters.cat.has(row.dataset.cat);
+    const matchAgent = activeFilters.agent.size === 0 || activeFilters.agent.has(row.dataset.agent);
     const matchSearch = !q || (row.dataset.search || '').includes(q);
-    const shouldShow = matchStatus && matchPriority && matchCat && matchSearch;
+    const shouldShow = matchStatus && matchPriority && matchCat && matchAgent && matchSearch;
     row.classList.toggle('hidden', !shouldShow);
     if (shouldShow) visible++;
   });
@@ -1258,6 +1400,14 @@ function updateStats() {
     if (total) total.textContent = allIncidents.length;
     return;
   }
+  if (LEAD_MODE) {
+    const newEl = document.getElementById('stat-new');
+    const contactedEl = document.getElementById('stat-contacted');
+    if (newEl) newEl.textContent = allIncidents.filter(i => i.status === 'new').length;
+    if (contactedEl) contactedEl.textContent = allIncidents.filter(i => i.status === 'contacted').length;
+    document.getElementById('stat-total').textContent = allIncidents.length;
+    return;
+  }
   const highOpen = allIncidents.filter(i => i.priority === 'high' && !['resolved','ignored'].includes(i.status)).length;
   const inReview = allIncidents.filter(i => i.status === 'review').length;
   document.getElementById('stat-high').textContent = highOpen;
@@ -1266,7 +1416,8 @@ function updateStats() {
 }
 
 function updateCounts() {
-  ['review','new','acknowledged','resolved','ignored'].forEach(s => {
+  const statuses = LEAD_MODE ? ['new','contacted','closed_won','closed_lost'] : ['review','new','acknowledged','resolved','ignored'];
+  statuses.forEach(s => {
     const el = document.querySelector(`[data-cnt="${s}"]`);
     if (el) el.textContent = allIncidents.filter(i => i.status === s).length;
   });
@@ -1278,9 +1429,28 @@ function updateCounts() {
     const s = el.dataset.cntCat;
     el.textContent = allIncidents.filter(i => i.category === s).length;
   });
+  if (LEAD_MODE) renderAgentFilterOptions();
+}
+
+function renderAgentFilterOptions() {
+  const menu = document.getElementById('agent-filter-menu');
+  if (!menu) return;
+  const agents = [...new Set(allIncidents.map(i => i.lead_agent).filter(Boolean))].sort();
+  menu.innerHTML = agents.map(a => `
+    <div class="fopt${activeFilters.agent.has(a) ? ' active' : ''}" data-filter="agent" data-val="${esc(a)}" onclick="toggleFilter(this)">
+      <span class="left">${esc(a)}</span><span class="cnt" data-cnt-agent="${esc(a)}">0</span>
+    </div>`).join('');
+  agents.forEach(a => {
+    const el = menu.querySelector(`[data-cnt-agent="${CSS.escape(a)}"]`);
+    if (el) el.textContent = allIncidents.filter(i => i.lead_agent === a).length;
+  });
 }
 
 function categoryIcon(category) {
+  if (LEAD_MODE) {
+    return { apartment:'🏢', house:'🏠', godown:'🏭', commercial:'🏬',
+      plot:'📐', land:'🌍', other:'📋' }[category] || '📋';
+  }
   return { plumbing:'🔧', electrical:'⚡', lift:'🛗', security:'🔒',
     structural:'🏗', cleaning:'🧹', access:'🚪', other:'📋' }[category] || '📋';
 }
