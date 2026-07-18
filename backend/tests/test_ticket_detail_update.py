@@ -326,3 +326,18 @@ async def test_patch_updates_lead_text_fields(tdu_client):
     assert body["lead_budget"] == "3000usd"
     assert body["transaction_type"] == "rent"
     assert body["lead_source"] == "Website Enquiry"
+
+
+async def test_patch_normalizes_transaction_type_case(tdu_client):
+    incident_id = await _seed_incident()
+    await tdu_client.post("/login", data={"username": "ticketadmin", "password": "pass1234"})
+    resp = await tdu_client.patch(f"/incidents/{incident_id}", json={"transaction_type": "SALE"})
+    assert resp.status_code == 200
+    assert resp.json()["transaction_type"] == "sale"
+
+
+async def test_patch_rejects_invalid_transaction_type(tdu_client):
+    incident_id = await _seed_incident()
+    await tdu_client.post("/login", data={"username": "ticketadmin", "password": "pass1234"})
+    resp = await tdu_client.patch(f"/incidents/{incident_id}", json={"transaction_type": "lease"})
+    assert resp.status_code == 422

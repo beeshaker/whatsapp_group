@@ -248,3 +248,36 @@ async def test_list_and_detail_endpoints_expose_lead_fields(client):
     assert detail_body["contact_name"] == "Samson"
     assert detail_body["contact_phone"] == "254746823554"
     assert detail_body["message_body"] == body
+
+
+async def test_relink_promote_update_to_standalone_incident_uses_lead_initial_status(client):
+    body = "@~Jabeen kindly contact Samson 0746823554 for a 4br (Website Enquiry)"
+    classification = {"issues": [_lead_issue("4br for Samson")]}
+    with patch("main.classify_message", new=AsyncMock(return_value=classification)):
+        with patch("main.push_incident", new=AsyncMock()):
+            await client.post(
+                "/api/v1/ops/ingest", headers={"X-API-Key": GATEWAY_TOKEN}, json=_payload("lead-relink-1", body)
+            )
+    from sqlalchemy import select
+    from models import Incident
+    from tests.conftest import _TestSession
+    async with _TestSession() as session:
+        result = await session.execute(select(Incident).where(Incident.message_id == "lead-relink-1"))
+        incident_id = result.scalar_one().id
+
+    # A reply always creates an IncidentUpdate row, regardless of LEAD_MODE.
+    with patch("main.reply_to_message", new=AsyncMock(return_value="wa-outgoing-1")):
+        await client.post(
+            f"/incidents/{incident_id}/reply",
+            json={"text": "Following up with the client"},
+        )
+
+    detail = (await client.get(f"/incidents/{incident_id}")).json()
+    update_id = detail["updates"][0]["id"]
+
+    r = await client.patch(f"/incidents/{update_id}/relink", json={"incident_id": None})
+    assert r.status_code == 200
+    new_incident_id = r.json()["incident_id"]
+
+    new_detail = (await client.get(f"/incidents/{new_incident_id}")).json()
+    assert new_detail["status"] == "new"

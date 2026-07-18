@@ -663,11 +663,11 @@
             data-id="{{ i.id }}"
             data-priority="{{ i.priority }}"
             data-status="{{ i.status }}"
-            data-cat="{{ i.category }}"
-            data-agent="{{ i.lead_agent or '' }}"
+            data-cat="{{ i.category }}"{% if lead_mode %}
+            data-agent="{{ i.lead_agent or '' }}"{% endif %}
             data-updates="{{ update_count }}"
             data-media="{{ media_count }}"
-            data-search="{{ (i.property_name ~ ' ' ~ (i.reporter_name or '') ~ ' ' ~ (i.contact_name or '') ~ ' ' ~ (i.lead_agent or '') ~ ' ' ~ i.message_body ~ ' ' ~ i.status ~ ' ' ~ i.priority ~ ' ' ~ i.category) | lower }}"
+            data-search="{{ (i.property_name ~ ' ' ~ (i.reporter_name or '') ~ (' ' ~ (i.contact_name or '') ~ ' ' ~ (i.lead_agent or '') if lead_mode else '') ~ ' ' ~ i.message_body ~ ' ' ~ i.status ~ ' ' ~ i.priority ~ ' ' ~ i.category) | lower }}"
             onclick="openDetailModal({{ i.id }})">
           {% if not lead_mode %}
           <td class="col-prio"><span class="prio-dot" data-priority="{{ i.priority }}" title="{{ i.priority | capitalize }} priority"></span></td>
@@ -984,7 +984,8 @@ function renderDetailModal(detail) {
 
   const statusDotClass = s => ({
     new: 'sh-dot-new', review: 'sh-dot-review', acknowledged: 'sh-dot-acknowledged',
-    resolved: 'sh-dot-resolved', ignored: 'sh-dot-ignored'
+    resolved: 'sh-dot-resolved', ignored: 'sh-dot-ignored',
+    contacted: 'sh-dot-acknowledged', closed_won: 'sh-dot-resolved', closed_lost: 'sh-dot-ignored'
   }[s] || 'sh-dot-new');
 
   const historyHtml = !detail.status_history || detail.status_history.length === 0

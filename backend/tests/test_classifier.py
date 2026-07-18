@@ -318,6 +318,22 @@ async def test_lead_mode_null_json_fields_become_none_not_string(monkeypatch):
     assert issue["lead_budget"] is None
 
 
+async def test_lead_mode_null_confidence_defaults_to_zero_not_dropped(monkeypatch):
+    monkeypatch.setenv("LEAD_MODE", "true")
+    importlib.reload(classifier_module)
+    mock_db = _make_mock_lead_db()
+    body = "@~Peter kindly contact Joy on 0722516801 for a house (Website)"
+    with patch("classifier.httpx.AsyncClient") as mock_client:
+        _mock_response(mock_client, '''
+            [{"message_snippet": "for a house", "category": "house", "contact_name": "Joy",
+              "lead_location": "", "lead_budget": "", "transaction_type": "unknown",
+              "confidence": null}]
+        ''')
+        result = await classifier_module.classify_message(body, mock_db)
+    assert len(result["issues"]) == 1
+    assert result["issues"][0]["confidence"] == 0.0
+
+
 async def test_lead_mode_multi_agent_message_attributes_correctly_when_snippet_has_tag(monkeypatch):
     monkeypatch.setenv("LEAD_MODE", "true")
     importlib.reload(classifier_module)

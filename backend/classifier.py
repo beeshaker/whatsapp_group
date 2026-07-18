@@ -118,7 +118,7 @@ async def classify_lead_message(message: str, db: AsyncSession) -> dict:
                 if not isinstance(item, dict):
                     continue
                 raw_category = str(item.get("category", "other")).lower()
-                raw_confidence = float(item.get("confidence", 0.0))
+                raw_confidence = float(item.get("confidence") or 0.0)
                 raw_txn = str(item.get("transaction_type", "unknown")).lower()
                 snippet = str(item.get("message_snippet", message))
 

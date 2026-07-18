@@ -27,7 +27,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from auth import require_login, require_admin, require_super_admin, hash_password, verify_password, check_incident_group_access
 from chat import answer_query, answer_sales_query
-from classifier import classify_message, classify_update_or_new
+from classifier import classify_message, classify_update_or_new, _VALID_TRANSACTION_TYPES
 from database import get_db, init_db, AsyncSessionLocal
 from media import MEDIA_DIR, download_media
 from models import Incident, IncidentCategory, IncidentMedia, IncidentStatusHistory, IncidentUpdate, User, UserGroup, AuditLog, AdminProfile, AdminGroupSubscription
@@ -168,6 +168,19 @@ class TicketDetailUpdateBody(BaseModel):
         if not is_valid_phone(v):
             raise ValueError("contact_phone must be a valid Kenyan phone number, e.g. 0712345678")
         return normalize_phone(v)
+
+    @field_validator("transaction_type")
+    @classmethod
+    def normalize_transaction_type(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            return None
+        v = v.lower()
+        if v not in _VALID_TRANSACTION_TYPES:
+            raise ValueError("transaction_type must be one of: sale, rent, unknown")
+        return v
 
 
 logging.basicConfig(level=logging.INFO)
@@ -1311,7 +1324,7 @@ async def relink_update(
             category="other",
             priority="low",
             confidence=0.0,
-            status="review",
+            status=_LEAD_INITIAL_STATUS if LEAD_MODE else "review",
             received_at=update.received_at,
             message_id=update.message_id,
         )
@@ -1320,7 +1333,7 @@ async def relink_update(
         db.add(IncidentStatusHistory(
             incident_id=new_incident.id,
             from_status=None,
-            to_status="review",
+            to_status=_LEAD_INITIAL_STATUS if LEAD_MODE else "review",
             changed_at=new_incident.received_at,
         ))
         media_res = await db.execute(
