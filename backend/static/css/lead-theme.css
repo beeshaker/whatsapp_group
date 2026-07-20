@@ -1,0 +1,161 @@
+/*
+ * Dunhill (LEAD_MODE) sidebar-nav reskin — additive token set + component
+ * styles layered on top of base.css. Linked only by lead-mode templates
+ * (_nav_lead.html, overview.html, and the lead_mode branches of
+ * dashboard.html). Never redefines a base.css token name — see
+ * tests/test_lead_theme_css.py.
+ */
+
+:root {
+  --lead-sidebar-bg: #0f1b34;
+  --lead-sidebar-bg-active: #1c2c52;
+  --lead-sidebar-text: #a9b6d6;
+  --lead-sidebar-text-active: #ffffff;
+  --lead-sidebar-line: #1e2c4d;
+  --lead-accent-blue: #2f6fed;
+  --lead-accent-blue-soft: #e6edfe;
+  --lead-accent-orange: #f5851f;
+  --lead-accent-orange-soft: #fef0e2;
+  --lead-card-bg: #ffffff;
+  --lead-card-line: #e6e9f2;
+  --lead-shadow: 0 2px 10px rgba(15, 27, 52, 0.06);
+}
+
+/* ── Sidebar shell ── */
+.lead-shell {
+  display: flex;
+  min-height: 100vh;
+  background: #f4f6fb;
+}
+
+.lead-sidebar {
+  width: 232px;
+  flex-shrink: 0;
+  background: var(--lead-sidebar-bg);
+  color: var(--lead-sidebar-text);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 20px 14px;
+}
+
+.lead-sidebar-brand {
+  color: var(--lead-sidebar-text-active);
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 0 10px 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lead-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-md);
+  color: var(--lead-sidebar-text);
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.lead-nav-item:hover { background: var(--lead-sidebar-bg-active); color: var(--lead-sidebar-text-active); }
+.lead-nav-item.active { background: var(--lead-accent-blue); color: #fff; }
+
+.lead-nav-item-disabled {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-md);
+  color: var(--lead-sidebar-text);
+  opacity: .45;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: default;
+}
+
+.lead-main { flex: 1; min-width: 0; padding: 24px 28px; }
+
+/* ── Stat cards (Overview + Leads/Archive toolbar) ── */
+.lead-stat-cards { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+
+.lead-stat-card {
+  background: var(--lead-card-bg);
+  border: 1px solid var(--lead-card-line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--lead-shadow);
+  padding: 16px 18px;
+  min-width: 160px;
+  flex: 1;
+}
+.lead-stat-card .n { font-size: 1.75rem; font-weight: 700; color: var(--text); }
+.lead-stat-card .l { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+.lead-stat-card.accent-blue .n { color: var(--lead-accent-blue); }
+.lead-stat-card.accent-orange .n { color: var(--lead-accent-orange); }
+
+/* ── Widgets grid (Overview page) ── */
+.lead-widgets-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+.lead-widget-card {
+  background: var(--lead-card-bg);
+  border: 1px solid var(--lead-card-line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--lead-shadow);
+  padding: 18px 20px;
+}
+.lead-widget-card h3 { font-size: 0.95rem; margin-bottom: 12px; }
+.lead-widget-card ul { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.lead-widget-card li a { text-decoration: none; color: var(--text); font-size: 0.85rem; }
+.lead-widget-card li a:hover { color: var(--lead-accent-blue); }
+
+@media (max-width: 900px) {
+  .lead-widgets-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Status tabs (Leads/Archive toolbar) ── */
+.lead-status-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--lead-card-line); margin-bottom: 12px; }
+.lead-status-tab {
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+.lead-status-tab.active { color: var(--lead-accent-blue); border-bottom-color: var(--lead-accent-blue); }
+
+/* ── Toolbar disabled placeholders ── */
+.lead-toolbar-btn-disabled { opacity: .45; cursor: default; }
+
+/* ── Slide-in detail panel ── */
+.lead-panel {
+  margin-left: auto;
+  width: min(480px, 100vw);
+  height: 100vh;
+  background: var(--lead-card-bg);
+  box-shadow: -4px 0 24px rgba(15, 27, 52, 0.12);
+  display: flex;
+  flex-direction: column;
+}
+.lead-panel-header { padding: 18px 20px; border-bottom: 1px solid var(--lead-card-line); }
+.lead-panel-tabs { display: flex; border-bottom: 1px solid var(--lead-card-line); padding: 0 20px; }
+.lead-panel-tab {
+  padding: 12px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+}
+.lead-panel-tab.active { color: var(--lead-accent-blue); border-bottom-color: var(--lead-accent-blue); }
+.lead-panel-tab-disabled { opacity: .45; cursor: default; }
+.lead-panel-tab-content { display: none; padding: 18px 20px; overflow-y: auto; flex: 1; }
+.lead-panel-tab-content.active { display: block; }
