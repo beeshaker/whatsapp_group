@@ -762,13 +762,21 @@
 
 <div class="toast" id="toast"></div>
 
-<!-- ── Detail modal ── -->
+<!-- ── Detail modal / lead panel ── -->
 <div class="modal-overlay" id="detail-modal-overlay" onclick="if(event.target===this)closeDetailModal()">
-  <div class="modal">
-    <div class="modal-header">
+  <div class="{{ 'lead-panel' if lead_mode else 'modal' }}">
+    <div class="modal-header{% if lead_mode %} lead-panel-header{% endif %}">
       <h2 id="modal-title">Incident Detail</h2>
       <button class="modal-close" onclick="closeDetailModal()">✕</button>
     </div>
+    {%- if lead_mode %}
+    <div class="lead-panel-tabs" id="lead-panel-tabs">
+      <button type="button" class="lead-panel-tab active" data-tab="overview" onclick="selectPanelTab(this)">Overview</button>
+      <button type="button" class="lead-panel-tab" data-tab="activity" onclick="selectPanelTab(this)">Activity</button>
+      <button type="button" class="lead-panel-tab" data-tab="history" onclick="selectPanelTab(this)">History</button>
+      <button type="button" class="lead-panel-tab lead-panel-tab-disabled" data-tab="matches" title="Coming in Phase 2">Matches</button>
+    </div>
+    {%- endif %}
     <div class="modal-body" id="modal-body">
       <div style="color:var(--muted);text-align:center;padding:20px">Loading…</div>
     </div>
@@ -826,8 +834,18 @@ async function openDetailModal(incidentId) {
     const detail = await fetch(`/incidents/${incidentId}`).then(r => r.json());
     const allInc = await fetch('/incidents').then(r => r.json());
     _openIncidents = allInc.filter(i => i.id !== incidentId && !['resolved','ignored'].includes(i.status));
-    document.getElementById('modal-title').textContent = `#${detail.id} — ${esc(detail.property_name)}`;
+    document.getElementById('modal-title').textContent = LEAD_MODE
+      ? `#${detail.id} — ${esc(detail.contact_name || 'Unknown contact')} · ${esc(detail.status)}${detail.contact_phone ? ' · +' + esc(detail.contact_phone) : ''} · ${formatTime(detail.received_at)}`
+      : `#${detail.id} — ${esc(detail.property_name)}`;
     document.getElementById('modal-body').innerHTML = renderDetailModal(detail);
+    if (LEAD_MODE) {
+      const tabs = document.getElementById('lead-panel-tabs');
+      if (tabs) {
+        tabs.querySelectorAll('.lead-panel-tab').forEach(b => b.classList.remove('active'));
+        const overviewTab = tabs.querySelector('[data-tab="overview"]');
+        if (overviewTab) overviewTab.classList.add('active');
+      }
+    }
   } catch(e) {
     document.getElementById('modal-body').innerHTML = '<div style="color:var(--red)">Failed to load detail.</div>';
   }
@@ -835,6 +853,15 @@ async function openDetailModal(incidentId) {
 
 function closeDetailModal() {
   document.getElementById('detail-modal-overlay').classList.remove('open');
+}
+
+function selectPanelTab(el) {
+  const tabs = document.getElementById('lead-panel-tabs');
+  tabs.querySelectorAll('.lead-panel-tab').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  document.querySelectorAll('.lead-panel-tab-content').forEach(c => c.classList.remove('active'));
+  const target = document.getElementById(`lead-tab-${el.dataset.tab}`);
+  if (target) target.classList.add('active');
 }
 
 function reminderLabel(hours) {
@@ -852,13 +879,11 @@ function renderTicketDetailsSection(detail) {
     if (!isAdmin) {
       return `
         <div class="ticket-details-readonly">
-          <div><span class="label">Agent</span>${esc(detail.lead_agent || 'Unassigned')}</div>
-          <div><span class="label">Contact</span>${esc(detail.contact_name || '—')}</div>
-          <div><span class="label">Phone</span>${detail.contact_phone ? '+' + esc(detail.contact_phone) : '—'}</div>
+          <div><span class="label">Assigned Agent</span>${esc(detail.lead_agent || 'Unassigned')}</div>
+          <div><span class="label">Transaction</span>${esc(cap(detail.transaction_type || 'unknown'))}</div>
           <div><span class="label">Property type</span>${esc(catLabel)}</div>
           <div><span class="label">Location</span>${esc(detail.lead_location || '—')}</div>
           <div><span class="label">Budget</span>${esc(detail.lead_budget || '—')}</div>
-          <div><span class="label">Transaction</span>${esc(cap(detail.transaction_type || 'unknown'))}</div>
           <div><span class="label">Source</span>${esc(detail.lead_source || '—')}</div>
         </div>`;
     }
@@ -870,9 +895,11 @@ function renderTicketDetailsSection(detail) {
     ).join('');
     return `
       <div class="ticket-details-grid">
-        <label>Agent
+        <label>Assigned Agent
           <input type="text" value="${esc(detail.lead_agent || '')}" placeholder="e.g. Harsha"
             onchange="updateTicketField(${detail.id}, 'lead_agent', this.value.trim() || null)">
+          <button type="button" class="btn btn-ghost" style="margin-top:4px"
+            onclick="this.previousElementSibling.focus()">Reassign</button>
         </label>
         <label>Contact name
           <input type="text" value="${esc(detail.contact_name || '')}"
@@ -1022,18 +1049,25 @@ function renderDetailModal(detail) {
     contacted: 'sh-dot-acknowledged', closed_won: 'sh-dot-resolved', closed_lost: 'sh-dot-ignored'
   }[s] || 'sh-dot-new');
 
+  const historyRowHtml = h => {
+    const label = h.from_status
+      ? `${esc(h.from_status)} → ${esc(h.to_status)}`
+      : `Created as ${esc(h.to_status)}`;
+    const by = h.changed_by ? ` <span style="color:var(--blue)">by ${esc(h.changed_by)}</span>` : '';
+    return `<div class="status-history-row">
+      <div class="sh-dot ${statusDotClass(h.to_status)}"></div>
+      <span>${label} · ${formatTime(h.changed_at)}${by}</span>
+    </div>`;
+  };
+
+  const auditRowHtml = a => `<div class="status-history-row">
+    <div class="sh-dot sh-dot-review"></div>
+    <span>${esc(a.action)}${a.detail ? ' — ' + esc(a.detail) : ''} · ${formatTime(a.created_at)} <span style="color:var(--blue)">by ${esc(a.username)}</span></span>
+  </div>`;
+
   const historyHtml = !detail.status_history || detail.status_history.length === 0
     ? '<div style="color:var(--muted);font-size:13px">No history recorded.</div>'
-    : `<div class="status-history-list">${detail.status_history.map(h => {
-        const label = h.from_status
-          ? `${esc(h.from_status)} → ${esc(h.to_status)}`
-          : `Created as ${esc(h.to_status)}`;
-        const by = h.changed_by ? ` <span style="color:var(--blue)">by ${esc(h.changed_by)}</span>` : '';
-        return `<div class="status-history-row">
-          <div class="sh-dot ${statusDotClass(h.to_status)}"></div>
-          <span>${label} · ${formatTime(h.changed_at)}${by}</span>
-        </div>`;
-      }).join('')}</div>`;
+    : `<div class="status-history-list">${detail.status_history.map(historyRowHtml).join('')}</div>`;
 
   const auditRows = detail.audit_log || [];
   const auditHtml = auditRows.length === 0
@@ -1065,6 +1099,44 @@ function renderDetailModal(detail) {
         }).join('')}</div>
       </div>`
     : '';
+
+  if (LEAD_MODE) {
+    // Renders the four lead-panel tabs: Overview / Activity / History / Matches.
+    const attachmentsInline = detail.media.length === 0 ? '' : `
+      <div style="margin-top:8px">
+        <div class="modal-section-label">Attachments (${detail.media.length})</div>
+        ${mediaHtml}
+      </div>`;
+
+    const historyWithAudit = `<div class="status-history-list">${
+      [...detail.status_history.map(historyRowHtml), ...auditRows.map(auditRowHtml)].join('')
+    }</div>`;
+
+    return `
+      <div class="lead-panel-tab-content active" id="lead-tab-overview">
+        <div class="modal-section-label">Client Requirement</div>
+        ${renderTicketDetailsSection(detail)}
+        ${siblingsHtml}
+        <div style="margin-top:8px">
+          <div class="modal-section-label">Original WhatsApp Message</div>
+          <div class="message-box"><div class="message">${esc(detail.message_body)}</div></div>
+        </div>
+      </div>
+      <div class="lead-panel-tab-content" id="lead-tab-activity">
+        <div class="modal-section-label">Activity (${detail.updates.length})</div>
+        <div class="update-thread">${updatesHtml}</div>
+        ${attachmentsInline}
+      </div>
+      <div class="lead-panel-tab-content" id="lead-tab-history">
+        <div class="modal-section-label">History</div>
+        ${(detail.status_history.length === 0 && auditRows.length === 0)
+          ? '<div style="color:var(--muted);font-size:13px">No history recorded.</div>'
+          : historyWithAudit}
+      </div>
+      <div class="lead-panel-tab-content" id="lead-tab-matches">
+        <div style="color:var(--muted);text-align:center;padding:20px">Matches — coming in Phase 2.</div>
+      </div>`;
+  }
 
   return `
     <div>

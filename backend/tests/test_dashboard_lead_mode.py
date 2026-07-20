@@ -368,3 +368,104 @@ async def test_lead_dashboard_row_data_attributes_unchanged(lead_client):
     assert b'data-cat="apartment"' in body
     assert b'data-agent="Jabeen"' in body
     assert b'data-search="' in body
+
+
+async def test_lead_dashboard_ships_tabbed_panel_markup(lead_client):
+    response = await lead_client.get("/")
+    assert response.status_code == 200
+    body = response.content
+    assert b'class="lead-panel"' in body
+    assert b'lead-panel-tab' in body
+
+
+async def test_lead_dashboard_panel_js_defines_four_tabs(lead_client):
+    response = await lead_client.get("/")
+    assert response.status_code == 200
+    script = response.content.split(b"<script>")[1]
+    for tab_name in (b"Overview", b"Activity", b"History", b"Matches"):
+        assert tab_name in script
+
+
+async def test_lead_dashboard_panel_js_uses_contact_name_in_header():
+    # Regression pin: today's modal title bug uses property_name even in
+    # lead mode. The reskinned header must key off contact_name instead.
+    import importlib as _importlib
+    _importlib.reload(backend_main)
+    from tests.conftest import _TestSession
+    from auth import require_login, require_admin, hash_password
+    from models import User, IncidentCategory
+    from datetime import datetime as _dt, timezone as _tz
+    import os as _os
+
+    async def _override_get_db():
+        async with _TestSession() as session:
+            yield session
+
+    async def _override_require_login():
+        return "leadadmin2"
+
+    async def _override_require_admin():
+        return "leadadmin2"
+
+    _os.environ["LEAD_MODE"] = "true"
+    _importlib.reload(backend_main)
+    backend_main.app.dependency_overrides[get_db] = _override_get_db
+    backend_main.app.dependency_overrides[require_login] = _override_require_login
+    backend_main.app.dependency_overrides[require_admin] = _override_require_admin
+    async with _TestSession() as session:
+        session.add(User(
+            username="leadadmin2", hashed_password=hash_password("irrelevant"),
+            created_at=_dt.now(_tz.utc), role="admin",
+        ))
+        await session.commit()
+    async with AsyncClient(transport=ASGITransport(app=backend_main.app), base_url="http://test") as c:
+        response = await c.get("/")
+    backend_main.app.dependency_overrides.clear()
+    _os.environ.pop("LEAD_MODE", None)
+    script = response.content.split(b"<script>")[1]
+    assert b"detail.contact_name" in script
+    assert b"modal-title" in script
+
+
+async def test_lead_dashboard_panel_js_folds_attachments_into_activity_and_audit_into_history(lead_client):
+    response = await lead_client.get("/")
+    script = response.content.split(b"<script>")[1]
+    # media rendering and audit_log rendering both still exist in the JS source,
+    # just relocated: no standalone "Attachments"/top-level "Activity"(audit) section label.
+    assert b"detail.media" in script
+    assert b"detail.audit_log" in script
+
+
+async def test_non_lead_modal_shell_unaffected():
+    import importlib as _importlib
+    _importlib.reload(backend_main)
+    from tests.conftest import _TestSession
+    from auth import require_login, require_admin, hash_password
+    from models import User
+    from datetime import datetime as _dt, timezone as _tz
+
+    async def _override_get_db():
+        async with _TestSession() as session:
+            yield session
+
+    async def _override_require_login():
+        return "plainadmin4"
+
+    async def _override_require_admin():
+        return "plainadmin4"
+
+    backend_main.app.dependency_overrides[get_db] = _override_get_db
+    backend_main.app.dependency_overrides[require_login] = _override_require_login
+    backend_main.app.dependency_overrides[require_admin] = _override_require_admin
+    async with _TestSession() as session:
+        session.add(User(
+            username="plainadmin4", hashed_password=hash_password("irrelevant"),
+            created_at=_dt.now(_tz.utc), role="admin",
+        ))
+        await session.commit()
+    async with AsyncClient(transport=ASGITransport(app=backend_main.app), base_url="http://test") as c:
+        response = await c.get("/")
+    backend_main.app.dependency_overrides.clear()
+    rendered_markup = response.content.split(b"<script>")[0]
+    assert b'class="lead-panel"' not in rendered_markup
+    assert b'class="modal"' in rendered_markup
