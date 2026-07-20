@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ title }}</title>
   <link rel="stylesheet" href="/static/css/base.css">
+  {% if lead_mode %}<link rel="stylesheet" href="/static/css/lead-theme.css">{% endif %}
   <style>
     /* Page-local styles: app shell, toolbar + filter chips, ticket table,
        the new-incident banner, and the incident detail modal (only this page
@@ -531,7 +532,13 @@
 <body>
 
 {% set active_page = 'archive' if mode == 'archive' else 'live' %}
+{% if lead_mode %}
+<div class="lead-shell">
+  {% include "_nav_lead.html" %}
+  <main class="lead-main">
+{% else %}
 {% include "_nav.html" %}
+{% endif %}
 
 <div class="app-shell" id="dashboard-body">
   <div id="new-banner" onclick="loadNewIncidents()">
@@ -725,6 +732,10 @@
   {% endif %}
   <div class="empty" id="no-results" style="display:none;"><div><strong>No matching incidents</strong>Try clearing filters.</div></div>
 </div>
+{% if lead_mode %}
+  </main>
+</div>
+{% endif %}
 
 <div class="toast" id="toast"></div>
 

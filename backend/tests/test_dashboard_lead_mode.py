@@ -200,3 +200,55 @@ async def test_non_lead_ticket_row_has_no_lead_mode_byte_differences():
     assert b"data-agent=" not in rendered_markup
     assert b"block b bob   pump leaking" not in rendered_markup
     assert b"block b bob pump leaking" in rendered_markup
+
+
+async def test_lead_dashboard_uses_sidebar_shell(lead_client):
+    response = await lead_client.get("/")
+    assert response.status_code == 200
+    assert b'class="lead-shell"' in response.content
+    assert b'class="lead-sidebar"' in response.content
+    assert b'/static/css/lead-theme.css' in response.content
+
+
+async def test_lead_archive_uses_sidebar_shell(lead_client):
+    response = await lead_client.get("/archive")
+    assert response.status_code == 200
+    assert b'class="lead-shell"' in response.content
+    assert b'href="/archive"' in response.content
+
+
+async def test_non_lead_dashboard_does_not_use_sidebar_shell():
+    import importlib as _importlib
+    _importlib.reload(backend_main)
+    from tests.conftest import _TestSession
+    from auth import require_login, require_admin, hash_password
+    from models import User
+    from datetime import datetime as _dt, timezone as _tz
+
+    async def _override_get_db():
+        async with _TestSession() as session:
+            yield session
+
+    async def _override_require_login():
+        return "plainadmin3"
+
+    async def _override_require_admin():
+        return "plainadmin3"
+
+    backend_main.app.dependency_overrides[get_db] = _override_get_db
+    backend_main.app.dependency_overrides[require_login] = _override_require_login
+    backend_main.app.dependency_overrides[require_admin] = _override_require_admin
+    async with _TestSession() as session:
+        session.add(User(
+            username="plainadmin3", hashed_password=hash_password("irrelevant"),
+            created_at=_dt.now(_tz.utc), role="admin",
+        ))
+        await session.commit()
+    async with AsyncClient(transport=ASGITransport(app=backend_main.app), base_url="http://test") as c:
+        response = await c.get("/")
+    backend_main.app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert b'class="lead-shell"' not in response.content
+    assert b'lead-theme.css' not in response.content
+    assert b'{% include "_nav.html"' not in response.content  # sanity: nav actually rendered, not left as raw Jinja
+    assert b'class="nav"' in response.content
