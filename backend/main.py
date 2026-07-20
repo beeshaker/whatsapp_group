@@ -2070,6 +2070,28 @@ async def archive_dashboard(
     )
 
 
+@app.get("/overview", response_class=HTMLResponse)
+async def overview(
+    request: Request,
+    username: str = Depends(require_login),
+    db: AsyncSession = Depends(get_db),
+):
+    if not LEAD_MODE:
+        raise HTTPException(status_code=404)
+    user_result = await db.execute(select(User).where(User.username == username))
+    user_obj = user_result.scalar_one_or_none()
+    role = user_obj.role if user_obj else "user"
+    return templates.TemplateResponse(
+        "overview.html",
+        {
+            "request": request,
+            "title": os.getenv("DASHBOARD_TITLE", "Ops Incident Monitor"),
+            "username": username,
+            "role": role,
+        },
+    )
+
+
 @app.get("/summaries", response_class=HTMLResponse)
 async def summaries_page(
     request: Request,
