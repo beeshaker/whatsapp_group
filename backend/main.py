@@ -2081,6 +2081,79 @@ async def overview(
     user_result = await db.execute(select(User).where(User.username == username))
     user_obj = user_result.scalar_one_or_none()
     role = user_obj.role if user_obj else "user"
+
+    allowed = await _get_allowed_groups(username, db)
+
+    def _scope(q):
+        return q.where(Incident.group_id.in_(allowed)) if allowed is not None else q
+
+    kenya_tz = zoneinfo.ZoneInfo(SUMMARY_TIMEZONE)
+    now = datetime.now(kenya_tz)
+    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    received_today = (await db.execute(_scope(
+        select(func.count(Incident.id)).where(Incident.received_at >= start_of_day)
+    ))).scalar_one()
+    stat_new = (await db.execute(_scope(
+        select(func.count(Incident.id)).where(Incident.status == "new")
+    ))).scalar_one()
+    stat_contacted = (await db.execute(_scope(
+        select(func.count(Incident.id)).where(Incident.status == "contacted")
+    ))).scalar_one()
+
+    won_month_q = (
+        select(func.count(IncidentStatusHistory.id))
+        .select_from(IncidentStatusHistory)
+        .join(Incident, Incident.id == IncidentStatusHistory.incident_id)
+        .where(IncidentStatusHistory.to_status == "closed_won")
+        .where(IncidentStatusHistory.changed_at >= start_of_month)
+    )
+    lost_month_q = (
+        select(func.count(IncidentStatusHistory.id))
+        .select_from(IncidentStatusHistory)
+        .join(Incident, Incident.id == IncidentStatusHistory.incident_id)
+        .where(IncidentStatusHistory.to_status == "closed_lost")
+        .where(IncidentStatusHistory.changed_at >= start_of_month)
+    )
+    if allowed is not None:
+        won_month_q = won_month_q.where(Incident.group_id.in_(allowed))
+        lost_month_q = lost_month_q.where(Incident.group_id.in_(allowed))
+    stat_won_month = (await db.execute(won_month_q)).scalar_one()
+    stat_lost_month = (await db.execute(lost_month_q)).scalar_one()
+
+    flow_rows = (await db.execute(_scope(
+        select(Incident.status, func.count(Incident.id))
+        .where(Incident.received_at >= start_of_day)
+        .group_by(Incident.status)
+    ))).all()
+    flow_counts = {status: count for status, count in flow_rows}
+    lead_flow = {
+        "total": received_today,
+        "new": flow_counts.get("new", 0),
+        "contacted": flow_counts.get("contacted", 0),
+        "closed_won": flow_counts.get("closed_won", 0),
+        "closed_lost": flow_counts.get("closed_lost", 0),
+    }
+
+    # Conversion rate uses all-time current-status counts, matching spec §5's
+    # "simple arithmetic on existing counts" wording (not month-scoped).
+    all_contacted = stat_contacted
+    all_won = (await db.execute(_scope(
+        select(func.count(Incident.id)).where(Incident.status == "closed_won")
+    ))).scalar_one()
+    all_lost = (await db.execute(_scope(
+        select(func.count(Incident.id)).where(Incident.status == "closed_lost")
+    ))).scalar_one()
+    denom = all_contacted + all_won + all_lost
+    conversion_rate = round((all_won / denom) * 100, 1) if denom else 0.0
+
+    newest_unactioned = (await db.execute(_scope(
+        select(Incident).where(Incident.status == "new")
+        .order_by(Incident.received_at.desc())
+        .limit(5)
+    ))).scalars().all()
+
     return templates.TemplateResponse(
         "overview.html",
         {
@@ -2088,6 +2161,14 @@ async def overview(
             "title": os.getenv("DASHBOARD_TITLE", "Ops Incident Monitor"),
             "username": username,
             "role": role,
+            "stat_received_today": received_today,
+            "stat_new": stat_new,
+            "stat_contacted": stat_contacted,
+            "stat_won_month": stat_won_month,
+            "stat_lost_month": stat_lost_month,
+            "lead_flow": lead_flow,
+            "conversion_rate": conversion_rate,
+            "newest_unactioned": newest_unactioned,
         },
     )
 

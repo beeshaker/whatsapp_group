@@ -1136,6 +1136,11 @@ function init() {
   updateSelectedFilterCounts();
   applyFilters();
   setInterval(poll, POLL_INTERVAL);
+  if (LEAD_MODE) {
+    const params = new URLSearchParams(window.location.search);
+    const leadId = parseInt(params.get('lead'), 10);
+    if (leadId) openDetailModal(leadId);
+  }
 }
 
 function extractIncidentFromRow(row) {

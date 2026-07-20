@@ -13,6 +13,41 @@
   {% include "_nav_lead.html" %}
   <main class="lead-main">
     <h1>Overview</h1>
+    <div class="lead-stat-cards">
+      <div class="lead-stat-card"><div class="n" id="ov-received-today">{{ stat_received_today }}</div><div class="l">Leads Received Today</div></div>
+      <div class="lead-stat-card accent-blue"><div class="n" id="ov-new">{{ stat_new }}</div><div class="l">New</div></div>
+      <div class="lead-stat-card accent-blue"><div class="n" id="ov-contacted">{{ stat_contacted }}</div><div class="l">Contacted</div></div>
+      <div class="lead-stat-card accent-orange"><div class="n" id="ov-won-month">{{ stat_won_month }}</div><div class="l">Won this month</div></div>
+      <div class="lead-stat-card"><div class="n" id="ov-lost-month">{{ stat_lost_month }}</div><div class="l">Lost this month</div></div>
+    </div>
+    <div class="lead-widgets-grid">
+      <div class="lead-widget-card">
+        <h3>Lead Flow (Today)</h3>
+        <div id="ov-lead-flow">
+          <span id="ov-flow-total">{{ lead_flow.total }}</span> received today &rarr;
+          <span id="ov-flow-new">{{ lead_flow.new }}</span> New &middot;
+          <span id="ov-flow-contacted">{{ lead_flow.contacted }}</span> Contacted &middot;
+          <span id="ov-flow-won">{{ lead_flow.closed_won }}</span> Won &middot;
+          <span id="ov-flow-lost">{{ lead_flow.closed_lost }}</span> Lost
+        </div>
+      </div>
+      <div class="lead-widget-card">
+        <h3>Conversion Rate</h3>
+        <div id="ov-conversion-rate">{{ conversion_rate }}%</div>
+      </div>
+      <div class="lead-widget-card" style="grid-column: 1 / -1">
+        <h3>Newest Unactioned Leads</h3>
+        {% if newest_unactioned %}
+        <ul id="ov-newest-unactioned">
+          {% for lead in newest_unactioned %}
+          <li><a href="/?lead={{ lead.id }}">{{ lead.contact_name or "Unknown contact" }} &middot; {{ lead.received_at.strftime("%H:%M") }}</a></li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div style="color:var(--muted)">No new leads waiting.</div>
+        {% endif %}
+      </div>
+    </div>
   </main>
 </div>
 </body>
