@@ -2154,6 +2154,17 @@ async def overview(
         .limit(5)
     ))).scalars().all()
 
+    # received_at is stored as UTC but round-trips as a naive datetime on
+    # SQLite (see the ticket.end_date normalization above); convert each
+    # lead's timestamp to SUMMARY_TIMEZONE for display so the widget matches
+    # every other Kenya-tz-scoped figure on this page.
+    newest_unactioned_local_times = {}
+    for lead in newest_unactioned:
+        lead_received_at = lead.received_at
+        if lead_received_at.tzinfo is None:
+            lead_received_at = lead_received_at.replace(tzinfo=timezone.utc)
+        newest_unactioned_local_times[lead.id] = lead_received_at.astimezone(kenya_tz).strftime("%H:%M")
+
     return templates.TemplateResponse(
         "overview.html",
         {
@@ -2169,6 +2180,7 @@ async def overview(
             "lead_flow": lead_flow,
             "conversion_rate": conversion_rate,
             "newest_unactioned": newest_unactioned,
+            "newest_unactioned_local_times": newest_unactioned_local_times,
         },
     )
 

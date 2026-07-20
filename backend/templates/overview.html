@@ -40,7 +40,7 @@
         {% if newest_unactioned %}
         <ul id="ov-newest-unactioned">
           {% for lead in newest_unactioned %}
-          <li><a href="/?lead={{ lead.id }}">{{ lead.contact_name or "Unknown contact" }} &middot; {{ lead.received_at.strftime("%H:%M") }}</a></li>
+          <li><a href="/?lead={{ lead.id }}">{{ lead.contact_name or "Unknown contact" }} &middot; {{ newest_unactioned_local_times[lead.id] }}</a></li>
           {% endfor %}
         </ul>
         {% else %}

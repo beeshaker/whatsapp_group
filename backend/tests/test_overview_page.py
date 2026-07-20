@@ -178,3 +178,26 @@ async def test_overview_no_unactioned_leads_shows_empty_state(lead_client):
     response = await lead_client.get("/overview")
     assert response.status_code == 200
     assert b"No new leads waiting" in response.content
+
+
+async def test_overview_newest_unactioned_shows_nairobi_local_time_not_utc(lead_client):
+    from tests.conftest import _TestSession
+    from models import Incident
+
+    # UTC 22:00 is 01:00 the next day in Africa/Nairobi (UTC+3).
+    utc_received_at = datetime(2026, 7, 19, 22, 0, tzinfo=timezone.utc)
+    expected_local = utc_received_at.astimezone(KENYA_TZ).strftime("%H:%M")
+    assert expected_local == "01:00"
+
+    async with _TestSession() as session:
+        session.add(Incident(
+            group_id="dunhill@g.us", property_name="n/a", message_body="msg",
+            category="apartment", priority="medium", confidence=0.9,
+            status="new", received_at=utc_received_at, contact_name="LateNightLead",
+        ))
+        await session.commit()
+
+    response = await lead_client.get("/overview")
+    assert response.status_code == 200
+    assert b"LateNightLead &middot; 01:00" in response.content
+    assert b"22:00" not in response.content

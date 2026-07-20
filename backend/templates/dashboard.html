@@ -1493,6 +1493,11 @@ function clearFilters() {
   activeFilters = { status: new Set(), priority: new Set(), cat: new Set(), agent: new Set() };
   document.getElementById('search-input').value = '';
   document.querySelectorAll('.fopt.active').forEach(el => el.classList.remove('active'));
+  if (LEAD_MODE) {
+    document.querySelectorAll('.lead-status-tab.active').forEach(el => el.classList.remove('active'));
+    const allTab = document.querySelector('.lead-status-tab[data-val=""]');
+    if (allTab) allTab.classList.add('active');
+  }
   updateSelectedFilterCounts();
   applyFilters();
 }

@@ -386,6 +386,24 @@ async def test_lead_dashboard_panel_js_defines_four_tabs(lead_client):
         assert tab_name in script
 
 
+async def test_clear_filters_resets_lead_status_tab_strip(lead_client):
+    # Regression check: clicking "Clear filters" resets activeFilters.status,
+    # but must also visually reset the .lead-status-tabs strip (added in
+    # Task 6) back to "All" — otherwise a previously-selected tab like "New"
+    # stays marked .active while the row filter itself shows everything.
+    response = await lead_client.get("/")
+    assert response.status_code == 200
+    script = response.content.split(b"<script>")[1]
+
+    start = script.index(b"function clearFilters()")
+    end = script.index(b"function ", start + len(b"function clearFilters()"))
+    fn_body = script[start:end]
+
+    assert b"LEAD_MODE" in fn_body
+    assert b"lead-status-tab" in fn_body
+    assert b'data-val=""' in fn_body
+
+
 async def test_lead_dashboard_panel_js_uses_contact_name_in_header():
     # Regression pin: today's modal title bug uses property_name even in
     # lead mode. The reskinned header must key off contact_name instead.
