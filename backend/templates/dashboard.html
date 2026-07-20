@@ -765,7 +765,7 @@
 <!-- ── Detail modal / lead panel ── -->
 <div class="modal-overlay" id="detail-modal-overlay" onclick="if(event.target===this)closeDetailModal()">
   <div class="{{ 'lead-panel' if lead_mode else 'modal' }}">
-    <div class="modal-header{% if lead_mode %} lead-panel-header{% endif %}">
+    <div class="{{ 'lead-panel-header' if lead_mode else 'modal-header' }}">
       <h2 id="modal-title">Incident Detail</h2>
       <button class="modal-close" onclick="closeDetailModal()">✕</button>
     </div>
