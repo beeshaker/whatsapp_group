@@ -1,0 +1,11 @@
+<aside class="lead-sidebar">
+  <div class="lead-sidebar-brand">🏠 Dunhill</div>
+  <a class="lead-nav-item {% if active_page == 'overview' %}active{% endif %}" href="/overview">Overview</a>
+  <a class="lead-nav-item {% if active_page == 'live' %}active{% endif %}" href="/">Leads</a>
+  <a class="lead-nav-item {% if active_page == 'archive' %}active{% endif %}" href="/archive">Archive</a>
+  <span class="lead-nav-item-disabled" title="Coming soon">Properties</span>
+  <span class="lead-nav-item-disabled" title="Coming soon">Agent Performance</span>
+  {% if role in ('admin', 'super_admin') %}
+  <a class="lead-nav-item {% if active_page == 'users' %}active{% endif %}" href="/users">Administration</a>
+  {% endif %}
+</aside>
