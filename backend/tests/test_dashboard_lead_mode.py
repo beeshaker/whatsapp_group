@@ -252,3 +252,119 @@ async def test_non_lead_dashboard_does_not_use_sidebar_shell():
     assert b'lead-theme.css' not in response.content
     assert b'{% include "_nav.html"' not in response.content  # sanity: nav actually rendered, not left as raw Jinja
     assert b'class="nav"' in response.content
+
+
+async def test_lead_dashboard_stat_cards_use_lead_theme_classes(lead_client):
+    response = await lead_client.get("/")
+    assert response.status_code == 200
+    assert b'class="lead-stat-card' in response.content
+
+
+async def test_lead_dashboard_status_tabs_present_for_live(lead_client):
+    response = await lead_client.get("/")
+    assert response.status_code == 200
+    body = response.content
+    assert b'class="lead-status-tabs"' in body
+    assert b">All<" in body
+    assert b'data-val="new"' in body
+    assert b'data-val="contacted"' in body
+    assert b'data-val="closed_won"' not in body  # Won/Lost don't apply to the live queue
+    assert b'data-val="closed_lost"' not in body
+
+
+async def test_lead_archive_status_tabs_present_for_won_lost(lead_client):
+    response = await lead_client.get("/archive")
+    assert response.status_code == 200
+    body = response.content
+    assert b'class="lead-status-tabs"' in body
+    assert b'data-val="closed_won"' in body
+    assert b'data-val="closed_lost"' in body
+    assert b'data-val="new"' not in body
+
+
+async def test_lead_dashboard_toolbar_has_disabled_columns_and_download(lead_client):
+    response = await lead_client.get("/")
+    assert response.status_code == 200
+    body = response.content
+    assert b'>Columns<' in body
+    assert b'>Download<' in body
+    disabled_count = body.count(b'class="lead-toolbar-btn-disabled" disabled')
+    assert disabled_count == 2
+
+
+async def test_lead_dashboard_has_single_filters_button_wrapping_category_and_agent_chips(lead_client):
+    response = await lead_client.get("/")
+    assert response.status_code == 200
+    body = response.content
+    assert b'onclick="toggleLeadFiltersPanel()"' in body
+    assert b'id="lead-filters-panel"' in body
+    # the existing category/agent chip-dropdowns still render, just nested inside the panel now
+    assert b'data-group="category"' in body
+    assert b'data-group="agent"' in body
+
+
+async def test_non_lead_dashboard_has_no_filters_button():
+    import importlib as _importlib
+    _importlib.reload(backend_main)
+    from tests.conftest import _TestSession
+    from auth import require_login, require_admin, hash_password
+    from models import User
+    from datetime import datetime as _dt, timezone as _tz
+
+    async def _override_get_db():
+        async with _TestSession() as session:
+            yield session
+
+    async def _override_require_login():
+        return "plainadmin5"
+
+    async def _override_require_admin():
+        return "plainadmin5"
+
+    backend_main.app.dependency_overrides[get_db] = _override_get_db
+    backend_main.app.dependency_overrides[require_login] = _override_require_login
+    backend_main.app.dependency_overrides[require_admin] = _override_require_admin
+    async with _TestSession() as session:
+        session.add(User(
+            username="plainadmin5", hashed_password=hash_password("irrelevant"),
+            created_at=_dt.now(_tz.utc), role="admin",
+        ))
+        await session.commit()
+    async with AsyncClient(transport=ASGITransport(app=backend_main.app), base_url="http://test") as c:
+        response = await c.get("/")
+    backend_main.app.dependency_overrides.clear()
+    rendered_markup = response.content.split(b"<script>")[0]
+    assert b'toggleLeadFiltersPanel' not in rendered_markup
+    assert b'id="lead-filters-panel"' not in rendered_markup
+
+
+async def test_lead_dashboard_row_data_attributes_unchanged(lead_client):
+    classification = {"issues": [{
+        "category": "apartment", "priority": "low", "confidence": 0.9,
+        "message_snippet": "looking for a 4br", "contact_name": "Frank",
+        "contact_phone": "254700000000", "lead_agent": "Jabeen",
+    }]}
+    payload = {
+        "event": "message.received",
+        "data": {
+            "type": "chat", "isGroup": True,
+            "chatId": "dunhill@g.us", "chat": {"name": "Dunhill Sales"},
+            "author": "254790000000@c.us",
+            "body": "@~Jabeen contact Frank 0700000000",
+            "timestamp": 1782300100,
+        },
+    }
+    from unittest.mock import AsyncMock, patch
+    with patch("main.classify_message", new=AsyncMock(return_value=classification)):
+        with patch("main.push_incident", new=AsyncMock()):
+            await lead_client.post(
+                "/api/v1/ops/ingest", json=payload, headers={"X-API-Key": GATEWAY_TOKEN}
+            )
+    response = await lead_client.get("/")
+    body = response.content
+    assert b'data-id="' in body
+    assert b'data-priority="' in body
+    assert b'data-status="new"' in body
+    assert b'data-cat="apartment"' in body
+    assert b'data-agent="Jabeen"' in body
+    assert b'data-search="' in body

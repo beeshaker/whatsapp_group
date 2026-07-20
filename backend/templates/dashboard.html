@@ -554,11 +554,11 @@
       <div class="toolbar-actions">
         {% if mode != 'archive' %}
           {% if lead_mode %}
-          <div class="stats-bar">
-            <div class="stat"><div class="n" id="stat-new">0</div><div class="l">New</div></div>
-            <div class="stat"><div class="n" id="stat-contacted">0</div><div class="l">Contacted</div></div>
-            <div class="stat"><div class="n" id="stat-total">0</div><div class="l">Total</div></div>
-            <div class="stat" style="opacity:.5" title="Per-listing matching arrives in Phase 2"><div class="n">&mdash;</div><div class="l">Matches (Phase 2)</div></div>
+          <div class="lead-stat-cards">
+            <div class="lead-stat-card accent-blue"><div class="n" id="stat-new">0</div><div class="l">New</div></div>
+            <div class="lead-stat-card accent-blue"><div class="n" id="stat-contacted">0</div><div class="l">Contacted</div></div>
+            <div class="lead-stat-card"><div class="n" id="stat-total">0</div><div class="l">Total</div></div>
+            <div class="lead-stat-card" style="opacity:.5" title="Per-listing matching arrives in Phase 2"><div class="n">&mdash;</div><div class="l">Matches (Phase 2)</div></div>
           </div>
           {% else %}
           <div class="stats-bar">
@@ -568,8 +568,8 @@
           </div>
           {% endif %}
         {% else %}
-        <div class="stats-bar">
-          <div class="stat"><div class="n" id="stat-total">0</div><div class="l">{{ "Closed" if lead_mode else "Resolved" }}</div></div>
+        <div class="{{ 'lead-stat-cards' if lead_mode else 'stats-bar' }}">
+          <div class="{{ 'lead-stat-card' if lead_mode else 'stat' }}"><div class="n" id="stat-total">0</div><div class="l">{{ "Closed" if lead_mode else "Resolved" }}</div></div>
         </div>
         {% endif %}
         {% if not lead_mode %}
@@ -589,13 +589,26 @@
     </div>
     {% endif %}
 
+    {%- if lead_mode %}
+    <div class="lead-status-tabs" data-group="status">
+      <button type="button" class="lead-status-tab active" data-val="" onclick="selectStatusTab(this)">All</button>
+      {% if mode != 'archive' %}
+      <button type="button" class="lead-status-tab" data-val="new" onclick="selectStatusTab(this)">New <span class="cnt" data-cnt="new">0</span></button>
+      <button type="button" class="lead-status-tab" data-val="contacted" onclick="selectStatusTab(this)">Contacted <span class="cnt" data-cnt="contacted">0</span></button>
+      {% else %}
+      <button type="button" class="lead-status-tab" data-val="closed_won" onclick="selectStatusTab(this)">Won <span class="cnt" data-cnt="closed_won">0</span></button>
+      <button type="button" class="lead-status-tab" data-val="closed_lost" onclick="selectStatusTab(this)">Lost <span class="cnt" data-cnt="closed_lost">0</span></button>
+      {% endif %}
+    </div>
+    {% endif %}
+
     <div class="toolbar-controls">
       <div class="search-wrap">
         <span>&#9013;</span>
         <input id="search-input" placeholder="Search property, reporter, message&hellip;" oninput="applyFilters()">
       </div>
       <div class="toolbar-filters">
-        {% if mode != 'archive' %}
+        {% if mode != 'archive' and not lead_mode %}
         <div class="chip-dropdown" data-group="status">
           <button type="button" class="chip-btn" onclick="toggleFilterGroup(this)">Status <span class="cnt chip-count" id="selected-status-count">0</span><span class="chip-caret">&#8964;</span></button>
           <div class="chip-menu">
@@ -624,6 +637,11 @@
         </div>
         {% endif %}
 
+        {%- if lead_mode %}
+        <button type="button" class="btn lead-toolbar-btn" onclick="toggleLeadFiltersPanel()">&#128269; Filters</button>
+        <div class="lead-filters-panel" id="lead-filters-panel" style="display:none">
+        {% endif %}
+
         <div class="chip-dropdown" data-group="category">
           <button type="button" class="chip-btn" onclick="toggleFilterGroup(this)">{{ "Property type" if lead_mode else "Category" }} <span class="cnt chip-count" id="selected-cat-count">0</span><span class="chip-caret">&#8964;</span></button>
           <div class="chip-menu">
@@ -639,9 +657,14 @@
           <button type="button" class="chip-btn" onclick="toggleFilterGroup(this)">Agent <span class="cnt chip-count" id="selected-agent-count">0</span><span class="chip-caret">&#8964;</span></button>
           <div class="chip-menu" id="agent-filter-menu"></div>
         </div>
+        </div>
         {% endif %}
 
         <button type="button" class="btn btn-ghost" onclick="clearFilters()">Clear filters</button>
+        {%- if lead_mode %}
+        <button type="button" class="lead-toolbar-btn-disabled" disabled title="Coming soon">Columns</button>
+        <button type="button" class="lead-toolbar-btn-disabled" disabled title="Coming soon">Download</button>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -1360,6 +1383,21 @@ function toggleFilterGroup(button) {
   const willOpen = !dropdown.classList.contains('open');
   document.querySelectorAll('.chip-dropdown.open').forEach(d => d.classList.remove('open'));
   if (willOpen) dropdown.classList.add('open');
+}
+
+function selectStatusTab(el) {
+  const group = el.closest('.lead-status-tabs');
+  group.querySelectorAll('.lead-status-tab').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  activeFilters.status = el.dataset.val ? new Set([el.dataset.val]) : new Set();
+  updateSelectedFilterCounts();
+  applyFilters();
+}
+
+function toggleLeadFiltersPanel() {
+  const panel = document.getElementById('lead-filters-panel');
+  if (!panel) return;
+  panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
 }
 
 function updateSelectedFilterCounts() {
