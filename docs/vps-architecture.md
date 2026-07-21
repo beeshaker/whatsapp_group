@@ -65,6 +65,31 @@ docker network connect <name>_client-net billing-app
 
 ---
 
+## Gotcha: LEAD_MODE clients need `message.reaction` added to their webhook manually
+
+Every client's OpenWA webhook is registered once at onboarding with `"events": ["message.received"]` only (see `docs/onboarding-new-client.md` Step 10, `setup.sh`). The reaction-triggered status-update feature (see
+`docs/superpowers/specs/2026-07-21-dunhill-reaction-status-and-reply-quoting-design.md`)
+requires OpenWA to also dispatch `message.reaction` — but there's no automatic migration
+for existing clients' webhook subscriptions.
+
+**Any time this feature is deployed for a new or existing `LEAD_MODE` client, update
+that client's webhook's `events` list manually:**
+
+```bash
+# From the client's OpenWA session:
+SESSION_ID="<client's session id>"
+WEBHOOK_ID="<existing webhook id, from GET /sessions/$SESSION_ID/webhooks>"
+curl -X PUT "http://localhost:200X/api/sessions/${SESSION_ID}/webhooks/${WEBHOOK_ID}" \
+  -H "X-API-Key: dev-admin-key" \
+  -H "Content-Type: application/json" \
+  -d '{"events": ["message.received", "message.reaction"]}'
+```
+
+Forgetting this step doesn't error anywhere — the feature just silently never fires,
+since OpenWA never dispatches `message.reaction` to a webhook that isn't subscribed to it.
+
+---
+
 ## Deployment procedure
 
 ### Ticketing backend (per client) — scripted

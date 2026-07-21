@@ -260,6 +260,12 @@ curl -X POST "http://localhost:200X/api/sessions/${SESSION_ID}/webhooks" \
   }"
 ```
 
+> For a `LEAD_MODE` client (e.g. Dunhill-style lead capture), also include
+> `"message.reaction"` in the `events` array above — it's required for
+> reaction-triggered status updates (👍 → Contacted). See the gotcha in
+> `docs/vps-architecture.md` if this is added to an *existing* client after
+> the fact rather than at onboarding.
+
 ---
 
 ## Step 11 — Register client in billing dashboard
