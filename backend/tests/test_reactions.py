@@ -22,6 +22,26 @@ _LEAD_CLASS = {"issues": [{
     "lead_agent": "Agent A", "lead_source": "WhatsApp",
 }]}
 
+# One WhatsApp message that classifies into 2 distinct leads -> 2 Incident rows
+# sharing the same message_id (differing only by issue_index). Mirrors
+# test_lead_mode.py's test_two_enquiry_message_creates_two_independent_leads.
+_TWO_ISSUE_LEAD_CLASS = {"issues": [
+    {
+        "category": "apartment", "priority": "low", "confidence": 0.9,
+        "message_snippet": "Looking for a 2br",
+        "contact_name": "Contact One", "contact_phone": "254700111222",
+        "lead_location": "Kilimani", "lead_budget": "50000", "transaction_type": "rent",
+        "lead_agent": "Agent A", "lead_source": "WhatsApp",
+    },
+    {
+        "category": "commercial", "priority": "low", "confidence": 0.9,
+        "message_snippet": "Need office space",
+        "contact_name": "Contact Two", "contact_phone": "254700222333",
+        "lead_location": "Westlands", "lead_budget": "80000", "transaction_type": "rent",
+        "lead_agent": "Agent B", "lead_source": "WhatsApp",
+    },
+]}
+
 
 @pytest.fixture(autouse=True)
 def _restore_main_module_state():
@@ -117,6 +137,41 @@ async def _set_status(incident_id, status):
         await session.commit()
 
 
+async def _create_two_issue_lead_incidents(client, message_id):
+    """One ingest call, one WhatsApp message, 2 classified issues -> 2 Incident
+    rows sharing message_id (differing only by issue_index)."""
+    with patch("main.classify_message", new=AsyncMock(return_value=_TWO_ISSUE_LEAD_CLASS)):
+        with patch("main.push_incident", new=AsyncMock()):
+            r = await client.post(
+                "/api/v1/ops/ingest",
+                json=_lead_payload(message_id),
+                headers={"X-API-Key": GATEWAY_TOKEN},
+            )
+    assert r.status_code == 202
+    assert r.json()["tickets_created"] == 2
+
+    from tests.conftest import _TestSession
+    async with _TestSession() as session:
+        result = await session.execute(
+            select(Incident).where(Incident.message_id == message_id).order_by(Incident.issue_index)
+        )
+        incidents = result.scalars().all()
+    assert len(incidents) == 2
+    return [i.id for i in incidents]
+
+
+async def _history_and_audit_counts(incident_id):
+    from tests.conftest import _TestSession
+    async with _TestSession() as session:
+        history = (await session.execute(
+            select(IncidentStatusHistory).where(IncidentStatusHistory.incident_id == incident_id)
+        )).scalars().all()
+        audit = (await session.execute(
+            select(AuditLog).where(AuditLog.incident_id == incident_id)
+        )).scalars().all()
+    return len(history), len(audit)
+
+
 async def test_reaction_exact_message_id_match_transitions_new_to_contacted(client):
     incident_id = await _create_lead_incident(client, "lead-r1")
     r = await client.post(
@@ -144,7 +199,7 @@ async def test_reaction_matches_via_author_and_timestamp_when_no_message_id(clie
     )
     assert r.status_code == 202
     assert r.json()["status"] == "status_updated"
-    assert r.json()["incident_id"] == incident_id
+    assert r.json()["incident_ids"] == [incident_id]
 
 
 async def test_reaction_single_candidate_fallback_when_only_author_present(client):
@@ -158,7 +213,7 @@ async def test_reaction_single_candidate_fallback_when_only_author_present(clien
     )
     assert r.status_code == 202
     assert r.json()["status"] == "status_updated"
-    assert r.json()["incident_id"] == incident_id
+    assert r.json()["incident_ids"] == [incident_id]
 
 
 async def test_reaction_ambiguous_multiple_candidates_is_ignored(client):
@@ -171,6 +226,69 @@ async def test_reaction_ambiguous_multiple_candidates_is_ignored(client):
     )
     assert r.status_code == 202
     assert r.json()["status"] == "ignored"
+
+
+async def test_reaction_to_multi_issue_message_transitions_all_new_incidents(client):
+    """One WhatsApp message split into 2 tickets (multi-ticket-message-split
+    feature) sharing the same message_id. A single 👍 reaction must match
+    both Incident rows (not raise MultipleResultsFound) and transition both
+    from new -> contacted."""
+    incident_ids = await _create_two_issue_lead_incidents(client, "lead-multi1")
+
+    r = await client.post(
+        "/api/v1/ops/ingest",
+        json=_reaction_payload(target_message_id="lead-multi1"),
+        headers={"X-API-Key": GATEWAY_TOKEN},
+    )
+    assert r.status_code == 202
+    body = r.json()
+    assert body["status"] == "status_updated"
+    assert sorted(body["incident_ids"]) == sorted(incident_ids)
+    assert body["to_status"] == "contacted"
+
+    from tests.conftest import _TestSession
+    async with _TestSession() as session:
+        incidents = (await session.execute(
+            select(Incident).where(Incident.id.in_(incident_ids))
+        )).scalars().all()
+    assert all(i.status == "contacted" for i in incidents)
+
+
+async def test_reaction_to_multi_issue_message_skips_already_contacted_sibling(client):
+    """Same multi-issue setup, but one sibling incident is already past 'new'
+    before the reaction arrives. It must be left untouched (no new history/
+    audit rows) while the still-'new' sibling transitions normally."""
+    incident_ids = await _create_two_issue_lead_incidents(client, "lead-multi2")
+    already_contacted_id, still_new_id = incident_ids[0], incident_ids[1]
+    await _set_status(already_contacted_id, "contacted")
+
+    history_before, audit_before = await _history_and_audit_counts(already_contacted_id)
+
+    r = await client.post(
+        "/api/v1/ops/ingest",
+        json=_reaction_payload(target_message_id="lead-multi2"),
+        headers={"X-API-Key": GATEWAY_TOKEN},
+    )
+    assert r.status_code == 202
+    body = r.json()
+    assert body["status"] == "status_updated"
+    assert body["incident_ids"] == [still_new_id]
+
+    from tests.conftest import _TestSession
+    async with _TestSession() as session:
+        already_contacted = (await session.execute(
+            select(Incident).where(Incident.id == already_contacted_id)
+        )).scalar_one()
+        still_new = (await session.execute(
+            select(Incident).where(Incident.id == still_new_id)
+        )).scalar_one()
+
+    assert already_contacted.status == "contacted"
+    assert still_new.status == "contacted"
+
+    history_after, audit_after = await _history_and_audit_counts(already_contacted_id)
+    assert history_after == history_before
+    assert audit_after == audit_before
 
 
 async def test_reaction_noop_when_incident_already_contacted(client):

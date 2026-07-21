@@ -492,7 +492,13 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
     let quotedMsg = messages.find(m => m.id._serialized === quotedMsgId);
 
     if (!quotedMsg && authorHint && timestampHint) {
-      quotedMsg = messages.find(m => (m as ExtendedMessage).author === authorHint && m.timestamp === timestampHint);
+      // authorHint is the bare phone number (backend's reporter_phone is
+      // stored stripped of its JID suffix at ingest), but ExtendedMessage.author
+      // is the sender's full JID in group messages (e.g. "254711223344@c.us").
+      // Strip the suffix off both sides before comparing.
+      quotedMsg = messages.find(
+        m => (m as ExtendedMessage).author?.split('@')[0] === authorHint && m.timestamp === timestampHint,
+      );
     }
 
     if (!quotedMsg) {

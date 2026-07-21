@@ -998,7 +998,7 @@ async def _handle_reaction(data: dict, db: AsyncSession) -> dict:
     target_author = data.get("targetAuthor")
     target_timestamp = data.get("targetTimestamp")
 
-    incident: Optional[Incident] = None
+    incidents: list[Incident] = []
 
     if target_message_id:
         result = await db.execute(
@@ -1007,9 +1007,9 @@ async def _handle_reaction(data: dict, db: AsyncSession) -> dict:
                 Incident.message_id == target_message_id,
             )
         )
-        incident = result.scalar_one_or_none()
+        incidents = list(result.scalars().all())
 
-    if incident is None and target_author and target_timestamp is not None:
+    if not incidents and target_author and target_timestamp is not None:
         author_phone = target_author.split("@")[0]
         received_at = datetime.fromtimestamp(target_timestamp, tz=timezone.utc)
         result = await db.execute(
@@ -1019,9 +1019,9 @@ async def _handle_reaction(data: dict, db: AsyncSession) -> dict:
                 Incident.received_at == received_at,
             )
         )
-        incident = result.scalar_one_or_none()
+        incidents = list(result.scalars().all())
 
-    if incident is None and target_author and target_timestamp is None:
+    if not incidents and target_author and target_timestamp is None:
         author_phone = target_author.split("@")[0]
         result = await db.execute(
             select(Incident).where(
@@ -1032,36 +1032,48 @@ async def _handle_reaction(data: dict, db: AsyncSession) -> dict:
         )
         candidates = result.scalars().all()
         if len(candidates) == 1:
-            incident = candidates[0]
+            incidents = [candidates[0]]
 
-    if incident is None:
+    if not incidents:
         logger.debug("Reaction matched no incident for group %s", group_id)
         return {"status": "ignored", "message": "No matching incident found for reaction"}
 
-    if incident.status != "new":
+    # Tier-1/tier-2 matches can legitimately return multiple rows: one
+    # WhatsApp message can split into multiple tickets sharing the same
+    # message_id (or the same reporter_phone+received_at), one per
+    # issue_index (see multi-ticket-message-split design). Transition every
+    # matched incident still at "new"; leave incidents already past "new"
+    # untouched rather than treating that as an error.
+    new_incidents = [i for i in incidents if i.status == "new"]
+    if not new_incidents:
         return {"status": "ignored", "message": "Incident already past new status"}
 
     sender_phone = (data.get("senderId") or "").split("@")[0]
     now = datetime.now(timezone.utc)
-    old_status = incident.status
-    incident.status = "contacted"
-    db.add(incident)
-    db.add(IncidentStatusHistory(
-        incident_id=incident.id,
-        from_status=old_status,
-        to_status="contacted",
-        changed_at=now,
-        changed_by=f"whatsapp:{sender_phone}",
-    ))
-    db.add(AuditLog(
-        username=f"whatsapp:{sender_phone}",
-        action="auto_status_reaction",
-        incident_id=incident.id,
-        detail=f"👍 reaction from {sender_phone}",
-        created_at=now,
-    ))
+    for incident in new_incidents:
+        old_status = incident.status
+        incident.status = "contacted"
+        db.add(incident)
+        db.add(IncidentStatusHistory(
+            incident_id=incident.id,
+            from_status=old_status,
+            to_status="contacted",
+            changed_at=now,
+            changed_by=f"whatsapp:{sender_phone}",
+        ))
+        db.add(AuditLog(
+            username=f"whatsapp:{sender_phone}",
+            action="auto_status_reaction",
+            incident_id=incident.id,
+            detail=f"👍 reaction from {sender_phone}",
+            created_at=now,
+        ))
     await db.commit()
-    return {"status": "status_updated", "incident_id": incident.id, "to_status": "contacted"}
+    return {
+        "status": "status_updated",
+        "incident_ids": [i.id for i in new_incidents],
+        "to_status": "contacted",
+    }
 
 
 @app.post("/api/v1/ops/ingest", status_code=status.HTTP_202_ACCEPTED)

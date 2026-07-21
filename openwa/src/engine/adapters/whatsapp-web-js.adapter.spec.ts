@@ -112,9 +112,13 @@ describe('WhatsAppWebJsAdapter', () => {
     });
 
     it('falls back to author+timestamp match when exact ID is absent', async () => {
+      // Realistic shapes: whatsapp-web.js's ExtendedMessage.author is a full
+      // JID ("<phone>@c.us"), but the backend's authorHint is the bare phone
+      // number (reporter_phone is stored stripped of its JID suffix at
+      // ingest). The match must normalize both sides to compare correctly.
       const targetMsg = {
         id: { _serialized: 'some-other-id' },
-        author: 'author@c.us',
+        author: '254711223344@c.us',
         timestamp: 1700000000,
         reply: jest.fn().mockResolvedValue({ id: { _serialized: 'reply-2' }, timestamp: 1001 }),
       };
@@ -124,7 +128,7 @@ describe('WhatsAppWebJsAdapter', () => {
         '123@g.us',
         'wa-quoted-missing',
         'Hello',
-        'author@c.us',
+        '254711223344',
         1700000000,
         'Original snippet',
       );
