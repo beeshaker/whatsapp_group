@@ -260,7 +260,34 @@ describe('MessageService', () => {
         text: 'This is a reply',
       });
 
-      expect(mockEngine.replyToMessage).toHaveBeenCalledWith('test@c.us', 'wa-quoted-1', 'This is a reply');
+      expect(mockEngine.replyToMessage).toHaveBeenCalledWith(
+        'test@c.us',
+        'wa-quoted-1',
+        'This is a reply',
+        undefined,
+        undefined,
+        undefined,
+      );
+    });
+
+    it('should pass authorHint, timestampHint, and contextSnippet through to the engine', async () => {
+      await service.reply('sess-1', {
+        chatId: 'test@c.us',
+        quotedMessageId: '',
+        text: 'This is a reply',
+        authorHint: '254711223344',
+        timestampHint: 1782300000,
+        contextSnippet: 'Original message text',
+      });
+
+      expect(mockEngine.replyToMessage).toHaveBeenCalledWith(
+        'test@c.us',
+        '',
+        'This is a reply',
+        '254711223344',
+        1782300000,
+        'Original message text',
+      );
     });
   });
 

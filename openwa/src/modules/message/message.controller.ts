@@ -197,7 +197,15 @@ export class MessageController {
   })
   async reply(
     @Param('sessionId') sessionId: string,
-    @Body() dto: { chatId: string; quotedMessageId: string; text: string },
+    @Body()
+    dto: {
+      chatId: string;
+      quotedMessageId: string;
+      text: string;
+      authorHint?: string;
+      timestampHint?: number;
+      contextSnippet?: string;
+    },
   ): Promise<MessageResponseDto> {
     return this.messageService.reply(sessionId, dto);
   }

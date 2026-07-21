@@ -337,7 +337,14 @@ export class MessageService {
 
   async reply(
     sessionId: string,
-    dto: { chatId: string; quotedMessageId: string; text: string },
+    dto: {
+      chatId: string;
+      quotedMessageId: string;
+      text: string;
+      authorHint?: string;
+      timestampHint?: number;
+      contextSnippet?: string;
+    },
   ): Promise<MessageResponseDto> {
     const engine = this.getEngine(sessionId);
 
@@ -349,7 +356,14 @@ export class MessageService {
     });
 
     try {
-      const result = await engine.replyToMessage(dto.chatId, dto.quotedMessageId, dto.text);
+      const result = await engine.replyToMessage(
+        dto.chatId,
+        dto.quotedMessageId,
+        dto.text,
+        dto.authorHint,
+        dto.timestampHint,
+        dto.contextSnippet,
+      );
 
       // Update with actual WhatsApp message ID and status
       message.waMessageId = result.id;

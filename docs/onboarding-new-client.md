@@ -1,76 +1,80 @@
 # Onboarding a New Client
 
-This guide walks through adding a new client to the Whats2Manage platform. Each client gets their own subdomain (e.g. `acme.whats2manage.com`), their own backend + OpenWA containers, and their own PostgreSQL database.
+Each client gets their own subdomain (e.g. `pixiilive.whats2manage.com`), their own backend + OpenWA containers, and their own PostgreSQL database on the shared instance.
 
 ---
 
 ## Prerequisites
 
-- You have SSH access to the VPS as `deploy@143.86.81.124`
-- The billing dashboard is live at `https://whats2manage.com`
-- Shared PostgreSQL is running at `/opt/clients/shared-postgres`
-- You have a dedicated WhatsApp SIM for the client's bot number
+- SSH access: `ssh deploy@167.86.81.124`
+- Billing dashboard: `https://whats2manage.com` (admin / changeme)
+- Shared PostgreSQL running at `/opt/clients/shared-postgres`
+- A dedicated WhatsApp SIM for the client's bot number
+- Sudo access on the server (needed for nginx reload only)
 
 ---
 
-## Step 1 — Decide port numbers
+## Port allocation
 
-Each client needs two unique ports. Keep a running list:
+Pick the next free pair. Current allocations:
 
-| Client | Backend port | OpenWA port |
-|--------|-------------|-------------|
-| pixii  | 8001        | 2001        |
-| acme   | 8002        | 2002        |
-| next   | 8003        | 2003        |
+| Client     | Backend port | OpenWA port |
+|------------|-------------|-------------|
+| pixie      | 8001        | 2001        |
+| nineonetwo | 8002        | 2002        | 
+| pixiilive  | 8003        | 2003        |
+| next       | 8004        | 2004        | 
+
+**Naming note:** Client names must be valid hostnames — no leading digits. If a client name starts with a number (e.g. `912`), spell it out: `nineonetwo`.
 
 ---
 
-## Step 2 — Create the database
+## Step 1 — Create the database
 
 ```bash
+ssh deploy@167.86.81.124
 cd /opt/clients/shared-postgres
-docker compose exec postgres psql -U ops_user -d postgres -c "CREATE DATABASE client_acme;"
-```
-
-Replace `acme` with the client's subdomain.
-
----
-
-## Step 3 — Create the client directory
-
-```bash
-mkdir -p /opt/clients/acme
-cp /opt/whatsapp-ticketing/deploy/client-template/docker-compose.yml /opt/clients/acme/
-cp -r /opt/whatsapp-ticketing/backend /opt/clients/acme/
-cp -r /opt/whatsapp-ticketing/openwa /opt/clients/acme/
+docker compose exec postgres psql -U ops_user -d postgres -c "CREATE DATABASE client_CLIENTNAME;"
 ```
 
 ---
 
-## Step 4 — Create the `.env` file
+## Step 2 — Create the client directory
 
 ```bash
-nano /opt/clients/acme/.env
+mkdir -p /opt/clients/CLIENTNAME
+cp -r /opt/whatsapp-ticketing/backend /opt/clients/CLIENTNAME/
+cp -r /opt/whatsapp-ticketing/openwa /opt/clients/CLIENTNAME/
 ```
 
-Fill in all values:
+> **Do not copy the docker-compose.yml from the template** — it is outdated. Write it fresh in Step 4.
 
-```env
-BACKEND_PORT=8002
-OPENWA_PORT=2002
+---
+
+## Step 3 — Create the `.env` file
+
+```bash
+GW=$(openssl rand -hex 32)
+SK=$(openssl rand -hex 32)
+
+cat > /opt/clients/CLIENTNAME/.env << EOF
+BACKEND_PORT=800X
+OPENWA_PORT=200X
 
 POSTGRES_USER=ops_user
-POSTGRES_PASSWORD=YOUR_SHARED_POSTGRES_PASSWORD
-POSTGRES_DB=client_acme
-DATABASE_URL=postgresql+asyncpg://ops_user:YOUR_SHARED_POSTGRES_PASSWORD@postgres:5432/client_acme
+POSTGRES_PASSWORD=CHANGE_THIS_STRONG_PASSWORD
+POSTGRES_DB=client_CLIENTNAME
+DATABASE_URL=postgresql+asyncpg://ops_user:CHANGE_THIS_STRONG_PASSWORD@postgres:5432/client_CLIENTNAME
 
-GATEWAY_SECRET_TOKEN=$(openssl rand -hex 32)
-SECRET_KEY=$(openssl rand -hex 32)
+BILLING_WEBHOOK_SECRET=secertbilling
+
+GATEWAY_SECRET_TOKEN=${GW}
+SECRET_KEY=${SK}
 
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=STRONG_PASSWORD_HERE
+ADMIN_PASSWORD=CHANGE_THIS_PASSWORD
 SUPER_ADMIN_USERNAME=superadmin
-SUPER_ADMIN_PASSWORD=STRONG_PASSWORD_HERE
+SUPER_ADMIN_PASSWORD=CHANGE_THIS_PASSWORD
 
 OPENWA_URL=http://openwa:2785
 OPENWA_SESSION=opsgateway
@@ -81,33 +85,26 @@ OLLAMA_MODEL=qwen2.5:7b
 OLLAMA_TIMEOUT=60
 MIN_CONFIDENCE=0.80
 
-DASHBOARD_TITLE=Acme Incident Monitor
-DASHBOARD_URL=https://acme.whats2manage.com
+DASHBOARD_TITLE=ClientName Incident Monitor
+DASHBOARD_URL=https://CLIENTNAME.whats2manage.com
 SUMMARY_TIMEZONE=Africa/Nairobi
 SUMMARY_SCHEDULE_HOUR=8
 
-CLIENT_SUBDOMAIN=acme
+CLIENT_SUBDOMAIN=CLIENTNAME
 BILLING_SERVICE_URL=https://whats2manage.com
-BILLING_WEBHOOK_SECRET=
+EOF
 ```
 
-Generate the random tokens before saving:
-```bash
-openssl rand -hex 32  # use for GATEWAY_SECRET_TOKEN
-openssl rand -hex 32  # use for SECRET_KEY
-```
+Replace `800X` / `200X` with the allocated ports and `CHANGE_THIS_STRONG_PASSWORD` with the shared postgres password (copy from `/opt/clients/pixie/.env`).
 
 ---
 
-## Step 5 — Update `docker-compose.yml`
+## Step 4 — Create `docker-compose.yml`
+
+The template file is outdated. Always write this from scratch:
 
 ```bash
-nano /opt/clients/acme/docker-compose.yml
-```
-
-Replace the entire file with:
-
-```yaml
+cat > /opt/clients/CLIENTNAME/docker-compose.yml << 'EOF'
 services:
   backend:
     build:
@@ -116,6 +113,8 @@ services:
     ports:
       - "127.0.0.1:${BACKEND_PORT}:8000"
     env_file: .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - media_data:/app/media
     networks:
@@ -150,111 +149,109 @@ networks:
 volumes:
   openwa_data:
   media_data:
+EOF
 ```
+
+The `shared-db` network is what lets the backend reach the shared postgres container. Without it the backend will crash-loop with a DNS resolution error.
 
 ---
 
-## Step 6 — Add to Nginx port map
+## Step 5 — Add to nginx port map
 
 ```bash
 sudo nano /etc/nginx/conf.d/client-ports.conf
 ```
 
-Add the new client:
+Add the new client line inside the map block:
+
 ```nginx
 map $client $backend_port {
-    pixii     8001;
-    acme      8002;
-    default   8001;
+    Pixii        8001;
+    nineonetwo   8002;
+    pixiilive    8003;
+    CLIENTNAME   800X;
+    default      8001;
 }
 ```
 
-Reload Nginx:
+Reload nginx:
+
 ```bash
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
 ---
 
-## Step 7 — Build and start
+## Step 6 — Build and start
 
 ```bash
-cd /opt/clients/acme
+cd /opt/clients/CLIENTNAME
 docker compose build
 docker compose up -d
-docker compose ps  # verify both containers are running
+docker compose ps   # both containers should show "Up"
+```
+
+Health check:
+```bash
+curl http://localhost:800X/health   # should return {"status":"ok"}
 ```
 
 ---
 
-## Step 8 — Scan WhatsApp QR code
+## Step 7 — Scan WhatsApp QR code
 
 Send the client this URL:
 ```
-https://acme.whats2manage.com/setup
+https://CLIENTNAME.whats2manage.com/setup
 ```
 
-They open it in a browser and scan the QR code with the dedicated bot SIM via:
-**WhatsApp → three dots → Linked Devices → Link a Device**
+On the dedicated bot SIM: **WhatsApp → three dots → Linked Devices → Link a Device → scan the QR**.
 
 ---
 
-## Step 9 — Get the OpenWA API key and session name
-
-After scanning, get the actual API key and session name:
+## Step 8 — Get the session name and session ID
 
 ```bash
-# Get the session name
-curl -s "http://localhost:2002/api/sessions" \
+curl -s "http://localhost:200X/api/sessions" \
   -H "X-API-Key: dev-admin-key" | python3 -m json.tool
 ```
 
-Note the `name` and `id` fields. Update the client's `.env`:
+Note the `name` and `id` fields. Update `.env` if the session name differs from `opsgateway`:
+
 ```bash
-nano /opt/clients/acme/.env
-```
-Set `OPENWA_SESSION=` to the actual session name, then restart the backend:
-```bash
+nano /opt/clients/CLIENTNAME/.env
+# Set OPENWA_SESSION=<actual session name>
 docker compose restart backend
 ```
 
 ---
 
-## Step 10 — Get WhatsApp group IDs
+## Step 9 — Get WhatsApp group IDs
 
-The client needs two WhatsApp groups — both must include the bot number:
+The client needs two groups (both must include the bot number):
+- **Support group** — where staff send tickets
+- **Billing group** — where `/payment` is typed
 
-1. **Support group** — where client staff send tickets
-2. **Billing admin group** — where the client types `/payment`
-
-Get the group IDs:
 ```bash
-SESSION_ID="paste-session-id-here"
-curl -s "http://localhost:2002/api/sessions/${SESSION_ID}/groups" \
+SESSION_ID="paste-id-from-step-8"
+curl -s "http://localhost:200X/api/sessions/${SESSION_ID}/groups" \
   -H "X-API-Key: dev-admin-key" | python3 -c "
 import sys, json
-groups = json.load(sys.stdin)
-for g in groups:
+for g in json.load(sys.stdin):
     print(g.get('id'), '-', g.get('name') or g.get('subject', 'unknown'))
 "
 ```
 
 ---
 
-## Step 11 — Register billing webhook
+## Step 10 — Register billing webhook
 
-Get the billing container IP on `services-net`:
 ```bash
-docker inspect billing-app | python3 -c "import sys,json; nets=json.load(sys.stdin)[0]['NetworkSettings']['Networks']; print([(k,v['IPAddress']) for k,v in nets.items()])"
-```
-
-Register the webhook for the billing group:
-```bash
-SESSION_ID="paste-session-id-here"
-BILLING_IP="172.23.0.3"  # from above
+SESSION_ID="paste-session-id"
+BILLING_IP=$(docker inspect billing-app | python3 -c "import sys,json; nets=json.load(sys.stdin)[0]['NetworkSettings']['Networks']; print(list(nets.values())[0]['IPAddress'])")
 BILLING_GROUP_ID="120363XXXXXXXXXX@g.us"
 
-curl -X POST "http://localhost:2002/api/sessions/${SESSION_ID}/webhooks" \
+curl -X POST "http://localhost:200X/api/sessions/${SESSION_ID}/webhooks" \
   -H "X-API-Key: dev-admin-key" \
   -H "Content-Type: application/json" \
   -d "{
@@ -263,50 +260,50 @@ curl -X POST "http://localhost:2002/api/sessions/${SESSION_ID}/webhooks" \
   }"
 ```
 
+> For a `LEAD_MODE` client (e.g. Dunhill-style lead capture), also include
+> `"message.reaction"` in the `events` array above — it's required for
+> reaction-triggered status updates (👍 → Contacted). See the gotcha in
+> `docs/vps-architecture.md` if this is added to an *existing* client after
+> the fact rather than at onboarding.
+
 ---
 
-## Step 12 — Register client in billing dashboard
+## Step 11 — Register client in billing dashboard
 
-Go to `https://whats2manage.com` → **New Client** and fill in:
+Go to `https://whats2manage.com` → **New Client**:
 
 | Field | Value |
 |-------|-------|
-| Company Name | Acme Ltd |
-| Subdomain | acme |
-| Backend Port | 8002 |
+| Company Name | Client display name |
+| Subdomain | CLIENTNAME |
+| Backend Port | 800X |
 | Admin WhatsApp Phone | 254XXXXXXXXX |
 | Plan | Monthly |
 
-Click **Create Client**, then open the client record and fill in:
+Click **Create Client**, then open the record and fill in:
 
 | Field | Value |
 |-------|-------|
 | WhatsApp Group ID | billing group ID (`120363...@g.us`) |
-| OpenWA URL | `http://acme-openwa-1:2785` |
-| OpenWA Session Name | actual session name from Step 9 |
+| OpenWA URL | `http://CLIENTNAME-openwa-1:2785` |
+| OpenWA Session Name | session name from Step 8 |
 | OpenWA API Key | `dev-admin-key` |
-| Docker Project Name | `acme` |
-
-Click **Save Changes**.
+| Docker Project Name | `CLIENTNAME` |
 
 ---
 
-## Step 13 — Register support group in client dashboard
+## Step 12 — Register support group in client dashboard
 
-Go to `https://acme.whats2manage.com` → log in → **Settings** → enter the support group ID → save.
+Go to `https://CLIENTNAME.whats2manage.com` → log in → **Settings** → enter the support group ID → save.
 
 ---
 
-## Step 14 — Verify everything works
+## Step 13 — Verify
 
 ```bash
-# Health check
-curl https://acme.whats2manage.com/health
-
-# Check containers
-cd /opt/clients/acme && docker compose ps
+curl https://CLIENTNAME.whats2manage.com/health
+cd /opt/clients/CLIENTNAME && docker compose ps
 ```
 
-Send a test message in the support group — it should appear in the Live Queue at `https://acme.whats2manage.com`.
-
+Send a test message in the support group — it should appear in the Live Queue.
 Type `/payment` in the billing group — the client should receive an M-Pesa STK push.

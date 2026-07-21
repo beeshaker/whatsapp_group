@@ -103,3 +103,16 @@ export interface WwjsChannelMessage {
 export interface GroupCreateResult {
   gid: { _serialized: string };
 }
+
+/**
+ * WhatsApp reaction event payload (message_reaction client event).
+ */
+export interface WwjsReaction {
+  reaction: string;
+  senderId: string;
+  msgId: {
+    _serialized: string;
+    remote: string;
+    participant?: string;
+  };
+}

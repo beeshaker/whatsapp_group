@@ -16,6 +16,7 @@ import {
   LocationInput,
   ContactCard,
   MessageReaction,
+  IncomingReaction,
   Label,
   Channel,
   ChannelMessage,
@@ -35,6 +36,7 @@ import {
   BusinessClient,
   WwjsChannelData,
   GroupCreateResult,
+  WwjsReaction,
 } from '../types/whatsapp-web-js.types';
 
 export interface WhatsAppWebJsConfig {
@@ -204,6 +206,29 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
 
     this.client.on('message_ack', (msg, ack) => {
       this.callbacks.onMessageAck?.(msg.id._serialized, ack);
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
+    this.client.on('message_reaction', async (reaction: WwjsReaction) => {
+      const targetAuthor = reaction.msgId.participant || reaction.msgId.remote;
+      let targetTimestamp: number | undefined;
+      try {
+        const msg = await this.client!.getMessageById(reaction.msgId._serialized);
+        targetTimestamp = msg.timestamp;
+      } catch {
+        // getMessageById throws (not null) when the message isn't in the local
+        // cache — documented upstream behavior, not @lid-specific. Non-fatal:
+        // targetAuthor still lets the backend attempt a fallback match.
+      }
+      const incomingReaction: IncomingReaction = {
+        chatId: reaction.msgId.remote,
+        emoji: reaction.reaction,
+        senderId: reaction.senderId,
+        targetMessageId: reaction.msgId._serialized,
+        targetAuthor,
+        targetTimestamp,
+      };
+      this.callbacks.onMessageReaction?.(incomingReaction);
     });
 
     this.client.on('disconnected', reason => {
@@ -452,15 +477,40 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
     };
   }
 
-  async replyToMessage(chatId: string, quotedMsgId: string, text: string): Promise<MessageResult> {
+  async replyToMessage(
+    chatId: string,
+    quotedMsgId: string,
+    text: string,
+    authorHint?: string,
+    timestampHint?: number,
+    contextSnippet?: string,
+  ): Promise<MessageResult> {
     this.ensureReady();
-    // Find the message to quote
     const chat = await this.client!.getChatById(chatId);
     const messages = await chat.fetchMessages({ limit: 100 });
-    const quotedMsg = messages.find(m => m.id._serialized === quotedMsgId);
+
+    let quotedMsg = messages.find(m => m.id._serialized === quotedMsgId);
+
+    if (!quotedMsg && authorHint && timestampHint) {
+      // authorHint is the bare phone number (backend's reporter_phone is
+      // stored stripped of its JID suffix at ingest), but ExtendedMessage.author
+      // is the sender's full JID in group messages (e.g. "254711223344@c.us").
+      // Strip the suffix off both sides before comparing.
+      quotedMsg = messages.find(
+        m => (m as ExtendedMessage).author?.split('@')[0] === authorHint && m.timestamp === timestampHint,
+      );
+    }
 
     if (!quotedMsg) {
-      throw new Error(`Message ${quotedMsgId} not found`);
+      if (!authorHint && !timestampHint) {
+        throw new Error(`Message ${quotedMsgId} not found`);
+      }
+      const body = contextSnippet ? `> ${contextSnippet}\n\n${text}` : text;
+      const msg = await chat.sendMessage(body);
+      return {
+        id: msg.id._serialized,
+        timestamp: msg.timestamp,
+      };
     }
 
     const msg = await quotedMsg.reply(text);

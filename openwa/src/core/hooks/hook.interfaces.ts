@@ -13,6 +13,7 @@ export type HookEvent =
   | 'session:deleted'
   // Message lifecycle
   | 'message:received'
+  | 'message:reaction'
   | 'message:sending'
   | 'message:sent'
   | 'message:failed'

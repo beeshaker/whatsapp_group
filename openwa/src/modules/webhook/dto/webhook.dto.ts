@@ -3,6 +3,7 @@ import { IsString, IsUrl, IsArray, IsOptional, IsBoolean, IsInt, Min, Max, Array
 
 export const WEBHOOK_EVENTS = [
   'message.received',
+  'message.reaction',
   'message.sent',
   'message.ack',
   'message.revoked',

@@ -121,3 +121,29 @@ async def test_list_groups_returns_none_when_session_not_found():
         whatsapp._session_uuid = None
         result = await list_groups()
     assert result is None
+
+
+async def test_reply_to_message_includes_hints_when_provided():
+    ctx, inner = _mock_client(post_return={"messageId": "wa-reply-hint"})
+    with patch("whatsapp.httpx.AsyncClient", return_value=ctx):
+        whatsapp._session_uuid = None
+        result = await reply_to_message(
+            "123@g.us", "msg-1", "Reply text",
+            author_hint="254711223344", timestamp_hint=1782300000, context_snippet="Original text",
+        )
+    assert result == "wa-reply-hint"
+    call_args = inner.post.call_args
+    assert call_args[1]["json"]["authorHint"] == "254711223344"
+    assert call_args[1]["json"]["timestampHint"] == 1782300000
+    assert call_args[1]["json"]["contextSnippet"] == "Original text"
+
+
+async def test_reply_to_message_omits_hints_when_not_provided():
+    ctx, inner = _mock_client(post_return={"messageId": "wa-reply-no-hint"})
+    with patch("whatsapp.httpx.AsyncClient", return_value=ctx):
+        whatsapp._session_uuid = None
+        await reply_to_message("123@g.us", "msg-1", "Reply text")
+    call_args = inner.post.call_args
+    assert "authorHint" not in call_args[1]["json"]
+    assert "timestampHint" not in call_args[1]["json"]
+    assert "contextSnippet" not in call_args[1]["json"]

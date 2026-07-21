@@ -974,6 +974,108 @@ async def _forward_to_billing_by_group(group_id: str, event_body: dict) -> None:
         logger.exception("Failed to forward command to billing service for group %s", group_id)
 
 
+async def _handle_reaction(data: dict, db: AsyncSession) -> dict:
+    """Match a WhatsApp 👍 reaction to a lead ticket and auto-transition new -> contacted.
+
+    Gated entirely behind LEAD_MODE. See docs/superpowers/specs/
+    2026-07-21-dunhill-reaction-status-and-reply-quoting-design.md §3 for the
+    3-tier match strategy (exact message_id, then author+exact timestamp,
+    then a single-candidate fallback when the message wasn't in OpenWA's
+    local cache).
+    """
+    if not LEAD_MODE:
+        return {"status": "ignored", "message": "Reactions only handled in LEAD_MODE"}
+
+    if data.get("emoji") != "👍":
+        return {"status": "ignored", "message": "Unsupported reaction emoji"}
+
+    group_id = data.get("chatId") or ""
+    allowed_groups = await _get_allowed_ticket_groups()
+    if allowed_groups is not None and group_id not in allowed_groups:
+        return {"status": "group_not_licensed"}
+
+    target_message_id = data.get("targetMessageId")
+    target_author = data.get("targetAuthor")
+    target_timestamp = data.get("targetTimestamp")
+
+    incidents: list[Incident] = []
+
+    if target_message_id:
+        result = await db.execute(
+            select(Incident).where(
+                Incident.group_id == group_id,
+                Incident.message_id == target_message_id,
+            )
+        )
+        incidents = list(result.scalars().all())
+
+    if not incidents and target_author and target_timestamp is not None:
+        author_phone = target_author.split("@")[0]
+        received_at = datetime.fromtimestamp(target_timestamp, tz=timezone.utc)
+        result = await db.execute(
+            select(Incident).where(
+                Incident.group_id == group_id,
+                Incident.reporter_phone == author_phone,
+                Incident.received_at == received_at,
+            )
+        )
+        incidents = list(result.scalars().all())
+
+    if not incidents and target_author and target_timestamp is None:
+        author_phone = target_author.split("@")[0]
+        result = await db.execute(
+            select(Incident).where(
+                Incident.group_id == group_id,
+                Incident.reporter_phone == author_phone,
+                Incident.status == "new",
+            )
+        )
+        candidates = result.scalars().all()
+        if len(candidates) == 1:
+            incidents = [candidates[0]]
+
+    if not incidents:
+        logger.debug("Reaction matched no incident for group %s", group_id)
+        return {"status": "ignored", "message": "No matching incident found for reaction"}
+
+    # Tier-1/tier-2 matches can legitimately return multiple rows: one
+    # WhatsApp message can split into multiple tickets sharing the same
+    # message_id (or the same reporter_phone+received_at), one per
+    # issue_index (see multi-ticket-message-split design). Transition every
+    # matched incident still at "new"; leave incidents already past "new"
+    # untouched rather than treating that as an error.
+    new_incidents = [i for i in incidents if i.status == "new"]
+    if not new_incidents:
+        return {"status": "ignored", "message": "Incident already past new status"}
+
+    sender_phone = (data.get("senderId") or "").split("@")[0]
+    now = datetime.now(timezone.utc)
+    for incident in new_incidents:
+        old_status = incident.status
+        incident.status = "contacted"
+        db.add(incident)
+        db.add(IncidentStatusHistory(
+            incident_id=incident.id,
+            from_status=old_status,
+            to_status="contacted",
+            changed_at=now,
+            changed_by=f"whatsapp:{sender_phone}",
+        ))
+        db.add(AuditLog(
+            username=f"whatsapp:{sender_phone}",
+            action="auto_status_reaction",
+            incident_id=incident.id,
+            detail=f"👍 reaction from {sender_phone}",
+            created_at=now,
+        ))
+    await db.commit()
+    return {
+        "status": "status_updated",
+        "incident_ids": [i.id for i in new_incidents],
+        "to_status": "contacted",
+    }
+
+
 @app.post("/api/v1/ops/ingest", status_code=status.HTTP_202_ACCEPTED)
 async def ingest(
     request: Request,
@@ -990,6 +1092,9 @@ async def ingest(
 
     event_type = payload.get("event")
     data = payload.get("data", {})
+
+    if event_type == "message.reaction":
+        return await _handle_reaction(data, db)
 
     if event_type != "message.received":
         return {"status": "ignored", "message": "Non-group or non-chat event skipped"}
@@ -1565,6 +1670,15 @@ async def update_incident_fields(
     }
 
 
+def _aware(dt: datetime) -> datetime:
+    """SQLite drops tzinfo on datetime columns read back from the DB (see the
+    same pattern in _check_ticket_reminders); treat a naive value as UTC
+    rather than the server's local timezone."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 @app.post("/incidents/{incident_id}/reply")
 async def reply_to_incident(
     incident_id: int,
@@ -1584,12 +1698,16 @@ async def reply_to_incident(
         raise HTTPException(status_code=404, detail="Incident not found")
 
     try:
-        if incident.message_id:
-            wa_message_id = await reply_to_message(incident.group_id, incident.message_id, text)
-        else:
-            wa_message_id = await send_group_message(incident.group_id, text)
+        wa_message_id = await reply_to_message(
+            incident.group_id,
+            incident.message_id or "",
+            text,
+            author_hint=incident.reporter_phone,
+            timestamp_hint=int(_aware(incident.received_at).timestamp()),
+            context_snippet=incident.message_body[:200],
+        )
     except Exception as exc:
-        logger.error("send_group_message failed: %s", exc)
+        logger.error("reply_to_message failed: %s", exc)
         raise HTTPException(status_code=502, detail="Failed to send message to WhatsApp")
 
     now = datetime.now(timezone.utc)
