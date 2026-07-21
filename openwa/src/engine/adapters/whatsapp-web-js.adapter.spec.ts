@@ -1,6 +1,12 @@
 import { WhatsAppWebJsAdapter } from './whatsapp-web-js.adapter';
 import { EngineStatus, IncomingReaction } from '../interfaces/whatsapp-engine.interface';
 
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/await-thenable --
+ * This spec intentionally pokes the adapter's private fields (client, status, callbacks,
+ * setupEventHandlers) via `(adapter as any)` to set up test doubles, and awaits mocked event
+ * handlers whose signatures are `(...args: any[]) => void`. Both patterns are mandated by the
+ * implementation plan and are safe in this test-only context. */
+
 describe('WhatsAppWebJsAdapter', () => {
   describe('message_reaction handling', () => {
     function setup() {
