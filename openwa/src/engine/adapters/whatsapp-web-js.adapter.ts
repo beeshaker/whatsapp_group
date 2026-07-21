@@ -16,6 +16,7 @@ import {
   LocationInput,
   ContactCard,
   MessageReaction,
+  IncomingReaction,
   Label,
   Channel,
   ChannelMessage,
@@ -35,6 +36,7 @@ import {
   BusinessClient,
   WwjsChannelData,
   GroupCreateResult,
+  WwjsReaction,
 } from '../types/whatsapp-web-js.types';
 
 export interface WhatsAppWebJsConfig {
@@ -204,6 +206,29 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
 
     this.client.on('message_ack', (msg, ack) => {
       this.callbacks.onMessageAck?.(msg.id._serialized, ack);
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
+    this.client.on('message_reaction', async (reaction: WwjsReaction) => {
+      const targetAuthor = reaction.msgId.participant || reaction.msgId.remote;
+      let targetTimestamp: number | undefined;
+      try {
+        const msg = await this.client!.getMessageById(reaction.msgId._serialized);
+        targetTimestamp = msg.timestamp;
+      } catch {
+        // getMessageById throws (not null) when the message isn't in the local
+        // cache — documented upstream behavior, not @lid-specific. Non-fatal:
+        // targetAuthor still lets the backend attempt a fallback match.
+      }
+      const incomingReaction: IncomingReaction = {
+        chatId: reaction.msgId.remote,
+        emoji: reaction.reaction,
+        senderId: reaction.senderId,
+        targetMessageId: reaction.msgId._serialized,
+        targetAuthor,
+        targetTimestamp,
+      };
+      this.callbacks.onMessageReaction?.(incomingReaction);
     });
 
     this.client.on('disconnected', reason => {

@@ -105,6 +105,15 @@ export interface MessageReaction {
   senders: ReactionSender[];
 }
 
+export interface IncomingReaction {
+  chatId: string;
+  emoji: string;
+  senderId: string;
+  targetMessageId?: string;
+  targetAuthor?: string;
+  targetTimestamp?: number;
+}
+
 // Phase 3: Labels (WhatsApp Business)
 export interface Label {
   id: string;
@@ -202,6 +211,7 @@ export interface EngineEventCallbacks {
   onReady?: (phone: string, pushName: string) => void;
   onMessage?: (message: IncomingMessage) => void;
   onMessageAck?: (messageId: string, ack: number) => void;
+  onMessageReaction?: (reaction: IncomingReaction) => void;
   onDisconnected?: (reason: string) => void;
   onStateChanged?: (state: EngineStatus) => void;
 }
