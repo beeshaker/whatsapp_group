@@ -75,9 +75,21 @@ async def send_group_message(chat_id: str, text: str) -> str:
     return await _post_message("messages/send-text", {"chatId": chat_id, "text": text})
 
 
-async def reply_to_message(chat_id: str, quoted_message_id: str, text: str) -> str:
-    """Send a quoted reply to a specific WhatsApp message."""
-    return await _post_message(
-        "messages/reply",
-        {"chatId": chat_id, "quotedMessageId": quoted_message_id, "text": text},
-    )
+async def reply_to_message(
+    chat_id: str,
+    quoted_message_id: str,
+    text: str,
+    author_hint: str | None = None,
+    timestamp_hint: int | None = None,
+    context_snippet: str | None = None,
+) -> str:
+    """Send a quoted reply to a specific WhatsApp message, falling back to
+    author+timestamp hints when the quoted message's WhatsApp ID isn't trustworthy."""
+    payload = {"chatId": chat_id, "quotedMessageId": quoted_message_id, "text": text}
+    if author_hint is not None:
+        payload["authorHint"] = author_hint
+    if timestamp_hint is not None:
+        payload["timestampHint"] = timestamp_hint
+    if context_snippet is not None:
+        payload["contextSnippet"] = context_snippet
+    return await _post_message("messages/reply", payload)

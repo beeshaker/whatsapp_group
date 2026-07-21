@@ -1658,6 +1658,15 @@ async def update_incident_fields(
     }
 
 
+def _aware(dt: datetime) -> datetime:
+    """SQLite drops tzinfo on datetime columns read back from the DB (see the
+    same pattern in _check_ticket_reminders); treat a naive value as UTC
+    rather than the server's local timezone."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 @app.post("/incidents/{incident_id}/reply")
 async def reply_to_incident(
     incident_id: int,
@@ -1677,12 +1686,16 @@ async def reply_to_incident(
         raise HTTPException(status_code=404, detail="Incident not found")
 
     try:
-        if incident.message_id:
-            wa_message_id = await reply_to_message(incident.group_id, incident.message_id, text)
-        else:
-            wa_message_id = await send_group_message(incident.group_id, text)
+        wa_message_id = await reply_to_message(
+            incident.group_id,
+            incident.message_id or "",
+            text,
+            author_hint=incident.reporter_phone,
+            timestamp_hint=int(_aware(incident.received_at).timestamp()),
+            context_snippet=incident.message_body[:200],
+        )
     except Exception as exc:
-        logger.error("send_group_message failed: %s", exc)
+        logger.error("reply_to_message failed: %s", exc)
         raise HTTPException(status_code=502, detail="Failed to send message to WhatsApp")
 
     now = datetime.now(timezone.utc)

@@ -43,6 +43,23 @@ async def test_reply_creates_update_and_returns_it(client):
     assert body["media_count"] == 0
 
 
+async def test_reply_passes_author_and_timestamp_hints_to_reply_to_message(client):
+    incident_id = await _create_incident(client)
+    with patch("main.reply_to_message", new=AsyncMock(return_value="wa-hint-test")) as mock_reply:
+        await client.post(
+            f"/incidents/{incident_id}/reply",
+            json={"text": "We are on our way"},
+            headers={"X-API-Key": "test-secret"},
+        )
+    args, kwargs = mock_reply.call_args
+    assert args[0] == "123@g.us"
+    assert args[1] == "msg-r1"
+    assert args[2] == "We are on our way"
+    assert kwargs["author_hint"] == "2541"
+    assert kwargs["timestamp_hint"] == 1782293340
+    assert kwargs["context_snippet"] == "Pump leaking"
+
+
 async def test_reply_sets_incident_updated_at(client):
     incident_id = await _create_incident(client)
     with patch("main.reply_to_message", new=AsyncMock(return_value="wa-msg-upd")):
