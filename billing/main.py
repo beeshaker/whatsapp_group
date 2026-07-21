@@ -503,6 +503,10 @@ async def set_group_tier_prices(
 # ---------------------------------------------------------------------------
 
 def _verify_sig(secret: str, body: bytes, signature: str) -> bool:
+    # OpenWA signs webhook deliveries as "sha256=<hex>" (webhook.service.js),
+    # not a bare hex digest — strip the prefix before comparing.
+    if signature.startswith("sha256="):
+        signature = signature[len("sha256="):]
     expected = _hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
     return _hmac.compare_digest(expected, signature)
 

@@ -70,6 +70,25 @@ def _signed_body(body: bytes, secret: str = "test-secret") -> dict:
     return {"Content-Type": "application/json", "X-Webhook-Signature": sig}
 
 
+def _openwa_signed_body(body: bytes, secret: str = "test-secret") -> dict:
+    # OpenWA (webhook.service.js) always prefixes its signature with
+    # "sha256=" — this is the real header format production deliveries use.
+    import hmac, hashlib
+    sig = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return {"Content-Type": "application/json", "X-Webhook-Signature": f"sha256={sig}"}
+
+
+def test_verify_sig_accepts_bare_hex_and_sha256_prefixed():
+    body = b'{"event":"message.received"}'
+    secret = "test-secret"
+    import hmac, hashlib
+    bare = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    assert main._verify_sig(secret, body, bare)
+    assert main._verify_sig(secret, body, f"sha256={bare}")
+    assert not main._verify_sig(secret, body, "sha256=wrongdigest")
+    assert not main._verify_sig(secret, body, "wrongdigest")
+
+
 @pytest.mark.asyncio
 async def test_payment_command_creates_session_and_asks_for_number(http, grace_client):
     body = b'{"event":"message","body":"/payment","fromMe":false,"chatId":"group@g.us"}'
@@ -78,6 +97,20 @@ async def test_payment_command_creates_session_and_asks_for_number(http, grace_c
     main.send_to_group.assert_called_once()
     msg = main.send_to_group.call_args[0][1]
     assert "number" in msg.lower() or "phone" in msg.lower()
+
+
+@pytest.mark.asyncio
+async def test_payment_command_via_group_webhook_with_openwa_signature_format(http, grace_client):
+    # Regression test: OpenWA's real webhook deliveries sign with a "sha256="
+    # prefix (webhook.service.js), which _verify_sig previously rejected
+    # outright — silently breaking /payment for every client's by-group
+    # webhook in production.
+    body = b'{"event":"message","body":"/payment","fromMe":false,"chatId":"group@g.us"}'
+    r = await http.post(
+        "/webhook/by-group/group@g.us", content=body, headers=_openwa_signed_body(body)
+    )
+    assert r.status_code == 200
+    main.send_to_group.assert_called_once()
 
 
 @pytest.mark.asyncio
