@@ -477,15 +477,34 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
     };
   }
 
-  async replyToMessage(chatId: string, quotedMsgId: string, text: string): Promise<MessageResult> {
+  async replyToMessage(
+    chatId: string,
+    quotedMsgId: string,
+    text: string,
+    authorHint?: string,
+    timestampHint?: number,
+    contextSnippet?: string,
+  ): Promise<MessageResult> {
     this.ensureReady();
-    // Find the message to quote
     const chat = await this.client!.getChatById(chatId);
     const messages = await chat.fetchMessages({ limit: 100 });
-    const quotedMsg = messages.find(m => m.id._serialized === quotedMsgId);
+
+    let quotedMsg = messages.find(m => m.id._serialized === quotedMsgId);
+
+    if (!quotedMsg && authorHint && timestampHint) {
+      quotedMsg = messages.find(m => (m as ExtendedMessage).author === authorHint && m.timestamp === timestampHint);
+    }
 
     if (!quotedMsg) {
-      throw new Error(`Message ${quotedMsgId} not found`);
+      if (!authorHint && !timestampHint) {
+        throw new Error(`Message ${quotedMsgId} not found`);
+      }
+      const body = contextSnippet ? `> ${contextSnippet}\n\n${text}` : text;
+      const msg = await chat.sendMessage(body);
+      return {
+        id: msg.id._serialized,
+        timestamp: msg.timestamp,
+      };
     }
 
     const msg = await quotedMsg.reply(text);

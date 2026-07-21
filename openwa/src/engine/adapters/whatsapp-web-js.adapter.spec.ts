@@ -80,4 +80,81 @@ describe('WhatsAppWebJsAdapter', () => {
       expect(emitted.chatId).toBe('254711223344@c.us');
     });
   });
+
+  describe('replyToMessage', () => {
+    function setupChat(messages: any[]) {
+      const chat = {
+        fetchMessages: jest.fn().mockResolvedValue(messages),
+        sendMessage: jest.fn().mockResolvedValue({ id: { _serialized: 'plain-1' }, timestamp: 999 }),
+      };
+      const mockClient = {
+        getChatById: jest.fn().mockResolvedValue(chat),
+      };
+      const adapter = new WhatsAppWebJsAdapter({ sessionId: 'test', sessionDataPath: '/tmp/test' });
+      (adapter as any).client = mockClient;
+      (adapter as any).status = EngineStatus.READY;
+      return { adapter, chat };
+    }
+
+    it('replies by exact message ID when found (unchanged behavior)', async () => {
+      const targetMsg = {
+        id: { _serialized: 'wa-quoted-1' },
+        author: 'author@c.us',
+        timestamp: 1700000000,
+        reply: jest.fn().mockResolvedValue({ id: { _serialized: 'reply-1' }, timestamp: 1000 }),
+      };
+      const { adapter } = setupChat([targetMsg]);
+
+      const result = await adapter.replyToMessage('123@g.us', 'wa-quoted-1', 'Hello');
+
+      expect(targetMsg.reply).toHaveBeenCalledWith('Hello');
+      expect(result).toEqual({ id: 'reply-1', timestamp: 1000 });
+    });
+
+    it('falls back to author+timestamp match when exact ID is absent', async () => {
+      const targetMsg = {
+        id: { _serialized: 'some-other-id' },
+        author: 'author@c.us',
+        timestamp: 1700000000,
+        reply: jest.fn().mockResolvedValue({ id: { _serialized: 'reply-2' }, timestamp: 1001 }),
+      };
+      const { adapter } = setupChat([targetMsg]);
+
+      const result = await adapter.replyToMessage(
+        '123@g.us',
+        'wa-quoted-missing',
+        'Hello',
+        'author@c.us',
+        1700000000,
+        'Original snippet',
+      );
+
+      expect(targetMsg.reply).toHaveBeenCalledWith('Hello');
+      expect(result).toEqual({ id: 'reply-2', timestamp: 1001 });
+    });
+
+    it('sends a plain message prefixed with the snippet when no match is found but hints were supplied', async () => {
+      const { adapter, chat } = setupChat([]);
+
+      const result = await adapter.replyToMessage(
+        '123@g.us',
+        'wa-quoted-missing',
+        'Hello',
+        'author@c.us',
+        1700000000,
+        'Original snippet',
+      );
+
+      expect(chat.sendMessage).toHaveBeenCalledWith('> Original snippet\n\nHello');
+      expect(result).toEqual({ id: 'plain-1', timestamp: 999 });
+    });
+
+    it('throws when no hints are supplied at all and no exact match is found (back-compat)', async () => {
+      const { adapter } = setupChat([]);
+
+      await expect(adapter.replyToMessage('123@g.us', 'wa-quoted-missing', 'Hello')).rejects.toThrow(
+        'Message wa-quoted-missing not found',
+      );
+    });
+  });
 });

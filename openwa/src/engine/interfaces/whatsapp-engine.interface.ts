@@ -242,7 +242,14 @@ export interface IWhatsAppEngine {
   sendStickerMessage(chatId: string, media: MediaInput): Promise<MessageResult>;
 
   // Reply & Forward
-  replyToMessage(chatId: string, quotedMsgId: string, text: string): Promise<MessageResult>;
+  replyToMessage(
+    chatId: string,
+    quotedMsgId: string,
+    text: string,
+    authorHint?: string,
+    timestampHint?: number,
+    contextSnippet?: string,
+  ): Promise<MessageResult>;
   forwardMessage(fromChatId: string, toChatId: string, messageId: string): Promise<MessageResult>;
 
   // Reactions (Phase 3)
