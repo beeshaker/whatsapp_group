@@ -1048,7 +1048,13 @@ async def ingest(
         or (data.get("chat") or {}).get("name")
         or (group_id.split("@")[0] if group_id else "Unmapped Property Group")
     )
-    message_id: Optional[str] = data.get("id") or None
+    # data.id isn't populated by every OpenWA delivery (observed: messages from
+    # senders using WhatsApp's "@lid" linked-identity scheme arrive with no
+    # data.id at all) — payload.deliveryId is OpenWA's own per-delivery UUID
+    # and is always present, so fall back to it rather than leaving every such
+    # message with message_id=None, which collapses them all into duplicates
+    # of whichever message claimed that null slot first.
+    message_id: Optional[str] = data.get("id") or payload.get("deliveryId") or None
 
     reporter_name = (data.get("notifyName") or "").strip() or "Unknown"
     reporter_phone = (data.get("author") or "").split("@")[0].strip() or None

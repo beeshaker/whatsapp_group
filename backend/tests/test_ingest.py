@@ -201,6 +201,48 @@ async def test_ingest_deduplicates_same_message_id(client):
     assert r2.json()["status"] == "duplicate"
 
 
+async def test_ingest_falls_back_to_delivery_id_when_data_id_missing(client, db_session):
+    # Regression test: some OpenWA deliveries (observed for senders using
+    # WhatsApp's "@lid" linked-identity scheme) omit data.id entirely. Without
+    # a fallback, every such message computes message_id=None and the first
+    # one silently "claims" that slot — every later message, regardless of
+    # content, gets treated as a duplicate of it and is dropped. Two distinct
+    # messages, both missing data.id but with different top-level deliveryId
+    # values, must both become separate incidents.
+    def _payload(delivery_id: str, body: str) -> dict:
+        return {
+            "event": "message.received",
+            "deliveryId": delivery_id,
+            "data": {
+                "type": "chat",
+                "isGroup": True,
+                "chatId": "120363218945612345@g.us",
+                "author": "206394804416531@lid",
+                "body": body,
+                "timestamp": 1782293340,
+            },
+        }
+
+    with patch("main.classify_message", new=AsyncMock(return_value=_INCIDENT_CLASSIFICATION)):
+        with patch("main.push_incident", new=AsyncMock()):
+            r1 = await client.post(
+                "/api/v1/ops/ingest",
+                json=_payload("dlv_first", "The water pump on floor 3 is leaking heavily"),
+                headers={"X-API-Key": "test-secret"},
+            )
+            r2 = await client.post(
+                "/api/v1/ops/ingest",
+                json=_payload("dlv_second", "The lift on floor 5 is stuck"),
+                headers={"X-API-Key": "test-secret"},
+            )
+    assert r1.json()["status"] == "staged"
+    assert r2.json()["status"] == "staged"
+
+    result = await db_session.execute(select(Incident.message_id))
+    message_ids = {row[0] for row in result.all()}
+    assert message_ids == {"dlv_first", "dlv_second"}
+
+
 async def test_multi_issue_split_creates_multiple_incidents_with_issue_index(client, db_session):
     async def _classify_three_issues(message, db):
         return {"issues": [
