@@ -974,6 +974,96 @@ async def _forward_to_billing_by_group(group_id: str, event_body: dict) -> None:
         logger.exception("Failed to forward command to billing service for group %s", group_id)
 
 
+async def _handle_reaction(data: dict, db: AsyncSession) -> dict:
+    """Match a WhatsApp 👍 reaction to a lead ticket and auto-transition new -> contacted.
+
+    Gated entirely behind LEAD_MODE. See docs/superpowers/specs/
+    2026-07-21-dunhill-reaction-status-and-reply-quoting-design.md §3 for the
+    3-tier match strategy (exact message_id, then author+exact timestamp,
+    then a single-candidate fallback when the message wasn't in OpenWA's
+    local cache).
+    """
+    if not LEAD_MODE:
+        return {"status": "ignored", "message": "Reactions only handled in LEAD_MODE"}
+
+    if data.get("emoji") != "👍":
+        return {"status": "ignored", "message": "Unsupported reaction emoji"}
+
+    group_id = data.get("chatId") or ""
+    allowed_groups = await _get_allowed_ticket_groups()
+    if allowed_groups is not None and group_id not in allowed_groups:
+        return {"status": "group_not_licensed"}
+
+    target_message_id = data.get("targetMessageId")
+    target_author = data.get("targetAuthor")
+    target_timestamp = data.get("targetTimestamp")
+
+    incident: Optional[Incident] = None
+
+    if target_message_id:
+        result = await db.execute(
+            select(Incident).where(
+                Incident.group_id == group_id,
+                Incident.message_id == target_message_id,
+            )
+        )
+        incident = result.scalar_one_or_none()
+
+    if incident is None and target_author and target_timestamp is not None:
+        author_phone = target_author.split("@")[0]
+        received_at = datetime.fromtimestamp(target_timestamp, tz=timezone.utc)
+        result = await db.execute(
+            select(Incident).where(
+                Incident.group_id == group_id,
+                Incident.reporter_phone == author_phone,
+                Incident.received_at == received_at,
+            )
+        )
+        incident = result.scalar_one_or_none()
+
+    if incident is None and target_author and target_timestamp is None:
+        author_phone = target_author.split("@")[0]
+        result = await db.execute(
+            select(Incident).where(
+                Incident.group_id == group_id,
+                Incident.reporter_phone == author_phone,
+                Incident.status == "new",
+            )
+        )
+        candidates = result.scalars().all()
+        if len(candidates) == 1:
+            incident = candidates[0]
+
+    if incident is None:
+        logger.debug("Reaction matched no incident for group %s", group_id)
+        return {"status": "ignored", "message": "No matching incident found for reaction"}
+
+    if incident.status != "new":
+        return {"status": "ignored", "message": "Incident already past new status"}
+
+    sender_phone = (data.get("senderId") or "").split("@")[0]
+    now = datetime.now(timezone.utc)
+    old_status = incident.status
+    incident.status = "contacted"
+    db.add(incident)
+    db.add(IncidentStatusHistory(
+        incident_id=incident.id,
+        from_status=old_status,
+        to_status="contacted",
+        changed_at=now,
+        changed_by=f"whatsapp:{sender_phone}",
+    ))
+    db.add(AuditLog(
+        username=f"whatsapp:{sender_phone}",
+        action="auto_status_reaction",
+        incident_id=incident.id,
+        detail=f"👍 reaction from {sender_phone}",
+        created_at=now,
+    ))
+    await db.commit()
+    return {"status": "status_updated", "incident_id": incident.id, "to_status": "contacted"}
+
+
 @app.post("/api/v1/ops/ingest", status_code=status.HTTP_202_ACCEPTED)
 async def ingest(
     request: Request,
@@ -990,6 +1080,9 @@ async def ingest(
 
     event_type = payload.get("event")
     data = payload.get("data", {})
+
+    if event_type == "message.reaction":
+        return await _handle_reaction(data, db)
 
     if event_type != "message.received":
         return {"status": "ignored", "message": "Non-group or non-chat event skipped"}
