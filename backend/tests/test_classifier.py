@@ -314,6 +314,23 @@ async def test_lead_mode_llm_contact_name_used_when_regex_finds_none(monkeypatch
     assert result["issues"][0]["contact_name"] == "Grace"
 
 
+async def test_lead_mode_multi_issue_message_does_not_leak_contact_name_across_issues(monkeypatch):
+    monkeypatch.setenv("LEAD_MODE", "true")
+    importlib.reload(classifier_module)
+    mock_db = _make_mock_lead_db()
+    body = "@~Alice kindly contact Sam 0746823554 for a 2br rent. @~Bob has a plot buyer 0722516801 for a plot sale (Website Enquiry)"
+    with patch("classifier.httpx.AsyncClient") as mock_client:
+        _mock_response(mock_client, '''
+            [{"message_snippet": "@~Alice kindly contact Sam 0746823554 for a 2br rent", "category": "apartment",
+              "contact_name": "Sam", "lead_location": "", "lead_budget": "", "transaction_type": "rent", "confidence": 0.85},
+             {"message_snippet": "@~Bob has a plot buyer 0722516801 for a plot sale", "category": "plot",
+              "contact_name": "Jo", "lead_location": "", "lead_budget": "", "transaction_type": "sale", "confidence": 0.85}]
+        ''')
+        result = await classifier_module.classify_message(body, mock_db)
+    assert result["issues"][0]["contact_name"] == "Sam"
+    assert result["issues"][1]["contact_name"] == "Jo"
+
+
 async def test_lead_mode_invalid_transaction_type_falls_back_to_unknown(monkeypatch):
     monkeypatch.setenv("LEAD_MODE", "true")
     importlib.reload(classifier_module)
