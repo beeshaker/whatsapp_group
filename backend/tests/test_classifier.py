@@ -285,6 +285,35 @@ async def test_lead_mode_regex_phone_overrides_llm_proposed_phone(monkeypatch):
     assert result["issues"][0]["contact_phone"] == "254718449483"
 
 
+async def test_lead_mode_regex_contact_name_overrides_llm_proposed_name(monkeypatch):
+    monkeypatch.setenv("LEAD_MODE", "true")
+    importlib.reload(classifier_module)
+    mock_db = _make_mock_lead_db()
+    body = "@~Peter kindly contact Victoria 0700111222 for a house (Website)"
+    with patch("classifier.httpx.AsyncClient") as mock_client:
+        _mock_response(mock_client, '''
+            [{"message_snippet": "for a house", "category": "house", "contact_name": "WrongName",
+              "lead_location": "", "lead_budget": "", "transaction_type": "unknown", "confidence": 0.8}]
+        ''')
+        result = await classifier_module.classify_message(body, mock_db)
+    assert result["issues"][0]["contact_name"] == "Victoria"
+
+
+async def test_lead_mode_llm_contact_name_used_when_regex_finds_none(monkeypatch):
+    monkeypatch.setenv("LEAD_MODE", "true")
+    importlib.reload(classifier_module)
+    mock_db = _make_mock_lead_db()
+    body = "@~Peter budget 5M for a house near Kilimani (Website)"
+    with patch("classifier.httpx.AsyncClient") as mock_client:
+        _mock_response(mock_client, '''
+            [{"message_snippet": "budget 5M for a house near Kilimani", "category": "house",
+              "contact_name": "Grace", "lead_location": "Kilimani", "lead_budget": "5M",
+              "transaction_type": "unknown", "confidence": 0.75}]
+        ''')
+        result = await classifier_module.classify_message(body, mock_db)
+    assert result["issues"][0]["contact_name"] == "Grace"
+
+
 async def test_lead_mode_invalid_transaction_type_falls_back_to_unknown(monkeypatch):
     monkeypatch.setenv("LEAD_MODE", "true")
     importlib.reload(classifier_module)

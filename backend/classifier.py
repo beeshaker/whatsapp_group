@@ -17,7 +17,7 @@ CLASSIFIER_CONTEXT = os.getenv(
     "Properties include residential blocks, lifts, water systems, electrical infrastructure.",
 )
 
-from lead_fields import extract_agent_tag, extract_source_tag, is_valid_phone, normalize_phone, resolve_phone_for_issue
+from lead_fields import extract_agent_tag, extract_contact_name, extract_source_tag, is_valid_phone, normalize_phone, resolve_phone_for_issue
 
 LEAD_MODE = os.getenv("LEAD_MODE", "false").lower() == "true"
 LEAD_DEFAULT_PRIORITY = "low"
@@ -128,12 +128,16 @@ async def classify_lead_message(message: str, db: AsyncSession) -> dict:
                     if llm_phone and is_valid_phone(llm_phone):
                         phone = normalize_phone(llm_phone)
 
+                name = extract_contact_name(snippet) or extract_contact_name(message)
+                if name is None:
+                    name = _clean_optional_str(item.get("contact_name"))
+
                 issues.append({
                     "category": raw_category if raw_category in valid_set else "other",
                     "priority": LEAD_DEFAULT_PRIORITY,
                     "confidence": max(0.0, min(1.0, raw_confidence)),
                     "message_snippet": snippet,
-                    "contact_name": _clean_optional_str(item.get("contact_name")),
+                    "contact_name": name,
                     "lead_location": _clean_optional_str(item.get("lead_location")),
                     "lead_budget": _clean_optional_str(item.get("lead_budget")),
                     "transaction_type": raw_txn if raw_txn in _VALID_TRANSACTION_TYPES else "unknown",
