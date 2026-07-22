@@ -1,5 +1,5 @@
 from lead_fields import (
-    extract_agent_tag, extract_phones, extract_source_tag,
+    extract_agent_tag, extract_contact_name, extract_phones, extract_source_tag,
     is_valid_phone, normalize_phone, resolve_phone_for_issue,
 )
 
@@ -111,3 +111,31 @@ def test_extract_source_tag_handles_trailing_period_before_close():
 
 def test_extract_source_tag_none_when_no_trailing_parenthetical():
     assert extract_source_tag("no source tag on this message") is None
+
+
+def test_extract_contact_name_single_word():
+    text = "@~Jabeen kindly contact Samson 0746823554, looking for a 4br for rent"
+    assert extract_contact_name(text) == "Samson"
+
+
+def test_extract_contact_name_two_word():
+    text = "Kindly contact Sarah Bhaijee at +254718 992279 to inquire on units"
+    assert extract_contact_name(text) == "Sarah Bhaijee"
+
+
+def test_extract_contact_name_stops_before_parenthetical():
+    text = "kindly contact Mercy (agent) on 0784549538 looking for commercial space (Website Enquiry)"
+    assert extract_contact_name(text) == "Mercy"
+
+
+def test_extract_contact_name_stopword_only_returns_none():
+    assert extract_contact_name("for more info contact us on 0712345678") is None
+
+
+def test_extract_contact_name_none_when_no_contact_keyword():
+    assert extract_contact_name("looking for a Godown in babadogo or Mombasa road") is None
+
+
+def test_extract_contact_name_none_when_name_not_capitalized():
+    text = "@~Peter kindly contact someone for a house, no other details (Website)"
+    assert extract_contact_name(text) is None

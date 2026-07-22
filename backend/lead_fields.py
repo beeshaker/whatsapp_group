@@ -5,6 +5,8 @@ _CANDIDATE_RE = re.compile(r"\+?\d[\d\s]{7,13}\d")
 _KENYAN_MOBILE_RE = re.compile(r"254(7|1)\d{8}")
 _AGENT_TAG_RE = re.compile(r"@~\s*([A-Za-z][A-Za-z.]*)")
 _SOURCE_TAG_RE = re.compile(r"\(([^)]+)\)\s*$")
+_CONTACT_NAME_RE = re.compile(r"(?i:contact)\s+((?:[A-Z][a-zA-Z'\-]*\s*){1,3})")
+_CONTACT_NAME_STOPWORDS = {"us", "agent", "office", "team", "support", "admin"}
 
 
 def normalize_phone(raw: str) -> str:
@@ -51,3 +53,15 @@ def extract_source_tag(text: str) -> Optional[str]:
         return None
     m = _SOURCE_TAG_RE.search(text.strip())
     return m.group(1).strip() if m else None
+
+
+def extract_contact_name(text: str) -> Optional[str]:
+    if not text:
+        return None
+    m = _CONTACT_NAME_RE.search(text)
+    if not m:
+        return None
+    words = m.group(1).split()
+    while words and words[-1].lower() in _CONTACT_NAME_STOPWORDS:
+        words.pop()
+    return " ".join(words) if words else None
