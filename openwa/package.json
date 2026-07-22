@@ -49,6 +49,7 @@
     "@nestjs/swagger": "^11.4.3",
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/typeorm": "^11.0.0",
+    "@whiskeysockets/baileys": "7.0.0-rc13",
     "archiver": "^8.0.0",
     "bullmq": "^5.76.10",
     "class-transformer": "^0.5.1",

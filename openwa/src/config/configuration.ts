@@ -53,6 +53,7 @@ export default () => ({
       args: (process.env.PUPPETEER_ARGS || '--no-sandbox,--disable-setuid-sandbox').split(','),
     },
     sessionDataPath: process.env.SESSION_DATA_PATH || './data/sessions',
+    baileysAuthDir: process.env.BAILEYS_AUTH_DIR || './data/baileys',
   },
 
   // Webhook configuration

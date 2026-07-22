@@ -70,7 +70,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist ./dist
 
 # Create data directories with proper permissions
-RUN mkdir -p ./data/sessions ./data/media && \
+RUN mkdir -p ./data/sessions ./data/media ./data/baileys && \
     chown -R openwa:openwa /app
 
 # Note: Running as root to allow Docker socket access for orchestration
