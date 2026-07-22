@@ -4,6 +4,7 @@ import { IWhatsAppEngine } from './interfaces/whatsapp-engine.interface';
 import { WhatsAppWebJsAdapter } from './adapters/whatsapp-web-js.adapter';
 import { PluginLoaderService, PluginType, IEnginePlugin, PluginManifest } from '../core/plugins';
 import { WhatsAppWebJsPlugin } from '../plugins/engines/whatsapp-web-js';
+import { BaileysPlugin } from '../plugins/engines/baileys';
 import { createLogger } from '../common/services/logger.service';
 
 export interface EngineCreateOptions {
@@ -43,6 +44,20 @@ export class EngineFactory implements OnModuleInit {
 
     const wwjsPlugin = new WhatsAppWebJsPlugin();
     this.pluginLoader.registerBuiltInPlugin(wwjsManifest, wwjsPlugin);
+
+    // Register Baileys as built-in plugin
+    const baileysManifest: PluginManifest = {
+      id: 'baileys',
+      name: 'Baileys Engine',
+      version: '1.0.0',
+      type: PluginType.ENGINE,
+      description: '@whiskeysockets/baileys protocol-level engine adapter',
+      main: 'index.ts',
+      provides: ['whatsapp-engine'],
+    };
+
+    const baileysPlugin = new BaileysPlugin();
+    this.pluginLoader.registerBuiltInPlugin(baileysManifest, baileysPlugin);
 
     // Auto-enable the configured engine
     try {
