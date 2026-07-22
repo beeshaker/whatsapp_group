@@ -66,6 +66,17 @@ describe('BaileysAdapter', () => {
     return { mockSock, handlers };
   }
 
+  let lastHandlers: Record<string, (...args: any[]) => void> = {};
+
+  function handlers_forceReady(adapter: BaileysAdapter, mockSock: any): void {
+    lastHandlers = mockSock.ev.on.mock.calls.reduce((acc: any, [event, handler]: [string, any]) => {
+      acc[event] = handler;
+      return acc;
+    }, {});
+    mockSock.user = mockSock.user ?? { id: '000@lid', phoneNumber: '254700000000@s.whatsapp.net' };
+    lastHandlers['connection.update']({ connection: 'open' });
+  }
+
   describe('initialize', () => {
     it('creates the auth directory, wires up the socket with the auth state, and persists creds on creds.update', async () => {
       const { mockSock, handlers } = setupMockSock();
@@ -327,6 +338,150 @@ describe('BaileysAdapter', () => {
 
       expect(mockSock.ev.removeAllListeners).toHaveBeenCalledWith('connection.update');
       expect(mockSock.end).toHaveBeenCalledWith(undefined);
+    });
+  });
+
+  describe('sendTextMessage', () => {
+    it('converts the chatId to a Baileys JID and returns the sent message id/timestamp', async () => {
+      const { mockSock } = setupMockSock();
+      mockSock.sendMessage = jest.fn().mockResolvedValue({ key: { id: 'wa-sent-1' }, messageTimestamp: 1782300010 });
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      await adapter.initialize({});
+      handlers_forceReady(adapter, mockSock);
+
+      const result = await adapter.sendTextMessage('254711223344@c.us', 'Hello');
+
+      expect(mockSock.sendMessage).toHaveBeenCalledWith('254711223344@s.whatsapp.net', { text: 'Hello' });
+      expect(result).toEqual({ id: 'wa-sent-1', timestamp: 1782300010 });
+    });
+
+    it('leaves a group chatId (@g.us) unchanged when sending', async () => {
+      const { mockSock } = setupMockSock();
+      mockSock.sendMessage = jest.fn().mockResolvedValue({ key: { id: 'wa-sent-2' }, messageTimestamp: 1782300011 });
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      await adapter.initialize({});
+      handlers_forceReady(adapter, mockSock);
+
+      await adapter.sendTextMessage('123@g.us', 'Hello group');
+
+      expect(mockSock.sendMessage).toHaveBeenCalledWith('123@g.us', { text: 'Hello group' });
+    });
+  });
+
+  describe('replyToMessage', () => {
+    async function setupReady() {
+      const { mockSock } = setupMockSock();
+      mockSock.sendMessage = jest.fn().mockResolvedValue({ key: { id: 'reply-1' }, messageTimestamp: 1000 });
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      const onMessage = jest.fn();
+      await adapter.initialize({ onMessage });
+      handlers_forceReady(adapter, mockSock);
+      return { adapter, mockSock, handlers: lastHandlers };
+    }
+
+    it('replies by exact message ID when found in the store (unchanged behavior)', async () => {
+      const { adapter, mockSock, handlers } = await setupReady();
+      handlers['messages.upsert']({
+        type: 'notify',
+        messages: [
+          {
+            key: { remoteJid: '123@g.us', participant: '254711223344@s.whatsapp.net', id: 'wa-quoted-1', fromMe: false },
+            message: { conversation: 'original' },
+            messageTimestamp: 1700000000,
+          },
+        ],
+      });
+      await new Promise(process.nextTick);
+
+      const result = await adapter.replyToMessage('123@g.us', 'wa-quoted-1', 'Hello');
+
+      expect(mockSock.sendMessage).toHaveBeenCalledWith(
+        '123@g.us',
+        { text: 'Hello' },
+        { quoted: expect.objectContaining({ key: expect.objectContaining({ id: 'wa-quoted-1' }) }) },
+      );
+      expect(result).toEqual({ id: 'reply-1', timestamp: 1000 });
+    });
+
+    it('falls back to author+timestamp match when exact ID is absent from the store', async () => {
+      const { adapter, mockSock, handlers } = await setupReady();
+      handlers['messages.upsert']({
+        type: 'notify',
+        messages: [
+          {
+            key: { remoteJid: '123@g.us', participant: '254711223344@s.whatsapp.net', id: 'some-other-id', fromMe: false },
+            message: { conversation: 'original' },
+            messageTimestamp: 1700000000,
+          },
+        ],
+      });
+      await new Promise(process.nextTick);
+
+      const result = await adapter.replyToMessage(
+        '123@g.us',
+        'wa-quoted-missing',
+        'Hello',
+        '254711223344',
+        1700000000,
+        'Original snippet',
+      );
+
+      expect(mockSock.sendMessage).toHaveBeenCalledWith(
+        '123@g.us',
+        { text: 'Hello' },
+        { quoted: expect.objectContaining({ key: expect.objectContaining({ id: 'some-other-id' }) }) },
+      );
+      expect(result).toEqual({ id: 'reply-1', timestamp: 1000 });
+    });
+
+    it('sends a plain message prefixed with the snippet when no match is found but hints were supplied', async () => {
+      const { adapter, mockSock } = await setupReady();
+
+      const result = await adapter.replyToMessage(
+        '123@g.us',
+        'wa-quoted-missing',
+        'Hello',
+        '254711223344',
+        1700000000,
+        'Original snippet',
+      );
+
+      expect(mockSock.sendMessage).toHaveBeenCalledWith('123@g.us', { text: '> Original snippet\n\nHello' });
+      expect(result).toEqual({ id: 'reply-1', timestamp: 1000 });
+    });
+
+    it('throws when no hints are supplied at all and no exact match is found', async () => {
+      const { adapter } = await setupReady();
+
+      await expect(adapter.replyToMessage('123@g.us', 'wa-quoted-missing', 'Hello')).rejects.toThrow(
+        'Message wa-quoted-missing not found',
+      );
+    });
+  });
+
+  describe('getGroups', () => {
+    it('maps GroupMetadata to Group, resolving isAdmin from the own participant entry (via phoneNumber, not @lid id)', async () => {
+      const { mockSock } = setupMockSock();
+      mockSock.user = { id: 'OWNLID@lid', phoneNumber: '254700000000@s.whatsapp.net' };
+      mockSock.groupFetchAllParticipating = jest.fn().mockResolvedValue({
+        '123@g.us': {
+          id: '123@g.us',
+          subject: 'Dunhill Ops',
+          participants: [
+            { id: 'OWNLID@lid', phoneNumber: '254700000000@s.whatsapp.net', isAdmin: true },
+            { id: '254711223344@s.whatsapp.net', isAdmin: false },
+          ],
+        },
+      });
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      await adapter.initialize({});
+      handlers_forceReady(adapter, mockSock);
+
+      const groups = await adapter.getGroups();
+
+      expect(groups).toEqual([
+        { id: '123@g.us', name: 'Dunhill Ops', participantsCount: 2, isAdmin: true },
+      ]);
     });
   });
 });

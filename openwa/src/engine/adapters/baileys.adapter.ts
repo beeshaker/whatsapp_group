@@ -29,7 +29,13 @@ import {
   PaginatedProducts,
 } from '../interfaces/whatsapp-engine.interface';
 import { createLogger } from '../../common/services/logger.service';
-import { resolveParticipantJid, resolveRemoteJid, mapBaileysMessageType } from './baileys-jid.util';
+import {
+  resolveParticipantJid,
+  resolveRemoteJid,
+  resolveContactJid,
+  toBaileysJid,
+  mapBaileysMessageType,
+} from './baileys-jid.util';
 import { BaileysSessionStore } from './baileys-session-store';
 
 export interface BaileysAdapterConfig {
@@ -301,28 +307,67 @@ export class BaileysAdapter implements IWhatsAppEngine {
     return this.pushName;
   }
 
-  // ========== Messaging - Basic (placeholders; Task 5 replaces these three) ==========
+  // ========== Messaging - Basic ==========
 
-  async sendTextMessage(_chatId: string, _text: string): Promise<MessageResult> {
+  async sendTextMessage(chatId: string, text: string): Promise<MessageResult> {
     this.ensureReady();
-    throw new Error('sendTextMessage not yet implemented in baileys adapter');
+    const result = await this.sock!.sendMessage(toBaileysJid(chatId), { text });
+    if (!result?.key.id) {
+      throw new Error('sendTextMessage failed: no message returned from Baileys');
+    }
+    return { id: result.key.id, timestamp: timestampToNumber(result.messageTimestamp) };
   }
 
   async replyToMessage(
-    _chatId: string,
-    _quotedMsgId: string,
-    _text: string,
-    _authorHint?: string,
-    _timestampHint?: number,
-    _contextSnippet?: string,
+    chatId: string,
+    quotedMsgId: string,
+    text: string,
+    authorHint?: string,
+    timestampHint?: number,
+    contextSnippet?: string,
   ): Promise<MessageResult> {
     this.ensureReady();
-    throw new Error('replyToMessage not yet implemented in baileys adapter');
+    const jid = toBaileysJid(chatId);
+
+    let quoted = this.store.findById(chatId, quotedMsgId);
+
+    if (!quoted && authorHint && timestampHint) {
+      quoted = this.store.findByAuthorAndTimestamp(chatId, authorHint, timestampHint);
+    }
+
+    if (!quoted) {
+      if (!authorHint && !timestampHint) {
+        throw new Error(`Message ${quotedMsgId} not found`);
+      }
+      const body = contextSnippet ? `> ${contextSnippet}\n\n${text}` : text;
+      const result = await this.sock!.sendMessage(jid, { text: body });
+      if (!result?.key.id) {
+        throw new Error('replyToMessage failed: no message returned from Baileys');
+      }
+      return { id: result.key.id, timestamp: timestampToNumber(result.messageTimestamp) };
+    }
+
+    const result = await this.sock!.sendMessage(jid, { text }, { quoted: quoted.raw });
+    if (!result?.key.id) {
+      throw new Error('replyToMessage failed: no message returned from Baileys');
+    }
+    return { id: result.key.id, timestamp: timestampToNumber(result.messageTimestamp) };
   }
 
   async getGroups(): Promise<Group[]> {
     this.ensureReady();
-    throw new Error('getGroups not yet implemented in baileys adapter');
+    const groupsMeta = await this.sock!.groupFetchAllParticipating();
+    const ownJid = this.sock!.user ? resolveContactJid(this.sock!.user) : undefined;
+
+    return Object.values(groupsMeta).map(meta => {
+      const ownParticipant = meta.participants.find(p => resolveContactJid(p) === ownJid);
+      return {
+        id: meta.id,
+        name: meta.subject,
+        participantsCount: meta.participants.length,
+        isAdmin: ownParticipant ? Boolean(ownParticipant.isAdmin || ownParticipant.isSuperAdmin) : false,
+      };
+    });
   }
 
   // ========== Everything below is out of Phase-1 scope (see design doc §4/§9) ==========
