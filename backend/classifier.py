@@ -128,6 +128,11 @@ async def classify_lead_message(message: str, db: AsyncSession) -> dict:
                     if llm_phone and is_valid_phone(llm_phone):
                         phone = normalize_phone(llm_phone)
 
+                # Multi-issue messages: only trust a name found in `snippet` when it's
+                # genuinely this issue's own text (snippet != message). If the LLM omitted
+                # or echoed the full message as the snippet, searching it here — or falling
+                # back to the full message below — would leak another issue's name into
+                # this one. Simplifying this back to an unconditional search reopens that bug.
                 name = None
                 if len(parsed) == 1 or snippet != message:
                     name = extract_contact_name(snippet)
