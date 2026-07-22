@@ -132,6 +132,10 @@ def test_extract_contact_name_stopword_only_returns_none():
     assert extract_contact_name("for more info contact us on 0712345678") is None
 
 
+def test_extract_contact_name_strips_trailing_capitalized_stopwords():
+    assert extract_contact_name("kindly contact Us Agent for details") is None
+
+
 def test_extract_contact_name_none_when_no_contact_keyword():
     assert extract_contact_name("looking for a Godown in babadogo or Mombasa road") is None
 
