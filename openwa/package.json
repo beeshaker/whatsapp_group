@@ -122,9 +122,6 @@
         "statements": 15
       }
     },
-    "testEnvironment": "node",
-    "setupFilesAfterEnv": [
-      "<rootDir>/../jest.setup.ts"
-    ]
+    "testEnvironment": "node"
   }
 }
