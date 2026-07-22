@@ -128,7 +128,9 @@ async def classify_lead_message(message: str, db: AsyncSession) -> dict:
                     if llm_phone and is_valid_phone(llm_phone):
                         phone = normalize_phone(llm_phone)
 
-                name = extract_contact_name(snippet)
+                name = None
+                if len(parsed) == 1 or snippet != message:
+                    name = extract_contact_name(snippet)
                 if name is None and len(parsed) == 1:
                     name = extract_contact_name(message)
                 if name is None:
