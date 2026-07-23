@@ -68,13 +68,18 @@ export class BaileysAdapter implements IWhatsAppEngine {
   async initialize(callbacks: EngineEventCallbacks): Promise<void> {
     this.callbacks = callbacks;
 
-    const authPath = path.join(this.config.authDir, this.config.sessionId);
-    fs.mkdirSync(authPath, { recursive: true });
+    try {
+      const authPath = path.join(this.config.authDir, this.config.sessionId);
+      fs.mkdirSync(authPath, { recursive: true });
 
-    const { state, saveCreds } = await useMultiFileAuthState(authPath);
-    this.sock = makeWASocket({ auth: state });
+      const { state, saveCreds } = await useMultiFileAuthState(authPath);
+      this.sock = makeWASocket({ auth: state });
 
-    this.setupEventHandlers(saveCreds);
+      this.setupEventHandlers(saveCreds);
+    } catch (error) {
+      this.setStatus(EngineStatus.FAILED);
+      throw error;
+    }
   }
 
   private setupEventHandlers(saveCreds: () => Promise<void>): void {
@@ -146,6 +151,16 @@ export class BaileysAdapter implements IWhatsAppEngine {
   }
 
   private async handleIncomingMessage(msg: WAMessage): Promise<void> {
+    // sock.sendMessage() (used by sendTextMessage/replyToMessage) internally
+    // upserts its own outgoing message, re-emitting it here with
+    // key.fromMe: true. whatsapp-web.js's Client never emits its own sends as
+    // an inbound 'message' event, and the backend's ingest pipeline relies on
+    // that — without this guard, every dashboard-sent reply loops back in as
+    // a brand-new incoming message (and can self-trigger the DM auto-reply).
+    if (msg.key.fromMe) {
+      return;
+    }
+
     try {
       const chatId = resolveRemoteJid(msg.key) || '';
       const author = resolveParticipantJid(msg.key);
@@ -159,16 +174,19 @@ export class BaileysAdapter implements IWhatsAppEngine {
 
       this.store.add({ id: msg.key.id || '', chatId, author, timestamp, raw: msg });
 
+      const isGroup = chatId.endsWith('@g.us');
       const incomingMessage: IncomingMessage = {
         id: msg.key.id || '',
         from: chatId,
-        to: this.phoneNumber ? `${this.phoneNumber}@c.us` : '',
+        // For a group message "to" is the group itself; for a DM it's this
+        // session's own number (matching whatsapp-web.js's msg.to semantics).
+        to: isGroup ? chatId : this.phoneNumber ? `${this.phoneNumber}@c.us` : '',
         chatId,
         body,
         type,
         timestamp,
         fromMe: msg.key.fromMe || false,
-        isGroup: chatId.endsWith('@g.us'),
+        isGroup,
         author,
         notifyName: msg.pushName || undefined,
         media: undefined,
@@ -226,6 +244,11 @@ export class BaileysAdapter implements IWhatsAppEngine {
     return { mimetype: 'application/octet-stream' };
   }
 
+  // Only reads contextInfo off extendedTextMessage; Baileys also carries it on
+  // imageMessage/videoMessage/documentMessage, so a quote-reply to a media
+  // message currently loses its quotedMessage link. Not extended to those yet
+  // because IncomingMessage.quotedMessage has no consumer today (Phase 1
+  // scope) — revisit if/when something reads it.
   private extractQuotedMessage(msg: WAMessage): { id: string; body: string } | undefined {
     const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
     if (!contextInfo?.quotedMessage || !contextInfo.stanzaId) {

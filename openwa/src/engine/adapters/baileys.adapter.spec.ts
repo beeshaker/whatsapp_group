@@ -94,6 +94,14 @@ describe('BaileysAdapter', () => {
       expect(saveCreds).toHaveBeenCalled();
       expect(mockSock.ev.on).toHaveBeenCalledWith('creds.update', expect.any(Function));
     });
+
+    it('sets status to FAILED and rethrows when socket setup throws', async () => {
+      mockUseMultiFileAuthState.mockRejectedValue(new Error('corrupted auth state'));
+      const adapter = new BaileysAdapter({ sessionId: 'dunhill', authDir: tmpDir });
+
+      await expect(adapter.initialize({})).rejects.toThrow('corrupted auth state');
+      expect(adapter.getStatus()).toBe(EngineStatus.FAILED);
+    });
   });
 
   describe('connection.update handling', () => {
@@ -260,6 +268,68 @@ describe('BaileysAdapter', () => {
       await new Promise(process.nextTick);
 
       expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'image', media: undefined }));
+    });
+
+    it('does not call onMessage for the echo of a message this session itself sent (key.fromMe: true)', async () => {
+      const { handlers } = setupMockSock();
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      const onMessage = jest.fn();
+      await adapter.initialize({ onMessage });
+
+      handlers['messages.upsert']({
+        type: 'append',
+        messages: [
+          {
+            key: { remoteJid: '123@g.us', id: 'wa-self-1', fromMe: true },
+            message: { conversation: 'Our own reply' },
+            messageTimestamp: 1782300004,
+          },
+        ],
+      });
+      await new Promise(process.nextTick);
+
+      expect(onMessage).not.toHaveBeenCalled();
+    });
+
+    it('sets isGroup/"to" correctly for a group message vs a DM', async () => {
+      const { mockSock, handlers } = setupMockSock();
+      mockSock.user = { id: '000@lid', phoneNumber: '254700000000@s.whatsapp.net' };
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      const onMessage = jest.fn();
+      await adapter.initialize({ onMessage });
+      handlers['connection.update']({ connection: 'open' });
+
+      handlers['messages.upsert']({
+        type: 'notify',
+        messages: [
+          {
+            key: { remoteJid: '123@g.us', participant: '254711223344@s.whatsapp.net', id: 'wa-5', fromMe: false },
+            message: { conversation: 'group msg' },
+            messageTimestamp: 1782300005,
+          },
+        ],
+      });
+      await new Promise(process.nextTick);
+
+      expect(onMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ isGroup: true, to: '123@g.us', chatId: '123@g.us' }),
+      );
+
+      handlers['messages.upsert']({
+        type: 'notify',
+        messages: [
+          {
+            key: { remoteJid: '254711223344@s.whatsapp.net', id: 'wa-6', fromMe: false },
+            message: { conversation: 'dm msg' },
+            messageTimestamp: 1782300006,
+          },
+        ],
+      });
+      await new Promise(process.nextTick);
+
+      expect(onMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ isGroup: false, to: '254700000000@c.us' }),
+      );
     });
   });
 
