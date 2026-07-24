@@ -153,7 +153,38 @@ docker ps   # is there a host-level nginx, or does billing-nginx-1 own 80/443?
 sudo certbot certificates   # look for a *.whats2manage.com wildcard SAN
 ```
 
-**Chosen approach: fully standalone, decoupled from billing infra.** `marketing-site/docker-compose.yml` runs a plain `nginx:alpine` container serving `marketing-site/index.html` as static content on host port `8090` — it does not touch `billing-nginx-1`, the client-ports map, or any client's routing.
+### Is the ops-gateway a "billing client"? No.
+
+Give it nginx routing like a client (see below — it's just a backend on a port, so the same subdomain mechanism fits), but **do not** register it in the billing dashboard, do not run the billing-webhook onboarding step, and leave `BILLING_SERVICE_URL`/`CLIENT_SUBDOMAIN` unset in its `.env`. Confirmed in `backend/main.py`: `_fetch_billing_client_info()` fails open to `{"status": "active", "whatsapp_group_id": None}` whenever `BILLING_SERVICE_URL` or `CLIENT_SUBDOMAIN` is empty, so the backend runs correctly with no billing awareness at all — no tier locks, no M-Pesa expectations, doesn't show up in the client list. It's not a paying customer; it's the operator's own sales-bot instance.
+
+### Ops-gateway (sales bot) deployment steps
+
+Mirrors `docs/onboarding-new-client.md`'s real per-client pattern (shared Postgres, `client-net`/`shared-db`/`services-net` networks) — **not** the root repo's `docker-compose.yml`, which bundles its own Postgres container and is a local-dev-only template, not what's actually deployed for any client.
+
+1. **Directory + source**, on the VPS (`ssh deploy@167.86.81.124`):
+   ```bash
+   mkdir -p /opt/ops-gateway
+   cp -r /opt/whatsapp-ticketing/backend /opt/whatsapp-ticketing/openwa /opt/ops-gateway/
+   ```
+2. **Database** (shared Postgres, not a new container):
+   ```bash
+   cd /opt/clients/shared-postgres
+   docker compose exec postgres psql -U ops_user -d postgres -c "CREATE DATABASE ops_gateway;"
+   ```
+3. **Ports** — check what's actually free before assuming (`docs/onboarding-new-client.md`'s port table may be stale): `ss -tlnp | grep -E ':(800|20)[0-9]'`. Pick the next free `BACKEND_PORT`/`OPENWA_PORT` pair (8000/2785 if genuinely unused — the OPENWA_SESSION default `opsgateway` suggests these were originally reserved for this exact purpose).
+4. **`.env`** — same shape as a client's `.env` (see onboarding doc Step 3), with these ops-gateway-specific differences:
+   - `OPENWA_SESSION=opsgateway`
+   - `SALES_DM_MODE=true`
+   - `CLIENT_SUBDOMAIN` and `BILLING_SERVICE_URL` **left unset**
+   - `POSTGRES_DB=ops_gateway`, `DATABASE_URL` pointing at the shared Postgres with that DB name
+   - `DASHBOARD_URL=https://opsgateway.whats2manage.com` (or whichever subdomain chosen)
+5. **`docker-compose.yml`** — copy the real per-client template from onboarding doc Step 4 verbatim (backend + openwa services, `client-net`/`shared-db`/`services-net` networks), substituting the ports from step 3.
+6. **Build & start**: `docker compose build && docker compose up -d && docker compose ps`; health check `curl http://127.0.0.1:<BACKEND_PORT>/health`.
+7. **nginx routing** — reuse the *same* port-map mechanism real clients use (no new server block or cert needed; the wildcard `*.whats2manage.com` cert already covers any subdomain): add `opsgateway   <BACKEND_PORT>;` to the client-ports map (onboarding doc Step 5 shows the exact file/format) and reload. Confirm first whether that reload is `sudo systemctl reload nginx` (host-level, as the onboarding doc's own instructions show) or `docker exec billing-nginx-1 nginx -s reload` (matching this doc's earlier dockerized-nginx finding) — the two existing docs disagree here and it wasn't re-verified this session; check `docker ps` / `systemctl status nginx` on the VPS to see which is actually true before reloading.
+8. **Pair WhatsApp**: visit `https://opsgateway.whats2manage.com/setup`. On the physical phone with SIM +254 141 707105: WhatsApp → ⋮ → Linked Devices → Link a Device → scan the QR. Once status turns green, click "Register Webhook" on the same page.
+9. **Verify**: from a different phone, DM +254 141 707105 and confirm an LLM sales-agent reply comes back. `docker compose logs -f backend` from `/opt/ops-gateway` if it doesn't.
+
+**Chosen approach for the marketing site specifically: fully standalone, decoupled from billing infra** (the site is static files, not a backend-on-a-port, so it doesn't fit the client-ports map the way the ops-gateway does). `marketing-site/docker-compose.yml` runs a plain `nginx:alpine` container serving `marketing-site/index.html` as static content on host port `8090` — it does not touch `billing-nginx-1`, the client-ports map, or any client's routing.
 
 To go live, on the VPS:
 1. `cd /opt/whatsapp-ticketing/marketing-site && docker compose up -d` (after a `git pull` in `/opt/whatsapp-ticketing`, per the usual deploy pattern — this directory is not yet part of `deploy/scripts/update-clients.sh`).
