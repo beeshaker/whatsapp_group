@@ -84,6 +84,37 @@
   .hero-ctas a.secondary { color: var(--dim); text-decoration: none; font-size: 0.95rem; font-weight: 600; }
   .hero-ctas a.secondary:hover { color: var(--brand); }
 
+  /* Hero visual: WhatsApp message -> ticket mockup */
+  .hero-visual { display: flex; align-items: center; justify-content: center; gap: 1.5rem; margin-top: 4rem; flex-wrap: wrap; }
+  .phone-mock { width: 290px; border-radius: 20px; overflow: hidden; box-shadow: var(--shadow-md); border: 1px solid var(--border); background: #fff; text-align: left; }
+  .phone-bar { background: #075E54; color: #fff; padding: 0.9rem 1.1rem; display: flex; align-items: center; gap: 0.65rem; }
+  .phone-bar .avatar { width: 34px; height: 34px; border-radius: 50%; background: rgba(255,255,255,0.15); display: flex; align-items: center; justify-content: center; font-size: 1.05rem; flex-shrink: 0; }
+  .phone-bar .title { font-size: 0.85rem; font-weight: 700; }
+  .phone-bar .sub { font-size: 0.68rem; opacity: 0.75; }
+  .phone-chat { background: #e9edeb; padding: 1.1rem; display: flex; flex-direction: column; gap: 0.65rem; }
+  .bubble { max-width: 90%; padding: 0.6rem 0.8rem; border-radius: 11px; font-size: 0.8rem; line-height: 1.45; color: #1a1a1a; box-shadow: 0 1px 1px rgba(0,0,0,0.05); }
+  .bubble.in { background: #fff; align-self: flex-start; border-top-left-radius: 2px; }
+  .bubble.out { background: #d9fdd3; align-self: flex-end; border-top-right-radius: 2px; }
+  .bubble .sender { display: block; font-size: 0.7rem; font-weight: 700; color: var(--brand); margin-bottom: 0.2rem; }
+  .bubble .time { display: block; text-align: right; font-size: 0.62rem; color: #8a938a; margin-top: 0.3rem; }
+  .flow-arrow { color: var(--brand); flex-shrink: 0; }
+  .flow-arrow svg { width: 30px; height: 30px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .ticket-mock { width: 240px; background: #fff; border: 1px solid var(--border); border-radius: 18px; padding: 1.2rem; box-shadow: var(--shadow-md); text-align: left; }
+  .ticket-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.7rem; }
+  .ticket-id { font-weight: 800; color: var(--ink); font-size: 0.92rem; }
+  .badge { font-size: 0.68rem; font-weight: 700; padding: 0.22rem 0.6rem; border-radius: 999px; }
+  .badge-high { background: #fdecea; color: #c0392b; }
+  .badge-open { background: var(--brand-light); color: var(--brand); }
+  .ticket-cat { font-size: 0.85rem; font-weight: 650; color: var(--ink); margin-bottom: 0.35rem; }
+  .ticket-desc { font-size: 0.83rem; color: var(--body); margin-bottom: 0.9rem; }
+  .ticket-meta { display: flex; justify-content: space-between; align-items: center; font-size: 0.72rem; color: var(--dim); gap: 0.5rem; }
+
+  /* How it works: connected flow */
+  .steps-flow { display: flex; align-items: stretch; margin-top: 3rem; }
+  .steps-flow .step { flex: 1; min-width: 0; }
+  .steps-flow .connector { display: flex; align-items: center; justify-content: center; flex: 0 0 2.75rem; color: var(--brand); opacity: 0.55; }
+  .steps-flow .connector svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
   /* Problem */
   .problem-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.25rem; margin-top: 3rem; }
   .problem-card {
@@ -171,15 +202,23 @@
   footer a { color: var(--brand); text-decoration: none; font-weight: 600; }
 
   @media (max-width: 860px) {
-    .problem-grid, .steps, .features-grid { grid-template-columns: repeat(2, 1fr); }
+    .problem-grid, .features-grid { grid-template-columns: repeat(2, 1fr); }
     .verticals, .cases { grid-template-columns: 1fr; }
     .nav-links { display: none; }
     section { padding: 4rem 0; }
+    .steps-flow { flex-direction: column; }
+    .steps-flow .connector { flex: 0 0 2.25rem; }
+    .steps-flow .connector svg { transform: rotate(90deg); }
+  }
+  @media (max-width: 700px) {
+    .hero-visual { flex-direction: column; }
+    .flow-arrow svg { transform: rotate(90deg); }
   }
   @media (max-width: 480px) {
-    .problem-grid, .steps, .features-grid { grid-template-columns: 1fr; }
+    .problem-grid, .features-grid { grid-template-columns: 1fr; }
     section { padding: 3rem 0; }
     .hero { padding: 3.5rem 0 3rem; }
+    .phone-mock, .ticket-mock { width: 100%; max-width: 320px; }
   }
 </style>
 </head>
@@ -214,6 +253,44 @@
       </a>
       <a class="secondary" href="#how-it-works">See how it works ↓</a>
     </div>
+
+    <div class="hero-visual">
+      <div class="phone-mock">
+        <div class="phone-bar">
+          <span class="avatar">🏢</span>
+          <div>
+            <div class="title">Parkview Estate — Maintenance</div>
+            <div class="sub">14 members</div>
+          </div>
+        </div>
+        <div class="phone-chat">
+          <div class="bubble in">
+            <span class="sender">James · Unit 12</span>
+            🚰 Leaking pipe in Block C, Unit 12 — quite urgent, water everywhere!
+            <span class="time">9:14 AM</span>
+          </div>
+          <div class="bubble out">
+            ✅ Ticket #482 created — Plumbing, High priority
+            <span class="time">9:14 AM</span>
+          </div>
+        </div>
+      </div>
+      <div class="flow-arrow">
+        <svg viewBox="0 0 24 24"><path d="M5 12h14m0 0-5-5m5 5-5 5"/></svg>
+      </div>
+      <div class="ticket-mock">
+        <div class="ticket-head">
+          <span class="ticket-id">Ticket #482</span>
+          <span class="badge badge-high">High</span>
+        </div>
+        <div class="ticket-cat">🔧 Plumbing</div>
+        <div class="ticket-desc">Leaking pipe reported — Block C, Unit 12</div>
+        <div class="ticket-meta">
+          <span>Due today, 5:00 PM</span>
+          <span class="badge badge-open">Contacted</span>
+        </div>
+      </div>
+    </div>
   </section>
 
   <section class="wrap alt" style="border-radius: 28px;">
@@ -241,22 +318,25 @@
   <section class="wrap" id="how-it-works">
     <h2>How it works</h2>
     <p class="section-lead">No migration, no training, no new app. Whats2Manage works quietly inside the WhatsApp groups you already use.</p>
-    <div class="steps">
+    <div class="steps-flow">
       <div class="step">
         <div class="num-row"><span class="num">1</span></div>
         <h3>Post in the group, like always</h3>
         <p>Tenants and staff keep using the same WhatsApp group they already use.</p>
       </div>
+      <div class="connector"><svg viewBox="0 0 24 24"><path d="M5 12h14m0 0-5-5m5 5-5 5"/></svg></div>
       <div class="step">
         <div class="num-row"><span class="num">2</span></div>
         <h3>AI reads and classifies it</h3>
         <p>New issues are detected, sorted by category (plumbing, electrical, security, and more) and priority — one message can even split into multiple tickets.</p>
       </div>
+      <div class="connector"><svg viewBox="0 0 24 24"><path d="M5 12h14m0 0-5-5m5 5-5 5"/></svg></div>
       <div class="step">
         <div class="num-row"><span class="num">3</span></div>
         <h3>Nothing falls through the cracks</h3>
         <p>Deadlines, auto-escalation, and reminders keep tickets moving. A 👍 reaction in the group marks it as being handled.</p>
       </div>
+      <div class="connector"><svg viewBox="0 0 24 24"><path d="M5 12h14m0 0-5-5m5 5-5 5"/></svg></div>
       <div class="step">
         <div class="num-row"><span class="num">4</span></div>
         <h3>You always know what's going on</h3>
