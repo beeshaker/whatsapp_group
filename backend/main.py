@@ -193,6 +193,11 @@ BILLING_WEBHOOK_SECRET = os.getenv("BILLING_WEBHOOK_SECRET", "")
 CLIENT_SUBDOMAIN = os.getenv("CLIENT_SUBDOMAIN", "")
 FLEET_PLATE_MODE = os.getenv("FLEET_PLATE_MODE", "false").lower() == "true"
 LEAD_MODE = os.getenv("LEAD_MODE", "false").lower() == "true"
+# Only ever enabled on the ops/marketing WhatsApp number's own deployment —
+# NEVER on a client deployment, where an unknown DM is a client's own
+# customer/tenant, not a prospect for this SaaS. Default off preserves the
+# existing dm_ignored behavior for every client.
+SALES_DM_MODE = os.getenv("SALES_DM_MODE", "false").lower() == "true"
 _LEAD_INITIAL_STATUS = "new"
 _LEAD_STATUSES = {"new", "contacted", "closed_won", "closed_lost"}
 _LEAD_TERMINAL_STATUSES = {"closed_won", "closed_lost"}
@@ -1120,6 +1125,16 @@ async def ingest(
                         logger.error("DM reply failed for %s: %s", phone, exc)
                         return {"status": "dm_error", "message": "Failed to process DM"}
                 return {"status": "dm_handled"}
+            if SALES_DM_MODE and not data.get("fromMe", False):
+                dm_body = data.get("body", "").strip()
+                if dm_body:
+                    try:
+                        reply = await answer_sales_query(dm_body, f"sales_dm:{phone}", db)
+                        await send_group_message(chat_id, reply)
+                    except Exception as exc:
+                        logger.error("Sales DM reply failed for %s: %s", phone, exc)
+                        return {"status": "dm_error", "message": "Failed to process sales DM"}
+                return {"status": "sales_dm_handled"}
         return {"status": "dm_ignored", "message": "DM from unknown phone or non-chat type"}
 
     if not data.get("isGroup", False):
