@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Whats2Manage — WhatsApp ticketing for property &amp; facility management</title>
+<meta name="description" content="Whats2Manage turns the WhatsApp groups your tenants and staff already use into a real ticketing system — automatic categorization, priorities, deadlines and reminders. No new app to learn.">
+<style>
+  :root {
+    --bg: #0d0d0d;
+    --card: #1a1a1e;
+    --card-alt: #17171a;
+    --border: #2a2a2e;
+    --text: #eee;
+    --text-dim: #a3a3a8;
+    --green: #25D366;
+    --green-dark: #1fa855;
+    --blue: #4fa3e3;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.55;
+  }
+  a { color: inherit; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 1.5rem; }
+  section { padding: 4.5rem 0; }
+
+  /* Nav */
+  header {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(13,13,13,0.85);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+  }
+  nav.wrap { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.5rem; }
+  .logo { font-weight: 700; font-size: 1.15rem; letter-spacing: 0.02em; text-decoration: none; }
+  .nav-links { display: flex; gap: 1.75rem; font-size: 0.9rem; color: var(--text-dim); }
+  .nav-links a:hover { color: var(--text); }
+  .btn {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    padding: 0.7rem 1.4rem; border-radius: 8px; font-weight: 600; font-size: 0.95rem;
+    text-decoration: none; border: none; cursor: pointer; transition: opacity 0.15s, transform 0.15s;
+    white-space: nowrap;
+  }
+  .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+  .btn-green { background: var(--green); color: #05130a; }
+  .btn-outline { background: transparent; color: var(--text); border: 1px solid var(--border); }
+
+  /* Hero */
+  .hero { padding: 5.5rem 0 4rem; text-align: center; }
+  .hero h1 { font-size: clamp(1.9rem, 4.5vw, 3rem); font-weight: 800; letter-spacing: -0.01em; max-width: 780px; margin: 0 auto 1.25rem; }
+  .hero p.sub { font-size: 1.1rem; color: var(--text-dim); max-width: 620px; margin: 0 auto 2rem; }
+  .hero-ctas { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+  .hero-ctas a.secondary { color: var(--text-dim); text-decoration: underline; align-self: center; font-size: 0.95rem; }
+
+  /* Problem */
+  .problem-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.25rem; margin-top: 2.5rem; }
+  .problem-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 1.5rem; font-size: 0.98rem; color: var(--text-dim);
+  }
+  .problem-card::before { content: "⚠"; display: block; font-size: 1.3rem; margin-bottom: 0.6rem; color: var(--blue); }
+
+  h2 { font-size: clamp(1.5rem, 3vw, 2.1rem); font-weight: 750; letter-spacing: -0.01em; text-align: center; }
+  .section-lead { color: var(--text-dim); text-align: center; max-width: 560px; margin: 0.75rem auto 0; }
+
+  /* How it works */
+  .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.25rem; margin-top: 2.75rem; counter-reset: step; }
+  .step { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; position: relative; }
+  .step .num {
+    width: 2rem; height: 2rem; border-radius: 50%; background: var(--green); color: #05130a;
+    display: flex; align-items: center; justify-content: center; font-weight: 700; margin-bottom: 1rem;
+  }
+  .step h3 { font-size: 1.02rem; margin-bottom: 0.4rem; }
+  .step p { color: var(--text-dim); font-size: 0.92rem; }
+
+  /* Features */
+  .features-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 2.75rem; }
+  .feature { background: var(--card-alt); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; font-size: 0.92rem; }
+  .feature .icon { font-size: 1.2rem; margin-bottom: 0.5rem; display: block; }
+
+  /* Who it's for */
+  .verticals { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 1.25rem; margin-top: 2.75rem; }
+  .vertical-card { border-radius: 14px; padding: 1.75rem; border: 1px solid var(--border); }
+  .vertical-card.flagship { background: linear-gradient(160deg, #17301f, #131313); border-color: var(--green-dark); }
+  .vertical-card.secondary { background: var(--card); }
+  .vertical-card .tag { display: inline-block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--green); margin-bottom: 0.6rem; }
+  .vertical-card h3 { font-size: 1.15rem; margin-bottom: 0.5rem; }
+  .vertical-card p { color: var(--text-dim); font-size: 0.92rem; }
+
+  /* Case studies */
+  .cases { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem; margin-top: 2.75rem; }
+  .case { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; font-size: 0.95rem; color: var(--text-dim); }
+  .case .loc { display: block; margin-top: 1rem; font-size: 0.8rem; color: var(--text); font-weight: 600; }
+
+  /* FAQ */
+  .faq-list { max-width: 720px; margin: 2.5rem auto 0; }
+  details {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 1.1rem 1.4rem; margin-bottom: 0.85rem;
+  }
+  summary { cursor: pointer; font-weight: 600; list-style: none; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; float: right; color: var(--text-dim); }
+  details[open] summary::after { content: "–"; }
+  details p { margin-top: 0.75rem; color: var(--text-dim); font-size: 0.95rem; }
+
+  /* Final CTA */
+  .final-cta { text-align: center; background: var(--card-alt); border-radius: 20px; padding: 3.5rem 2rem; margin: 0 1.5rem; border: 1px solid var(--border); }
+  .final-cta h2 { margin-bottom: 0.75rem; }
+  .final-cta .referral { margin-top: 1.5rem; font-size: 0.9rem; color: var(--text-dim); }
+
+  footer { text-align: center; padding: 2.5rem 1.5rem; color: var(--text-dim); font-size: 0.85rem; }
+  footer a { color: var(--green); text-decoration: none; }
+
+  @media (max-width: 860px) {
+    .problem-grid, .steps, .features-grid { grid-template-columns: repeat(2, 1fr); }
+    .verticals, .cases { grid-template-columns: 1fr; }
+    .nav-links { display: none; }
+  }
+  @media (max-width: 480px) {
+    .problem-grid, .steps, .features-grid { grid-template-columns: 1fr; }
+    section { padding: 3rem 0; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <nav class="wrap">
+    <a class="logo" href="#top">Whats2Manage</a>
+    <div class="nav-links">
+      <a href="#how-it-works">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#who-its-for">Who it's for</a>
+      <a href="#faq">FAQ</a>
+    </div>
+    <!-- Replace WHATSAPP_LINK below with the real reused ops/demo number before deploy -->
+    <a class="btn btn-green" href="https://wa.me/254700000000?text=Hi%2C%20I%27d%20like%20to%20know%20more%20about%20Whats2Manage" target="_blank" rel="noopener">Chat on WhatsApp</a>
+  </nav>
+</header>
+
+<main id="top">
+
+  <section class="hero wrap">
+    <h1>Your maintenance requests are already on WhatsApp. Now they're tracked.</h1>
+    <p class="sub">Whats2Manage turns the WhatsApp groups your tenants and staff already use into a real ticketing system — automatic categorization, priorities, deadlines, and reminders. No new app for anyone to learn.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-green" href="https://wa.me/254700000000?text=Hi%2C%20I%27d%20like%20to%20know%20more%20about%20Whats2Manage" target="_blank" rel="noopener">Chat with us on WhatsApp</a>
+      <a class="secondary" href="#how-it-works">See how it works ↓</a>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <h2>Sound familiar?</h2>
+    <div class="problem-grid">
+      <div class="problem-card">A tenant reports a leaking pipe in the WhatsApp group. Three days later, nobody remembers who was supposed to fix it.</div>
+      <div class="problem-card">Your team scrolls through hundreds of messages trying to find what's still open.</div>
+      <div class="problem-card">Urgent issues get buried under routine chatter.</div>
+      <div class="problem-card">There's no record of what got fixed, when, or by whom.</div>
+    </div>
+  </section>
+
+  <section class="wrap" id="how-it-works">
+    <h2>How it works</h2>
+    <p class="section-lead">No migration, no training, no new app. Whats2Manage works quietly inside the WhatsApp groups you already use.</p>
+    <div class="steps">
+      <div class="step"><div class="num">1</div><h3>Post in the group, like always</h3><p>Tenants and staff keep using the same WhatsApp group they already use.</p></div>
+      <div class="step"><div class="num">2</div><h3>AI reads and classifies it</h3><p>New issues are detected, sorted by category (plumbing, electrical, security, and more) and priority — one message can even split into multiple tickets.</p></div>
+      <div class="step"><div class="num">3</div><h3>Nothing falls through the cracks</h3><p>Deadlines, auto-escalation, and reminders keep tickets moving. A 👍 reaction in the group marks it as being handled.</p></div>
+      <div class="step"><div class="num">4</div><h3>You always know what's going on</h3><p>A dashboard for your whole team, daily WhatsApp summaries, and a chat assistant you can ask "what's still open?" anytime.</p></div>
+    </div>
+  </section>
+
+  <section class="wrap" id="features">
+    <h2>Everything you need, nothing to install</h2>
+    <div class="features-grid">
+      <div class="feature"><span class="icon">🎫</span>Automatic ticket creation &amp; categorization</div>
+      <div class="feature"><span class="icon">✂️</span>Multi-issue message splitting</div>
+      <div class="feature"><span class="icon">⏰</span>Priority, deadlines &amp; auto-escalation</div>
+      <div class="feature"><span class="icon">👍</span>Reaction-based status updates</div>
+      <div class="feature"><span class="icon">🗂️</span>Role-based dashboard</div>
+      <div class="feature"><span class="icon">📋</span>Daily &amp; weekend WhatsApp summaries</div>
+      <div class="feature"><span class="icon">💬</span>Built-in WhatsApp chat assistant</div>
+      <div class="feature"><span class="icon">🗄️</span>Full ticket archive &amp; history</div>
+    </div>
+  </section>
+
+  <section class="wrap" id="who-its-for">
+    <h2>Who it's for</h2>
+    <div class="verticals">
+      <div class="vertical-card flagship">
+        <span class="tag">Built for this</span>
+        <h3>Property &amp; Facility Management</h3>
+        <p>Manage maintenance requests across every building from one place — plumbing, electrical, security, and everything in between.</p>
+      </div>
+      <div class="vertical-card secondary">
+        <span class="tag">Also works for</span>
+        <h3>Real Estate Agencies</h3>
+        <p>Capture and track every lead that comes through your WhatsApp groups.</p>
+      </div>
+      <div class="vertical-card secondary">
+        <span class="tag">Also works for</span>
+        <h3>Fleet &amp; Delivery Teams</h3>
+        <p>Track vehicle issues by license plate, reported straight from the road.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <h2>Trusted by teams already drowning in WhatsApp</h2>
+    <div class="cases">
+      <div class="case">Replaced a chaotic 200+ member WhatsApp group with a system where every maintenance request is tracked from report to resolution.<span class="loc">Property management company, Nairobi</span></div>
+      <div class="case">Now captures every lead — agent, budget, location, and source — automatically from WhatsApp groups instead of losing it in the scroll.<span class="loc">Real estate brokerage, Nairobi</span></div>
+      <div class="case">Tracks every rider-reported vehicle issue by license plate, with nothing lost between shifts.<span class="loc">Delivery company, Nairobi</span></div>
+    </div>
+  </section>
+
+  <section class="wrap" id="faq">
+    <h2>Questions</h2>
+    <div class="faq-list">
+      <details>
+        <summary>Do my staff need to install a new app?</summary>
+        <p>No. Everyone keeps using WhatsApp exactly as before. Whats2Manage works quietly in the background.</p>
+      </details>
+      <details>
+        <summary>Is our data secure?</summary>
+        <p>Each client gets their own isolated deployment and database — your data is never shared with or visible to other clients.</p>
+      </details>
+      <details>
+        <summary>How much does it cost?</summary>
+        <p>Pricing depends on how many WhatsApp groups you're tracking. Chat with us and we'll figure out the right fit.</p>
+      </details>
+      <details>
+        <summary>How long does setup take?</summary>
+        <p>Most clients are live within a few days — no disruption to your existing WhatsApp groups.</p>
+      </details>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <div class="final-cta">
+      <h2>Ready to stop losing track of maintenance requests?</h2>
+      <a class="btn btn-green" href="https://wa.me/254700000000?text=Hi%2C%20I%27d%20like%20to%20know%20more%20about%20Whats2Manage" target="_blank" rel="noopener">Chat on WhatsApp</a>
+      <p class="referral">Know a property manager drowning in WhatsApp chaos? Refer them — if they sign up, you get a month free.</p>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  Whats2Manage · Nairobi, Kenya · <a href="https://wa.me/254700000000" target="_blank" rel="noopener">WhatsApp</a>
+</footer>
+
+</body>
+</html>

@@ -136,3 +136,29 @@ There is no script for this yet. `deploy/scripts/update-clients.sh` explicitly d
 - `docs/multi-tenant-architecture.md` — the original multi-tenant design (Postgres-per-client, subdomain routing intent).
 - `docs/contabo-deployment.md` — original VPS bring-up guide; note its Nginx section (host-level Nginx + `client-ports.conf`) describes the *original* plan and does not reflect the dockerized `billing-nginx-1` auto-registration actually in use today.
 - `docs/onboarding-new-client.md` — new client setup steps.
+
+---
+
+## Marketing site (`marketing-site/`) — deployment, found 2026-07-24
+
+`billing/nginx_manager.py` writes `00-client-ports.conf` (an nginx `map $client $backend_port {...}` block) into `NGINX_CONF_DIR` and reloads the `billing-nginx-1` container. That mechanism is specifically for routing `<client>.whats2manage.com` to a live client's backend port and is driven by client onboarding/offboarding (`add_client_port`/`remove_client_port`) — the marketing site is not a client and should not be added to that map.
+
+The base server blocks that actually terminate TLS on `whats2manage.com` today (SSL cert paths, whether it's still host-level Nginx per `docs/contabo-deployment.md` or fully absorbed into the `billing-nginx-1` container) were **not fully verifiable from the repo alone** — this needs a quick check directly on the VPS before wiring anything up:
+
+```bash
+# What's actually bound to 80/443?
+ss -tlnp | grep -E ':80|:443'
+docker ps   # is there a host-level nginx, or does billing-nginx-1 own 80/443?
+# Does the existing cert already cover a new subdomain?
+sudo certbot certificates   # look for a *.whats2manage.com wildcard SAN
+```
+
+**Chosen approach: fully standalone, decoupled from billing infra.** `marketing-site/docker-compose.yml` runs a plain `nginx:alpine` container serving `marketing-site/index.html` as static content on host port `8090` — it does not touch `billing-nginx-1`, the client-ports map, or any client's routing.
+
+To go live, on the VPS:
+1. `cd /opt/whatsapp-ticketing/marketing-site && docker compose up -d` (after a `git pull` in `/opt/whatsapp-ticketing`, per the usual deploy pattern — this directory is not yet part of `deploy/scripts/update-clients.sh`).
+2. Point DNS for the chosen subdomain (e.g. `get.whats2manage.com`) at the VPS IP.
+3. Add TLS termination for that subdomain, in whichever layer step 1's check found is actually live:
+   - If a wildcard cert (`*.whats2manage.com`) is already active: add one more `server { listen 443 ssl; server_name get.whats2manage.com; location / { proxy_pass http://127.0.0.1:8090; } }` block alongside wherever the existing `whats2manage.com` root server block lives, reusing the existing cert.
+   - If only `billing-nginx-1` terminates TLS and there's no separate host-level nginx: add an equivalent `server_name get.whats2manage.com` block inside that container's config (or its mounted conf dir) proxying to `host.docker.internal:8090` (or the marketing container's Docker network address) — being careful not to touch the existing `00-client-ports.conf`-driven block for other clients.
+4. `curl -I https://whats2manage.com` and one existing client subdomain afterward, to confirm nothing regressed.
