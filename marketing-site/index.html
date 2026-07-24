@@ -7,124 +7,179 @@
 <meta name="description" content="Whats2Manage turns the WhatsApp groups your tenants and staff already use into a real ticketing system — automatic categorization, priorities, deadlines and reminders. No new app to learn.">
 <style>
   :root {
-    --bg: #0d0d0d;
-    --card: #1a1a1e;
-    --card-alt: #17171a;
-    --border: #2a2a2e;
-    --text: #eee;
-    --text-dim: #a3a3a8;
-    --green: #25D366;
-    --green-dark: #1fa855;
-    --blue: #4fa3e3;
+    --bg: #ffffff;
+    --bg-alt: #f7faf9;
+    --card: #ffffff;
+    --border: #e6e9e8;
+    --ink: #14181b;
+    --body: #566068;
+    --dim: #8a939a;
+    --brand: #0b6b4f;
+    --brand-dark: #084d39;
+    --brand-light: #e6f4ee;
+    --wa-green: #25D366;
+    --wa-green-dark: #1fa855;
+    --shadow-sm: 0 1px 2px rgba(20,24,27,0.05);
+    --shadow-md: 0 10px 30px rgba(20,24,27,0.06);
+    --radius: 16px;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html { scroll-behavior: smooth; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
     background: var(--bg);
-    color: var(--text);
-    line-height: 1.55;
+    color: var(--body);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
   }
   a { color: inherit; }
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 1.5rem; }
-  section { padding: 4.5rem 0; }
+  img, svg { display: block; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 1.5rem; }
+  section { padding: 5.5rem 0; }
+  .alt { background: var(--bg-alt); }
+
+  h1, h2, h3 { color: var(--ink); letter-spacing: -0.02em; }
 
   /* Nav */
   header {
     position: sticky; top: 0; z-index: 50;
-    background: rgba(13,13,13,0.85);
+    background: rgba(255,255,255,0.9);
     backdrop-filter: blur(8px);
     border-bottom: 1px solid var(--border);
   }
-  nav.wrap { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.5rem; }
-  .logo { font-weight: 700; font-size: 1.15rem; letter-spacing: 0.02em; text-decoration: none; }
-  .nav-links { display: flex; gap: 1.75rem; font-size: 0.9rem; color: var(--text-dim); }
-  .nav-links a:hover { color: var(--text); }
+  nav.wrap { display: flex; align-items: center; justify-content: space-between; padding: 1.1rem 1.5rem; }
+  .logo { display: flex; align-items: center; gap: 0.5rem; font-weight: 800; font-size: 1.2rem; color: var(--ink); text-decoration: none; letter-spacing: -0.01em; }
+  .logo .dot { width: 10px; height: 10px; border-radius: 3px; background: var(--brand); display: inline-block; }
+  .nav-links { display: flex; gap: 2rem; font-size: 0.92rem; color: var(--body); font-weight: 500; }
+  .nav-links a:hover { color: var(--brand); }
+
   .btn {
-    display: inline-flex; align-items: center; gap: 0.5rem;
-    padding: 0.7rem 1.4rem; border-radius: 8px; font-weight: 600; font-size: 0.95rem;
-    text-decoration: none; border: none; cursor: pointer; transition: opacity 0.15s, transform 0.15s;
+    display: inline-flex; align-items: center; gap: 0.55rem;
+    padding: 0.8rem 1.5rem; border-radius: 999px; font-weight: 650; font-size: 0.95rem;
+    text-decoration: none; border: none; cursor: pointer; transition: all 0.15s ease;
     white-space: nowrap;
   }
-  .btn:hover { opacity: 0.9; transform: translateY(-1px); }
-  .btn-green { background: var(--green); color: #05130a; }
-  .btn-outline { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  .btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+  .btn-wa { background: var(--wa-green); color: #fff; }
+  .btn-wa:hover { background: var(--wa-green-dark); }
+  .btn-ghost { background: transparent; color: var(--ink); border: 1px solid var(--border); }
+  .btn svg { width: 18px; height: 18px; }
 
   /* Hero */
-  .hero { padding: 5.5rem 0 4rem; text-align: center; }
-  .hero h1 { font-size: clamp(1.9rem, 4.5vw, 3rem); font-weight: 800; letter-spacing: -0.01em; max-width: 780px; margin: 0 auto 1.25rem; }
-  .hero p.sub { font-size: 1.1rem; color: var(--text-dim); max-width: 620px; margin: 0 auto 2rem; }
-  .hero-ctas { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
-  .hero-ctas a.secondary { color: var(--text-dim); text-decoration: underline; align-self: center; font-size: 0.95rem; }
+  .hero { padding: 6rem 0 4.5rem; text-align: center; position: relative; overflow: hidden; }
+  .hero::before {
+    content: ""; position: absolute; top: -180px; left: 50%; transform: translateX(-50%);
+    width: 900px; height: 500px; border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(11,107,79,0.10), rgba(11,107,79,0));
+    z-index: -1;
+  }
+  .eyebrow {
+    display: inline-block; font-size: 0.8rem; font-weight: 700; color: var(--brand);
+    background: var(--brand-light); padding: 0.4rem 0.9rem; border-radius: 999px; margin-bottom: 1.5rem;
+    letter-spacing: 0.02em;
+  }
+  .hero h1 { font-size: clamp(2rem, 4.6vw, 3.2rem); font-weight: 800; max-width: 780px; margin: 0 auto 1.4rem; line-height: 1.15; }
+  .hero p.sub { font-size: 1.15rem; color: var(--body); max-width: 600px; margin: 0 auto 2.25rem; }
+  .hero-ctas { display: flex; gap: 1.25rem; justify-content: center; flex-wrap: wrap; align-items: center; }
+  .hero-ctas a.secondary { color: var(--dim); text-decoration: none; font-size: 0.95rem; font-weight: 600; }
+  .hero-ctas a.secondary:hover { color: var(--brand); }
 
   /* Problem */
-  .problem-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.25rem; margin-top: 2.5rem; }
+  .problem-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.25rem; margin-top: 3rem; }
   .problem-card {
-    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-    padding: 1.5rem; font-size: 0.98rem; color: var(--text-dim);
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 1.75rem; font-size: 1rem; color: var(--body); box-shadow: var(--shadow-sm);
   }
-  .problem-card::before { content: "⚠"; display: block; font-size: 1.3rem; margin-bottom: 0.6rem; color: var(--blue); }
+  .problem-card .ico {
+    width: 40px; height: 40px; border-radius: 10px; background: #fdf2f2; color: #c0392b;
+    display: flex; align-items: center; justify-content: center; margin-bottom: 1rem;
+  }
+  .problem-card .ico svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; }
 
-  h2 { font-size: clamp(1.5rem, 3vw, 2.1rem); font-weight: 750; letter-spacing: -0.01em; text-align: center; }
-  .section-lead { color: var(--text-dim); text-align: center; max-width: 560px; margin: 0.75rem auto 0; }
+  h2 { font-size: clamp(1.7rem, 3.2vw, 2.3rem); font-weight: 800; text-align: center; }
+  .section-lead { color: var(--body); text-align: center; max-width: 580px; margin: 0.85rem auto 0; font-size: 1.05rem; }
+
+  /* Icon badge shared */
+  .icon-badge {
+    width: 46px; height: 46px; border-radius: 12px; background: var(--brand-light);
+    display: flex; align-items: center; justify-content: center; margin-bottom: 1.1rem; flex-shrink: 0;
+  }
+  .icon-badge svg { width: 22px; height: 22px; stroke: var(--brand); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
   /* How it works */
-  .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.25rem; margin-top: 2.75rem; counter-reset: step; }
-  .step { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; position: relative; }
+  .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.5rem; margin-top: 3rem; }
+  .step { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.75rem; box-shadow: var(--shadow-sm); }
+  .step .num-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.1rem; }
   .step .num {
-    width: 2rem; height: 2rem; border-radius: 50%; background: var(--green); color: #05130a;
-    display: flex; align-items: center; justify-content: center; font-weight: 700; margin-bottom: 1rem;
+    width: 2rem; height: 2rem; border-radius: 50%; background: var(--brand); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; flex-shrink: 0;
   }
-  .step h3 { font-size: 1.02rem; margin-bottom: 0.4rem; }
-  .step p { color: var(--text-dim); font-size: 0.92rem; }
+  .step h3 { font-size: 1.05rem; margin-bottom: 0.5rem; }
+  .step p { color: var(--body); font-size: 0.94rem; }
 
   /* Features */
-  .features-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 2.75rem; }
-  .feature { background: var(--card-alt); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; font-size: 0.92rem; }
-  .feature .icon { font-size: 1.2rem; margin-bottom: 0.5rem; display: block; }
+  .features-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.25rem; margin-top: 3rem; }
+  .feature { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 1.5rem; box-shadow: var(--shadow-sm); }
+  .feature h4 { font-size: 0.98rem; color: var(--ink); font-weight: 700; margin-bottom: 0.35rem; }
+  .feature p { font-size: 0.88rem; color: var(--dim); }
 
   /* Who it's for */
-  .verticals { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 1.25rem; margin-top: 2.75rem; }
-  .vertical-card { border-radius: 14px; padding: 1.75rem; border: 1px solid var(--border); }
-  .vertical-card.flagship { background: linear-gradient(160deg, #17301f, #131313); border-color: var(--green-dark); }
-  .vertical-card.secondary { background: var(--card); }
-  .vertical-card .tag { display: inline-block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--green); margin-bottom: 0.6rem; }
-  .vertical-card h3 { font-size: 1.15rem; margin-bottom: 0.5rem; }
-  .vertical-card p { color: var(--text-dim); font-size: 0.92rem; }
+  .verticals { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 1.5rem; margin-top: 3rem; }
+  .vertical-card { border-radius: 20px; padding: 2.25rem; }
+  .vertical-card.flagship { background: linear-gradient(155deg, var(--brand), var(--brand-dark)); color: #fff; box-shadow: var(--shadow-md); }
+  .vertical-card.flagship p { color: rgba(255,255,255,0.85); }
+  .vertical-card.secondary { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
+  .vertical-card .tag {
+    display: inline-block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em;
+    font-weight: 700; margin-bottom: 0.85rem; opacity: 0.85;
+  }
+  .vertical-card.flagship .tag { color: #fff; }
+  .vertical-card.secondary .tag { color: var(--brand); }
+  .vertical-card h3 { font-size: 1.25rem; margin-bottom: 0.6rem; }
+  .vertical-card.flagship h3 { color: #fff; }
+  .vertical-card.secondary p { color: var(--body); font-size: 0.95rem; }
 
   /* Case studies */
-  .cases { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem; margin-top: 2.75rem; }
-  .case { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; font-size: 0.95rem; color: var(--text-dim); }
-  .case .loc { display: block; margin-top: 1rem; font-size: 0.8rem; color: var(--text); font-weight: 600; }
+  .cases { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-top: 3rem; }
+  .case { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.75rem; font-size: 0.96rem; color: var(--body); box-shadow: var(--shadow-sm); }
+  .case .quote { font-size: 1.8rem; color: var(--brand); line-height: 1; margin-bottom: 0.75rem; font-weight: 800; }
+  .case .loc { display: block; margin-top: 1.25rem; font-size: 0.82rem; color: var(--ink); font-weight: 700; }
 
   /* FAQ */
-  .faq-list { max-width: 720px; margin: 2.5rem auto 0; }
+  .faq-list { max-width: 720px; margin: 3rem auto 0; }
   details {
-    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-    padding: 1.1rem 1.4rem; margin-bottom: 0.85rem;
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 1.2rem 1.5rem; margin-bottom: 0.85rem;
   }
-  summary { cursor: pointer; font-weight: 600; list-style: none; }
+  summary { cursor: pointer; font-weight: 650; color: var(--ink); list-style: none; display: flex; justify-content: space-between; align-items: center; }
   summary::-webkit-details-marker { display: none; }
-  summary::after { content: "+"; float: right; color: var(--text-dim); }
+  summary::after { content: "+"; color: var(--brand); font-size: 1.3rem; font-weight: 400; }
   details[open] summary::after { content: "–"; }
-  details p { margin-top: 0.75rem; color: var(--text-dim); font-size: 0.95rem; }
+  details p { margin-top: 0.9rem; color: var(--body); font-size: 0.96rem; }
 
   /* Final CTA */
-  .final-cta { text-align: center; background: var(--card-alt); border-radius: 20px; padding: 3.5rem 2rem; margin: 0 1.5rem; border: 1px solid var(--border); }
-  .final-cta h2 { margin-bottom: 0.75rem; }
-  .final-cta .referral { margin-top: 1.5rem; font-size: 0.9rem; color: var(--text-dim); }
+  .final-cta {
+    text-align: center; background: linear-gradient(155deg, var(--brand), var(--brand-dark));
+    border-radius: 24px; padding: 4rem 2rem; color: #fff;
+  }
+  .final-cta h2 { color: #fff; margin-bottom: 0.85rem; }
+  .final-cta .btn-wa { background: #fff; color: var(--brand-dark); }
+  .final-cta .btn-wa:hover { background: #f1f1f1; }
+  .final-cta .referral { margin-top: 1.75rem; font-size: 0.92rem; color: rgba(255,255,255,0.85); }
 
-  footer { text-align: center; padding: 2.5rem 1.5rem; color: var(--text-dim); font-size: 0.85rem; }
-  footer a { color: var(--green); text-decoration: none; }
+  footer { text-align: center; padding: 3rem 1.5rem 3.5rem; color: var(--dim); font-size: 0.88rem; }
+  footer a { color: var(--brand); text-decoration: none; font-weight: 600; }
 
   @media (max-width: 860px) {
     .problem-grid, .steps, .features-grid { grid-template-columns: repeat(2, 1fr); }
     .verticals, .cases { grid-template-columns: 1fr; }
     .nav-links { display: none; }
+    section { padding: 4rem 0; }
   }
   @media (max-width: 480px) {
     .problem-grid, .steps, .features-grid { grid-template-columns: 1fr; }
     section { padding: 3rem 0; }
+    .hero { padding: 3.5rem 0 3rem; }
   }
 </style>
 </head>
@@ -132,35 +187,54 @@
 
 <header>
   <nav class="wrap">
-    <a class="logo" href="#top">Whats2Manage</a>
+    <a class="logo" href="#top"><span class="dot"></span>Whats2Manage</a>
     <div class="nav-links">
       <a href="#how-it-works">How it works</a>
       <a href="#features">Features</a>
       <a href="#who-its-for">Who it's for</a>
       <a href="#faq">FAQ</a>
     </div>
-    <a class="btn btn-green" href="https://wa.me/254141707105?text=Hi%2C%20I%27d%20like%20to%20know%20more%20about%20Whats2Manage" target="_blank" rel="noopener">Chat on WhatsApp</a>
+    <a class="btn btn-wa" href="https://wa.me/254141707105?text=Hi%2C%20I%27d%20like%20to%20know%20more%20about%20Whats2Manage" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15L2 22l5.2-1.36A10 10 0 1 0 12 2zm0 18.2a8.18 8.18 0 0 1-4.17-1.14l-.3-.18-3.09.81.83-3.02-.2-.31A8.2 8.2 0 1 1 12 20.2zm4.52-6.13c-.25-.12-1.47-.72-1.7-.81s-.4-.12-.56.12-.64.81-.79.97-.29.18-.54.06a6.7 6.7 0 0 1-3.35-2.93c-.25-.43.25-.4.72-1.33a.45.45 0 0 0-.02-.43c-.06-.12-.56-1.35-.77-1.85s-.4-.42-.56-.43H8.3a.9.9 0 0 0-.65.3 2.7 2.7 0 0 0-.85 2 4.7 4.7 0 0 0 1 2.5 10.7 10.7 0 0 0 4.6 4.07c1.7.65 2.05.52 2.42.49a2.06 2.06 0 0 0 1.37-.97 1.7 1.7 0 0 0 .12-.97c-.05-.09-.2-.15-.45-.27z"/></svg>
+      Chat on WhatsApp
+    </a>
   </nav>
 </header>
 
 <main id="top">
 
   <section class="hero wrap">
+    <span class="eyebrow">Built for property &amp; facility management</span>
     <h1>Your maintenance requests are already on WhatsApp. Now they're tracked.</h1>
     <p class="sub">Whats2Manage turns the WhatsApp groups your tenants and staff already use into a real ticketing system — automatic categorization, priorities, deadlines, and reminders. No new app for anyone to learn.</p>
     <div class="hero-ctas">
-      <a class="btn btn-green" href="https://wa.me/254141707105?text=Hi%2C%20I%27d%20like%20to%20know%20more%20about%20Whats2Manage" target="_blank" rel="noopener">Chat with us on WhatsApp</a>
+      <a class="btn btn-wa" href="https://wa.me/254141707105?text=Hi%2C%20I%27d%20like%20to%20know%20more%20about%20Whats2Manage" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15L2 22l5.2-1.36A10 10 0 1 0 12 2zm0 18.2a8.18 8.18 0 0 1-4.17-1.14l-.3-.18-3.09.81.83-3.02-.2-.31A8.2 8.2 0 1 1 12 20.2zm4.52-6.13c-.25-.12-1.47-.72-1.7-.81s-.4-.12-.56.12-.64.81-.79.97-.29.18-.54.06a6.7 6.7 0 0 1-3.35-2.93c-.25-.43.25-.4.72-1.33a.45.45 0 0 0-.02-.43c-.06-.12-.56-1.35-.77-1.85s-.4-.42-.56-.43H8.3a.9.9 0 0 0-.65.3 2.7 2.7 0 0 0-.85 2 4.7 4.7 0 0 0 1 2.5 10.7 10.7 0 0 0 4.6 4.07c1.7.65 2.05.52 2.42.49a2.06 2.06 0 0 0 1.37-.97 1.7 1.7 0 0 0 .12-.97c-.05-.09-.2-.15-.45-.27z"/></svg>
+        Chat with us on WhatsApp
+      </a>
       <a class="secondary" href="#how-it-works">See how it works ↓</a>
     </div>
   </section>
 
-  <section class="wrap">
+  <section class="wrap alt" style="border-radius: 28px;">
     <h2>Sound familiar?</h2>
     <div class="problem-grid">
-      <div class="problem-card">A tenant reports a leaking pipe in the WhatsApp group. Three days later, nobody remembers who was supposed to fix it.</div>
-      <div class="problem-card">Your team scrolls through hundreds of messages trying to find what's still open.</div>
-      <div class="problem-card">Urgent issues get buried under routine chatter.</div>
-      <div class="problem-card">There's no record of what got fixed, when, or by whom.</div>
+      <div class="problem-card">
+        <div class="ico"><svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg></div>
+        A tenant reports a leaking pipe in the WhatsApp group. Three days later, nobody remembers who was supposed to fix it.
+      </div>
+      <div class="problem-card">
+        <div class="ico"><svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg></div>
+        Your team scrolls through hundreds of messages trying to find what's still open.
+      </div>
+      <div class="problem-card">
+        <div class="ico"><svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg></div>
+        Urgent issues get buried under routine chatter.
+      </div>
+      <div class="problem-card">
+        <div class="ico"><svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg></div>
+        There's no record of what got fixed, when, or by whom.
+      </div>
     </div>
   </section>
 
@@ -168,24 +242,72 @@
     <h2>How it works</h2>
     <p class="section-lead">No migration, no training, no new app. Whats2Manage works quietly inside the WhatsApp groups you already use.</p>
     <div class="steps">
-      <div class="step"><div class="num">1</div><h3>Post in the group, like always</h3><p>Tenants and staff keep using the same WhatsApp group they already use.</p></div>
-      <div class="step"><div class="num">2</div><h3>AI reads and classifies it</h3><p>New issues are detected, sorted by category (plumbing, electrical, security, and more) and priority — one message can even split into multiple tickets.</p></div>
-      <div class="step"><div class="num">3</div><h3>Nothing falls through the cracks</h3><p>Deadlines, auto-escalation, and reminders keep tickets moving. A 👍 reaction in the group marks it as being handled.</p></div>
-      <div class="step"><div class="num">4</div><h3>You always know what's going on</h3><p>A dashboard for your whole team, daily WhatsApp summaries, and a chat assistant you can ask "what's still open?" anytime.</p></div>
+      <div class="step">
+        <div class="num-row"><span class="num">1</span></div>
+        <h3>Post in the group, like always</h3>
+        <p>Tenants and staff keep using the same WhatsApp group they already use.</p>
+      </div>
+      <div class="step">
+        <div class="num-row"><span class="num">2</span></div>
+        <h3>AI reads and classifies it</h3>
+        <p>New issues are detected, sorted by category (plumbing, electrical, security, and more) and priority — one message can even split into multiple tickets.</p>
+      </div>
+      <div class="step">
+        <div class="num-row"><span class="num">3</span></div>
+        <h3>Nothing falls through the cracks</h3>
+        <p>Deadlines, auto-escalation, and reminders keep tickets moving. A 👍 reaction in the group marks it as being handled.</p>
+      </div>
+      <div class="step">
+        <div class="num-row"><span class="num">4</span></div>
+        <h3>You always know what's going on</h3>
+        <p>A dashboard for your whole team, daily WhatsApp summaries, and a chat assistant you can ask "what's still open?" anytime.</p>
+      </div>
     </div>
   </section>
 
-  <section class="wrap" id="features">
+  <section class="wrap alt" id="features" style="border-radius: 28px;">
     <h2>Everything you need, nothing to install</h2>
     <div class="features-grid">
-      <div class="feature"><span class="icon">🎫</span>Automatic ticket creation &amp; categorization</div>
-      <div class="feature"><span class="icon">✂️</span>Multi-issue message splitting</div>
-      <div class="feature"><span class="icon">⏰</span>Priority, deadlines &amp; auto-escalation</div>
-      <div class="feature"><span class="icon">👍</span>Reaction-based status updates</div>
-      <div class="feature"><span class="icon">🗂️</span>Role-based dashboard</div>
-      <div class="feature"><span class="icon">📋</span>Daily &amp; weekend WhatsApp summaries</div>
-      <div class="feature"><span class="icon">💬</span>Built-in WhatsApp chat assistant</div>
-      <div class="feature"><span class="icon">🗄️</span>Full ticket archive &amp; history</div>
+      <div class="feature">
+        <div class="icon-badge"><svg viewBox="0 0 24 24"><path d="M12 2H2v10l9.29 9.29a1 1 0 0 0 1.42 0l7.29-7.29a1 1 0 0 0 0-1.42L12 2z"/><circle cx="7" cy="7" r="1.4" fill="currentColor" stroke="none"/></svg></div>
+        <h4>Automatic ticket creation</h4>
+        <p>Every reported issue becomes a categorized, trackable ticket.</p>
+      </div>
+      <div class="feature">
+        <div class="icon-badge"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg></div>
+        <h4>Multi-issue splitting</h4>
+        <p>One message reporting several problems becomes several tickets.</p>
+      </div>
+      <div class="feature">
+        <div class="icon-badge"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg></div>
+        <h4>Deadlines &amp; auto-escalation</h4>
+        <p>Priority, due dates, and automatic reminders keep things moving.</p>
+      </div>
+      <div class="feature">
+        <div class="icon-badge"><svg viewBox="0 0 24 24"><path d="M7 11v8H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h3zm0 0 4.5-7a1.8 1.8 0 0 1 3.16 1.14L14 9h4.5a2 2 0 0 1 1.94 2.5l-1.6 6A2 2 0 0 1 16.9 19H10a3 3 0 0 1-3-3z"/></svg></div>
+        <h4>Reaction-based status</h4>
+        <p>A 👍 in the group marks a ticket as being handled.</p>
+      </div>
+      <div class="feature">
+        <div class="icon-badge"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg></div>
+        <h4>Role-based dashboard</h4>
+        <p>Admins see everything, staff see only their buildings.</p>
+      </div>
+      <div class="feature">
+        <div class="icon-badge"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
+        <h4>Daily &amp; weekend summaries</h4>
+        <p>An automatic WhatsApp recap of what's open, sent to admins.</p>
+      </div>
+      <div class="feature">
+        <div class="icon-badge"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></div>
+        <h4>WhatsApp chat assistant</h4>
+        <p>Ask "what's still open?" and get an instant answer.</p>
+      </div>
+      <div class="feature">
+        <div class="icon-badge"><svg viewBox="0 0 24 24"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg></div>
+        <h4>Full ticket archive</h4>
+        <p>A complete history of every issue and how it was resolved.</p>
+      </div>
     </div>
   </section>
 
@@ -210,12 +332,24 @@
     </div>
   </section>
 
-  <section class="wrap">
+  <section class="wrap alt" style="border-radius: 28px;">
     <h2>Trusted by teams already drowning in WhatsApp</h2>
     <div class="cases">
-      <div class="case">Replaced a chaotic 200+ member WhatsApp group with a system where every maintenance request is tracked from report to resolution.<span class="loc">Property management company, Nairobi</span></div>
-      <div class="case">Now captures every lead — agent, budget, location, and source — automatically from WhatsApp groups instead of losing it in the scroll.<span class="loc">Real estate brokerage, Nairobi</span></div>
-      <div class="case">Tracks every rider-reported vehicle issue by license plate, with nothing lost between shifts.<span class="loc">Delivery company, Nairobi</span></div>
+      <div class="case">
+        <div class="quote">"</div>
+        Replaced a chaotic 200+ member WhatsApp group with a system where every maintenance request is tracked from report to resolution.
+        <span class="loc">Property management company, Nairobi</span>
+      </div>
+      <div class="case">
+        <div class="quote">"</div>
+        Now captures every lead — agent, budget, location, and source — automatically from WhatsApp groups instead of losing it in the scroll.
+        <span class="loc">Real estate brokerage, Nairobi</span>
+      </div>
+      <div class="case">
+        <div class="quote">"</div>
+        Tracks every rider-reported vehicle issue by license plate, with nothing lost between shifts.
+        <span class="loc">Delivery company, Nairobi</span>
+      </div>
     </div>
   </section>
 
@@ -223,7 +357,7 @@
     <h2>Questions</h2>
     <div class="faq-list">
       <details>
-        <summary>Do my staff need to install a new app?</summary>
+        <summary>Do my staff need to install a new app?<span></span></summary>
         <p>No. Everyone keeps using WhatsApp exactly as before. Whats2Manage works quietly in the background.</p>
       </details>
       <details>
@@ -244,7 +378,10 @@
   <section class="wrap">
     <div class="final-cta">
       <h2>Ready to stop losing track of maintenance requests?</h2>
-      <a class="btn btn-green" href="https://wa.me/254141707105?text=Hi%2C%20I%27d%20like%20to%20know%20more%20about%20Whats2Manage" target="_blank" rel="noopener">Chat on WhatsApp</a>
+      <a class="btn btn-wa" href="https://wa.me/254141707105?text=Hi%2C%20I%27d%20like%20to%20know%20more%20about%20Whats2Manage" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15L2 22l5.2-1.36A10 10 0 1 0 12 2zm0 18.2a8.18 8.18 0 0 1-4.17-1.14l-.3-.18-3.09.81.83-3.02-.2-.31A8.2 8.2 0 1 1 12 20.2zm4.52-6.13c-.25-.12-1.47-.72-1.7-.81s-.4-.12-.56.12-.64.81-.79.97-.29.18-.54.06a6.7 6.7 0 0 1-3.35-2.93c-.25-.43.25-.4.72-1.33a.45.45 0 0 0-.02-.43c-.06-.12-.56-1.35-.77-1.85s-.4-.42-.56-.43H8.3a.9.9 0 0 0-.65.3 2.7 2.7 0 0 0-.85 2 4.7 4.7 0 0 0 1 2.5 10.7 10.7 0 0 0 4.6 4.07c1.7.65 2.05.52 2.42.49a2.06 2.06 0 0 0 1.37-.97 1.7 1.7 0 0 0 .12-.97c-.05-.09-.2-.15-.45-.27z"/></svg>
+        Chat on WhatsApp
+      </a>
       <p class="referral">Know a property manager drowning in WhatsApp chaos? Refer them — if they sign up, you get a month free.</p>
     </div>
   </section>
