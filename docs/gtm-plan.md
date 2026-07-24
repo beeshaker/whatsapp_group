@@ -51,8 +51,12 @@ Keep a simple spreadsheet:
 - Site visits → WhatsApp chats opened → demos booked → trials started → paid conversions
 - Referral asks sent → referrals received → converted
 
-## Phase 2 roadmap (not built yet)
+## Phase 2 — WhatsApp sales bot (in progress, built 2026-07-24)
 
-- **WhatsApp knowledge-base bot** on the existing ops/demo number. Reuses this repo's own Baileys/OpenWA engine (`backend/`) and the Ollama LLM already used for ticket classification, fed by a small FAQ/knowledge base (site copy + common objections). Answers prospect DMs on WhatsApp and powers a website chat widget.
-- **Optional ElevenLabs conversational voice agent**, fed by the same knowledge base, for prospects who'd rather talk than type.
-- **Trigger to revisit:** once the site + referral/outreach motion is producing enough WhatsApp conversations that answering them manually becomes the bottleneck.
+The site's "Chat on WhatsApp" button opens a DM with the ops/demo number; unknown DMs there now get answered by an LLM sales agent (`answer_sales_query` in `backend/chat.py`), gated behind a `SALES_DM_MODE` flag that must stay off on every client deployment. Built on the existing OpenWA/Baileys engine as a near-term stopgap, not a long-term platform choice — see deployment steps and rationale in `docs/vps-architecture.md`'s "Ops-gateway (sales bot) deployment" section.
+
+## Phase 3 roadmap (not built yet)
+
+- **Migrate the WhatsApp sales bot to Meta's official WhatsApp Business Cloud API**, as its own separate project — decided 2026-07-24. The current OpenWA/Baileys-based `SALES_DM_MODE` wiring is intentionally a stopgap to get the site's WhatsApp CTA working now; it is not meant to be the long-term implementation.
+- **ElevenLabs conversational voice agent for both channels** — a voice widget on the marketing website, and a voice channel on WhatsApp — fed by the same knowledge base as the sales bot, for prospects who'd rather talk than type.
+- **Trigger to revisit:** once the site + referral/outreach motion is producing enough conversations that the current stopgap's limits (rate limits/ban risk inherent to unofficial WhatsApp libraries, no voice support) start to bite.
