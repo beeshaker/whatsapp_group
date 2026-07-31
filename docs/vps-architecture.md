@@ -1,6 +1,6 @@
 # VPS Architecture (as deployed)
 
-What's actually running on the production VPS, as verified by direct inspection on 2026-07-14. This documents the live setup, which has drifted from the original design in `multi-tenant-architecture.md` and `contabo-deployment.md` — those describe the intended/initial setup; this describes what's really there today.
+What's actually running on the production VPS, as verified by direct inspection on 2026-07-14 (and updated 2026-07-31 after a full-outage incident). This documents the live setup, which has drifted from the original design in `multi-tenant-architecture.md` and `contabo-deployment.md` — those describe the intended/initial setup; this describes what's really there today.
 
 ---
 
@@ -43,6 +43,8 @@ Lives in `/opt/clients/<name>` (e.g. `/opt/clients/pixiilive`).
 | `<name>-openwa-1` | That client's WhatsApp session (OpenWA gateway). |
 
 Each client has its own Postgres database (shared Postgres *server*, separate *database* per client — see `multi-tenant-architecture.md`) and its own isolated Docker network.
+
+**OpenWA's WhatsApp engine is selectable per client, but only at container-boot time, not live.** As of 2026-07-23, `openwa/` supports two engines via an internal plugin system (`EngineFactory`, `src/engine/engine.factory.ts`): the original `whatsapp-web.js` (a headless-Chromium session — ~300–500MB, breaks whenever WhatsApp ships an incompatible Web-client update) and `@whiskeysockets/baileys` (a direct protocol/WebSocket client — ~30–80MB, no browser to break). Which engine a session uses is controlled by the `ENGINE_TYPE` env var, read once in `EngineFactory`'s constructor at process startup — there is **no** dashboard toggle that switches it live; the Dashboard's Plugins page can enable/configure a plugin, but `EngineFactory`'s active engine is fixed until the container restarts. Because `docker-compose.yml`'s `openwa` service has no `env_file:` and the production image doesn't bake `.env` in (only `dist/` is copied), the only place `ENGINE_TYPE` can actually reach a running container is the **persisted `data/.env.generated`** file inside that client's `openwa_data` volume (read by `src/main.ts` at boot; survives rebuilds/restarts). To switch a client's engine: write `ENGINE_TYPE=baileys` into that file (`docker run --rm -v <name>_openwa_data:/data alpine sh -c "echo 'ENGINE_TYPE=baileys' >> /data/.env.generated"`), then recreate the container. Switching engines is never a hot-swap — Baileys' auth-state format is entirely different from `whatsapp-web.js`'s `LocalAuth`, so it always needs a fresh QR re-link (`docs/change-whatsapp-number.md`'s pairing steps apply, minus the session-wipe step — Baileys keeps its own separate `data/baileys/<sessionId>` dir). **Dunhill moved to `baileys` on 2026-07-23** (its `whatsapp-web.js` session had been broken by an upstream WhatsApp Web change with no fix available); Pixie, Pixiilive, and Nineonetwo remain on `whatsapp-web.js`.
 
 ---
 
@@ -90,6 +92,57 @@ since OpenWA never dispatches `message.reaction` to a webhook that isn't subscri
 
 ---
 
+## Gotcha: `billing-app`'s Docker-socket mount can take down Docker for the entire box
+
+**Confirmed 2026-07-31, caused a full outage (every client + billing simultaneously unreachable).**
+
+`/opt/billing/docker-compose.yml` bind-mounts `/var/run/docker.sock:/var/run/docker.sock` into `billing-app` (used by its nginx-container-management code — the `NGINX_CONF_DIR`/`NGINX_CONTAINER_NAME` env vars from the Services table above). `/var/run` is normally just a symlink to `/run`, where `dockerd`'s real socket lives.
+
+**The failure mode:** any time `docker.service` itself restarts (not a redeploy — the daemon process itself, e.g. `systemctl restart docker`, a `docker-ce` package upgrade, host reboot), systemd starts recreating every `restart: always` container in parallel while `dockerd` is still coming back up. If `billing-app` tries to start and bind-mount the socket path *before* `dockerd` has recreated the real socket file, Docker's default bind-mount behavior silently creates an **empty directory** at that path instead of waiting — permanently shadowing where the real socket should be. From that point on, `docker` CLI/API calls at the default path fail with `Cannot connect to the Docker daemon at unix:///var/run/docker.sock` — even though `dockerd` itself is perfectly healthy (`systemctl status docker` shows `active (running)`, `lsof` shows it listening) — because literally nothing can reach it through the shadowed path. This breaks **every container's tooling on the host simultaneously**, not just billing.
+
+**Diagnose:**
+```bash
+file /run/docker.sock            # should say "socket" -- if it says "directory", this is the bug
+systemctl status docker          # will likely show healthy/running regardless
+```
+
+**Fix (safe — the shadow is always an empty directory):**
+```bash
+fuser -v /var/run/docker.sock    # confirm nothing has it open first
+rmdir /var/run/docker.sock       # /var/run is a symlink to /run, so this clears both paths
+systemctl restart docker.socket
+systemctl restart docker
+file /run/docker.sock            # confirm it now says "socket"
+docker ps -a                     # confirm every container restarted
+```
+
+Restarting `docker.service` again can retrigger the same race if `billing-app` starts concurrently — check `docker ps -a` afterward for exactly the container mounting `docker.sock` failing again with the same "not a directory" error before assuming it's fully fixed.
+
+**Not yet fixed properly** — the real fix is avoiding the race entirely, e.g. giving `billing-app` a `depends_on` + retry/wait-for-socket loop instead of a bare bind-mount, or moving its nginx-management responsibility off a raw Docker-socket mount. Until then, **any planned `docker.service` restart or `docker-ce` upgrade should stop `billing-app` first**, restart Docker, confirm `/run/docker.sock` is a real socket, then start `billing-app` back up.
+
+---
+
+## Gotcha: a session stuck in `FAILED` status is never auto-retried on container restart
+
+`SessionService.onModuleInit()` (`openwa/src/modules/session/session.service.ts:52-71`) resets sessions back to `DISCONNECTED` on boot — but only for sessions whose last status was `READY`, `INITIALIZING`, `QR_READY`, or `AUTHENTICATING`. **`FAILED` is deliberately excluded.** Nothing else auto-retries a `FAILED` session either. So if a session's engine failed to initialize once (e.g. a crash, a bad config, a dependency that wasn't ready yet), it stays `FAILED` in the database forever — even across container rebuilds/restarts that fix the underlying cause — until someone explicitly kicks it.
+
+**Symptom:** the client's `/setup` page shows `Session status: failed`, and `docker compose logs openwa` shows no `Initializing engine for session` line at all after a restart — because nothing ever asked it to try again.
+
+**Fix — explicitly start the session** (safe to call regardless of current status; it only blocks if the engine is already running in-memory, which a fresh container process never has):
+```bash
+docker compose exec openwa node -e "
+require('http').request({
+  host: 'localhost', port: 2785,
+  path: '/api/sessions/<session-id>/start',
+  method: 'POST',
+  headers: { 'X-API-Key': 'dev-admin-key' }
+}, res => { let b=''; res.on('data', c=>b+=c); res.on('end', ()=>console.log(res.statusCode, b)); }).end();
+"
+```
+(Note: the production `openwa` image has no `curl` — use `node -e` like above, or exec in and check what's actually available.)
+
+---
+
 ## Deployment procedure
 
 ### Ticketing backend (per client) — scripted
@@ -118,6 +171,21 @@ docker network connect pixiilive_client-net billing-app
 
 There is no script for this yet. `deploy/scripts/update-clients.sh` explicitly does not touch `billing/`.
 
+### OpenWA (per client) — manual, not scripted, needs a rebuild
+
+`update-clients.sh` explicitly never touches `openwa/` (by design — normally `openwa` holds a live WhatsApp session and should survive a routine backend update untouched, no QR re-scan). But when `openwa/` source itself changes (e.g. the Baileys engine addition), it does need a manual, per-client deploy — confirmed working 2026-07-23:
+
+```bash
+cd /opt/whatsapp-ticketing && git pull
+rsync -a --delete --exclude='.env' --exclude='data' \
+  /opt/whatsapp-ticketing/openwa/ /opt/clients/<name>/openwa/
+cd /opt/clients/<name>
+docker compose build openwa
+docker compose up -d --no-deps openwa
+```
+
+This **does** require a fresh QR re-link if it also involves an engine switch (see the engine-selection note under Services above) — a plain code update with no engine change does not. **Common trap:** forgetting `git pull` in `/opt/whatsapp-ticketing` first leaves the rsync copying stale source — the rebuilt image silently lacks the new code with no error, it just runs the old behavior (confirmed 2026-07-23: a missing `git pull` meant the rebuilt image didn't have a newly-added engine plugin registered at all — no crash, just silent absence). Always verify the pulled commit (`git log -1 --oneline`) before rsyncing.
+
 ---
 
 ## Known data/config gotchas (found 2026-07-14)
@@ -127,6 +195,10 @@ There is no script for this yet. `deploy/scripts/update-clients.sh` explicitly d
 2. **`billing-nginx-1` found disconnected from `billing_billing-net`**, created back on 2026-06-27, crash-looping on `host not found in upstream "billing"`. The public site was reachable throughout regardless, which suggests this container may not actually be in the live traffic path (possibly superseded by something else) — this was not fully root-caused and is worth a dedicated investigation rather than assuming it's fixed.
 
 3. **Live deployment directories drift silently.** `/opt/billing/main.py` was found several commits behind the repo before this session's deploy — nothing else was watching for that. There's no automated check that live directories match a known-good repo commit.
+
+4. **Full-outage incident, 2026-07-31: `docker.service` was sent a `terminated` signal at 07:33 CEST for an unconfirmed reason** (no matching system reboot — `last reboot` showed uptime since 2026-06-21 — and no matching entry in `/var/log/apt/history.log`; root cause of *why* it restarted was not established this session). The restart itself then triggered the `billing-app`/Docker-socket race documented above, breaking `docker` CLI/API access host-wide until manually fixed. Worth a dedicated follow-up to find what actually issued the restart (check for a cron job, a monitoring/alerting agent with a restart action, or ask whoever has root access if they ran it manually) so it can be prevented or at least anticipated.
+
+5. **`whatsapp_group-backend-1`, `whatsapp_group-openwa-1`, `whatsapp_group-postgres-1` containers exist and are stale/stopped** (`openwa` dead for 2+ weeks, the other two exited cleanly during the 2026-07-31 restart and never came back). These look like leftover artifacts from running `docker compose up` directly inside `/opt/whatsapp-ticketing` at some point — which the Directory layout section above says nothing should do. Not confirmed whether they're safe to remove; flagged for cleanup rather than deleted outright.
 
 ---
 
