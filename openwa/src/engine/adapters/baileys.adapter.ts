@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as qrcode from 'qrcode';
 import makeWASocket, { useMultiFileAuthState, downloadMediaMessage, fetchLatestWaWebVersion } from '@whiskeysockets/baileys';
-import type { WASocket, WAMessage, WAMessageKey } from '@whiskeysockets/baileys';
+import type { WASocket, WAMessage, WAMessageKey, WAMediaUpload } from '@whiskeysockets/baileys';
 import {
   IWhatsAppEngine,
   EngineStatus,
@@ -51,6 +51,20 @@ function timestampToNumber(ts: unknown): number {
     return (ts as { toNumber: () => number }).toNumber();
   }
   return Math.floor(Date.now() / 1000);
+}
+
+// MediaInput.data is a Buffer, a base64 string, or a URL string (the same
+// three forms message.service.ts's buildMediaInput produces for every
+// engine) -- Baileys' WAMediaUpload wants a Buffer or a { url } payload,
+// so a base64 string needs decoding first.
+function toBaileysMediaUpload(media: { data: Buffer | string }): WAMediaUpload {
+  if (Buffer.isBuffer(media.data)) {
+    return media.data;
+  }
+  if (media.data.startsWith('http://') || media.data.startsWith('https://')) {
+    return { url: media.data };
+  }
+  return Buffer.from(media.data, 'base64');
 }
 
 export class BaileysAdapter implements IWhatsAppEngine {
@@ -407,6 +421,25 @@ export class BaileysAdapter implements IWhatsAppEngine {
     });
   }
 
+  // Added despite the Phase-1 media-send exclusion (design doc §4/§9): billing's
+  // /statement command depends on sending a PDF, and Baileys throwing here was
+  // failing that command completely silently (billing/whatsapp.py's send call
+  // doesn't check the response status, so the error never surfaces to the user).
+  async sendDocumentMessage(chatId: string, media: MediaInput): Promise<MessageResult> {
+    this.ensureReady();
+    const jid = toBaileysJid(chatId);
+    const result = await this.sock!.sendMessage(jid, {
+      document: toBaileysMediaUpload(media),
+      mimetype: media.mimetype,
+      fileName: media.filename,
+      caption: media.caption,
+    });
+    if (!result?.key.id) {
+      throw new Error('sendDocumentMessage failed: no message returned from Baileys');
+    }
+    return { id: result.key.id, timestamp: timestampToNumber(result.messageTimestamp) };
+  }
+
   // ========== Everything below is out of Phase-1 scope (see design doc §4/§9) ==========
   /* eslint-disable @typescript-eslint/require-await, @typescript-eslint/no-unused-vars */
 
@@ -420,10 +453,6 @@ export class BaileysAdapter implements IWhatsAppEngine {
 
   async sendAudioMessage(_chatId: string, _media: MediaInput): Promise<MessageResult> {
     throw new Error('sendAudioMessage not yet implemented in baileys adapter');
-  }
-
-  async sendDocumentMessage(_chatId: string, _media: MediaInput): Promise<MessageResult> {
-    throw new Error('sendDocumentMessage not yet implemented in baileys adapter');
   }
 
   async sendLocationMessage(_chatId: string, _location: LocationInput): Promise<MessageResult> {

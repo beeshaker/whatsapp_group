@@ -97,9 +97,10 @@ async def send_document_to_group(client: Client, pdf_bytes: bytes, filename: str
                     "caption": caption,
                 },
             )
-            _log.warning("send_document_to_group %s status=%s body=%s", client.subdomain, r.status_code, r.text[:200])
+            r.raise_for_status()
     except Exception as exc:
         _log.warning("send_document_to_group failed for %s: %s", client.subdomain, exc)
+        raise
 
 
 async def send_dm_text(phone: str, text: str) -> None:

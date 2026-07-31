@@ -571,6 +571,66 @@ describe('BaileysAdapter', () => {
       ]);
     });
   });
+
+  describe('sendDocumentMessage', () => {
+    it('decodes base64 media data to a Buffer and sends it as a document', async () => {
+      const { mockSock } = setupMockSock();
+      mockSock.sendMessage = jest.fn().mockResolvedValue({ key: { id: 'wa-doc-1' }, messageTimestamp: 1782300020 });
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      await adapter.initialize({});
+      handlers_forceReady(adapter, mockSock);
+
+      const base64Pdf = Buffer.from('fake-pdf-bytes').toString('base64');
+      const result = await adapter.sendDocumentMessage('123@g.us', {
+        mimetype: 'application/pdf',
+        data: base64Pdf,
+        filename: 'statement.pdf',
+        caption: 'Your payment statement',
+      });
+
+      expect(mockSock.sendMessage).toHaveBeenCalledWith('123@g.us', {
+        document: Buffer.from('fake-pdf-bytes'),
+        mimetype: 'application/pdf',
+        fileName: 'statement.pdf',
+        caption: 'Your payment statement',
+      });
+      expect(result).toEqual({ id: 'wa-doc-1', timestamp: 1782300020 });
+    });
+
+    it('passes a Buffer straight through without re-encoding', async () => {
+      const { mockSock } = setupMockSock();
+      mockSock.sendMessage = jest.fn().mockResolvedValue({ key: { id: 'wa-doc-2' }, messageTimestamp: 1782300021 });
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      await adapter.initialize({});
+      handlers_forceReady(adapter, mockSock);
+
+      const buffer = Buffer.from('raw-bytes');
+      await adapter.sendDocumentMessage('123@g.us', { mimetype: 'application/pdf', data: buffer });
+
+      expect(mockSock.sendMessage).toHaveBeenCalledWith(
+        '123@g.us',
+        expect.objectContaining({ document: buffer }),
+      );
+    });
+
+    it('passes a URL string as { url } instead of decoding it as base64', async () => {
+      const { mockSock } = setupMockSock();
+      mockSock.sendMessage = jest.fn().mockResolvedValue({ key: { id: 'wa-doc-3' }, messageTimestamp: 1782300022 });
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      await adapter.initialize({});
+      handlers_forceReady(adapter, mockSock);
+
+      await adapter.sendDocumentMessage('123@g.us', {
+        mimetype: 'application/pdf',
+        data: 'https://example.com/statement.pdf',
+      });
+
+      expect(mockSock.sendMessage).toHaveBeenCalledWith(
+        '123@g.us',
+        expect.objectContaining({ document: { url: 'https://example.com/statement.pdf' } }),
+      );
+    });
+  });
 });
 
 /* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any */
