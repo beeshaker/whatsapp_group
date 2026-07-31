@@ -7,15 +7,21 @@ jest.mock('@whiskeysockets/baileys', () => ({
   default: jest.fn(),
   useMultiFileAuthState: jest.fn(),
   downloadMediaMessage: jest.fn(),
+  fetchLatestWaWebVersion: jest.fn(),
 }));
 
-import makeWASocket, { useMultiFileAuthState, downloadMediaMessage } from '@whiskeysockets/baileys';
+import makeWASocket, {
+  useMultiFileAuthState,
+  downloadMediaMessage,
+  fetchLatestWaWebVersion,
+} from '@whiskeysockets/baileys';
 import { BaileysAdapter } from './baileys.adapter';
 import { EngineStatus } from '../interfaces/whatsapp-engine.interface';
 
 const mockMakeWASocket = makeWASocket as jest.MockedFunction<typeof makeWASocket>;
 const mockUseMultiFileAuthState = useMultiFileAuthState as jest.MockedFunction<typeof useMultiFileAuthState>;
 const mockDownloadMediaMessage = downloadMediaMessage as jest.MockedFunction<typeof downloadMediaMessage>;
+const mockFetchLatestWaWebVersion = fetchLatestWaWebVersion as jest.MockedFunction<typeof fetchLatestWaWebVersion>;
 
 // Polls a predicate against real timers until it's true, instead of guessing a
 // fixed delay -- used for the one assertion in this file (QR encoding) that
@@ -62,6 +68,7 @@ describe('BaileysAdapter', () => {
       logout: jest.fn().mockResolvedValue(undefined),
     };
     mockUseMultiFileAuthState.mockResolvedValue({ state: {} as any, saveCreds: jest.fn().mockResolvedValue(undefined) });
+    mockFetchLatestWaWebVersion.mockResolvedValue({ version: [2, 3000, 9999999999], isLatest: true });
     mockMakeWASocket.mockReturnValue(mockSock);
     return { mockSock, handlers };
   }
@@ -87,7 +94,7 @@ describe('BaileysAdapter', () => {
       const expectedAuthPath = path.join(tmpDir, 'dunhill');
       expect(fs.existsSync(expectedAuthPath)).toBe(true);
       expect(mockUseMultiFileAuthState).toHaveBeenCalledWith(expectedAuthPath);
-      expect(mockMakeWASocket).toHaveBeenCalledWith({ auth: {} });
+      expect(mockMakeWASocket).toHaveBeenCalledWith({ auth: {}, version: [2, 3000, 9999999999] });
 
       handlers['creds.update']();
       const { saveCreds } = await mockUseMultiFileAuthState.mock.results[0].value;
@@ -101,6 +108,16 @@ describe('BaileysAdapter', () => {
 
       await expect(adapter.initialize({})).rejects.toThrow('corrupted auth state');
       expect(adapter.getStatus()).toBe(EngineStatus.FAILED);
+    });
+
+    it('falls back to the bundled default version when fetchLatestWaWebVersion fails, instead of blocking startup', async () => {
+      setupMockSock();
+      mockFetchLatestWaWebVersion.mockRejectedValue(new Error('network unreachable'));
+      const adapter = new BaileysAdapter({ sessionId: 'dunhill', authDir: tmpDir });
+
+      await adapter.initialize({});
+
+      expect(mockMakeWASocket).toHaveBeenCalledWith({ auth: {} });
     });
   });
 

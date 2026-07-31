@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as qrcode from 'qrcode';
-import makeWASocket, { useMultiFileAuthState, downloadMediaMessage } from '@whiskeysockets/baileys';
+import makeWASocket, { useMultiFileAuthState, downloadMediaMessage, fetchLatestWaWebVersion } from '@whiskeysockets/baileys';
 import type { WASocket, WAMessage, WAMessageKey } from '@whiskeysockets/baileys';
 import {
   IWhatsAppEngine,
@@ -73,7 +73,21 @@ export class BaileysAdapter implements IWhatsAppEngine {
       fs.mkdirSync(authPath, { recursive: true });
 
       const { state, saveCreds } = await useMultiFileAuthState(authPath);
-      this.sock = makeWASocket({ auth: state });
+
+      // @whiskeysockets/baileys@7.0.0-rc13's bundled default WA Web version
+      // (2.3000.1035194821) is stale and WhatsApp's servers reject it outright
+      // ("Connection Failure" immediately after "attempting registration...",
+      // before a QR is ever issued -- see WhiskeySockets/Baileys#2679). Fetch
+      // the actual current version at connect time instead of trusting the
+      // library's bundled default. If the fetch itself fails (e.g. no
+      // outbound network to the version-check endpoint), fall back to the
+      // bundled default rather than blocking startup entirely.
+      const { version } = await fetchLatestWaWebVersion().catch(error => {
+        this.logger.error('Failed to fetch latest WA Web version, using bundled default', String(error));
+        return { version: undefined };
+      });
+
+      this.sock = makeWASocket({ auth: state, ...(version ? { version } : {}) });
 
       this.setupEventHandlers(saveCreds);
     } catch (error) {
