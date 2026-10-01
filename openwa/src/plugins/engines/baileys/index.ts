@@ -26,7 +26,11 @@ export class BaileysPlugin implements IEnginePlugin {
     const sessionId = config.sessionId as string;
     const authDir = this.resolveAuthDir();
 
-    return new BaileysAdapter({ sessionId, authDir });
+    return new BaileysAdapter({
+      sessionId,
+      authDir,
+      fullHistory: process.env.BAILEYS_FULL_HISTORY === 'true',
+    });
   }
 
   // EngineFactory.create() doesn't thread ConfigService values into

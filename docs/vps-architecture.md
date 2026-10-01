@@ -155,6 +155,40 @@ docker compose exec backend python scripts/backfill_history.py --apply    # crea
 
 `--since` defaults to the newest existing ticket (the last message before the drop), `--until` to now; override with ISO times (UTC). Tickets it creates are tagged `action='history_backfill'` in `audit_log`. If the dry run shows nothing near the start of the window, the gap is older than the phone synced. Fall back to the phone's Export chat for those groups.
 
+### Hard reset: wipe a client's tickets and rebuild from full history
+
+Use only when a client's ticket data should be thrown away and rebuilt from WhatsApp (first done for Pixiilive, 2026-10). Every status, edit and reply history is lost; rebuilt tickets all start in `review`. Configuration is kept: users, group access, admin profiles/subscriptions, categories.
+
+```bash
+# 1. Back up the client's database (no undo otherwise). Check the DB name with \l if unsure.
+cd /opt/clients/shared-postgres
+docker compose exec -T postgres pg_dump -U ops_user client_<name> > ~/client_<name>-before-reset-$(date +%F).sql
+
+# 2. Wipe tickets BEFORE re-linking: once linked, new messages arrive live, and
+#    those are not in the history sync, so wiping after the link would lose them.
+cd /opt/clients/<name>
+docker compose exec backend python scripts/reset_tickets.py                          # counts only
+docker compose exec backend python scripts/reset_tickets.py --apply --confirm <name>
+
+# 3. Ask the phone for FULL history on the next link (Baileys only)
+docker run --rm -v <name>_openwa_data:/data alpine sh -c "echo 'BAILEYS_FULL_HISTORY=true' >> /data/.env.generated"
+docker compose up -d --force-recreate openwa
+
+# 4. Settings → Link with new QR, scan, and wait for the sync to finish:
+docker compose logs -f openwa | grep "History sync"     # repeated chunks; done at isLatest=true
+
+# 5. Rebuild (dry run first; the apply can take hours: one classifier call per message)
+docker compose exec backend python scripts/backfill_history.py --from-start
+docker compose exec -d backend sh -c "python scripts/backfill_history.py --from-start --apply > /app/media/backfill.log 2>&1"
+docker compose exec backend tail -f /app/media/backfill.log
+
+# 6. Turn full-history sync back off (otherwise every future re-link re-downloads it)
+docker run --rm -v <name>_openwa_data:/data alpine sed -i '/^BAILEYS_FULL_HISTORY=/d' /data/.env.generated
+docker compose up -d --force-recreate openwa       # the saved login is kept; no QR needed
+```
+
+The phone decides how much history it sends; check the oldest timestamps in the dry run. Replaying in the background (`-d`) means an SSH drop won't kill the run; it can be safely re-run if it stops partway.
+
 **Manual equivalent** (production `openwa` image has no `curl`):
 ```bash
 docker compose exec openwa node -e "

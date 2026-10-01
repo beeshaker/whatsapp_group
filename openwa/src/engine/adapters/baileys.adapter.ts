@@ -46,6 +46,9 @@ import { BaileysSessionStore } from './baileys-session-store';
 export interface BaileysAdapterConfig {
   sessionId: string;
   authDir: string;
+  // Ask the phone for its FULL chat history at link time (one-off historical
+  // backfills). Off by default: the normal sync only covers recent messages.
+  fullHistory?: boolean;
 }
 
 function timestampToNumber(ts: unknown): number {
@@ -111,7 +114,20 @@ export class BaileysAdapter implements IWhatsAppEngine {
         return { version: undefined };
       });
 
-      this.sock = makeWASocket({ auth: state, ...(version ? { version } : {}) });
+      this.sock = makeWASocket({
+        auth: state,
+        ...(version ? { version } : {}),
+        ...(this.config.fullHistory
+          ? {
+              syncFullHistory: true,
+              shouldSyncHistoryMessage: () => true,
+              // WhatsApp only sends full history to desktop-class companions.
+              // Literal tuple rather than Browsers.macOS() so the module stays
+              // loadable where '@whiskeysockets/baileys' is jest-mocked.
+              browser: ['Mac OS', 'Desktop', '14.4.1'] as [string, string, string],
+            }
+          : {}),
+      });
 
       this.setupEventHandlers(saveCreds);
     } catch (error) {

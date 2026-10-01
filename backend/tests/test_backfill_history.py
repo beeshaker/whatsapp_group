@@ -173,3 +173,19 @@ async def test_aborts_when_client_is_billing_only(monkeypatch):
         await run(apply=True, since=SINCE, until=UNTIL)
 
     fetch.assert_not_awaited()
+
+
+async def test_from_start_replays_everything_after_a_reset(monkeypatch):
+    fetch = _history(monkeypatch, [_msg("ancient", 1500000000), _msg("h-1", T0)])
+
+    results = await run(apply=True, until=UNTIL, from_start=True)
+
+    assert fetch.await_args[0][0] == datetime.fromtimestamp(0, tz=timezone.utc)
+    assert results == {"staged": 2}
+
+
+async def test_empty_db_without_from_start_asks_for_a_window(monkeypatch):
+    _history(monkeypatch, [])
+
+    with pytest.raises(SystemExit):
+        await run(apply=False, until=UNTIL)

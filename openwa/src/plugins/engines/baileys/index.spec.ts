@@ -17,6 +17,7 @@ const mockBaileysAdapter = BaileysAdapter as jest.MockedClass<typeof BaileysAdap
 describe('BaileysPlugin', () => {
   afterEach(() => {
     delete process.env.BAILEYS_AUTH_DIR;
+    delete process.env.BAILEYS_FULL_HISTORY;
     jest.clearAllMocks();
   });
 
@@ -34,6 +35,7 @@ describe('BaileysPlugin', () => {
       expect(mockBaileysAdapter).toHaveBeenCalledWith({
         sessionId: 'dunhill',
         authDir: '/app/data/baileys',
+        fullHistory: false,
       });
       expect((engine as any).config).toEqual({
         sessionId: 'dunhill',
@@ -53,8 +55,18 @@ describe('BaileysPlugin', () => {
       expect(mockBaileysAdapter).toHaveBeenCalledWith({
         sessionId: 'dunhill',
         authDir: './data/baileys',
+        fullHistory: false,
       });
       expect((engine as any).config.authDir).toBe('./data/baileys');
+    });
+
+    it('enables full history sync only when BAILEYS_FULL_HISTORY=true', () => {
+      process.env.BAILEYS_FULL_HISTORY = 'true';
+      mockBaileysAdapter.mockReturnValue({} as any);
+
+      new BaileysPlugin().createEngine({ sessionId: 'pixiilive' });
+
+      expect(mockBaileysAdapter).toHaveBeenCalledWith(expect.objectContaining({ fullHistory: true }));
     });
   });
 

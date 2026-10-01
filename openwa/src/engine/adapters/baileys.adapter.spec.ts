@@ -378,6 +378,29 @@ describe('BaileysAdapter', () => {
     });
   });
 
+  describe('full history option', () => {
+    it('requests full history as a desktop companion when fullHistory is set', async () => {
+      setupMockSock();
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir, fullHistory: true });
+      await adapter.initialize({});
+
+      const opts = mockMakeWASocket.mock.calls[0][0] as any;
+      expect(opts.syncFullHistory).toBe(true);
+      expect(opts.shouldSyncHistoryMessage({ syncType: 2 })).toBe(true);
+      expect(opts.browser[1]).toBe('Desktop');
+    });
+
+    it('leaves Baileys history defaults alone otherwise', async () => {
+      setupMockSock();
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      await adapter.initialize({});
+
+      const opts = mockMakeWASocket.mock.calls[0][0] as any;
+      expect(opts.syncFullHistory).toBeUndefined();
+      expect(opts.browser).toBeUndefined();
+    });
+  });
+
   describe('history sync (messaging-history.set)', () => {
     function historyMsg(id: string, ts: number, overrides: Record<string, any> = {}) {
       return {

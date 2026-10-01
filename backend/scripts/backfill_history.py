@@ -17,9 +17,12 @@ Usage (from inside the backend container, cwd=backend/):
     python scripts/backfill_history.py --apply                # write tickets
     python scripts/backfill_history.py --since 2026-09-20T08:00 --until 2026-10-02T12:00
     python scripts/backfill_history.py --group 120363XXXX@g.us --apply
+    python scripts/backfill_history.py --from-start --apply   # after reset_tickets.py
 
 --since defaults to the newest ticket's received_at (the last message captured
-before the drop); --until defaults to now. Naive times are UTC.
+before the drop); --from-start replays everything captured instead (use after
+a hard reset with scripts/reset_tickets.py, with BAILEYS_FULL_HISTORY=true set
+on OpenWA for the re-link). --until defaults to now. Naive times are UTC.
 """
 import argparse
 import asyncio
@@ -54,7 +57,8 @@ async def fetch_history(since: datetime, until: datetime, group: Optional[str]) 
     params = {"since": int(since.timestamp()), "until": int(until.timestamp())}
     if group:
         params["chatId"] = group
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    # A full-history sync can be tens of MB.
+    async with httpx.AsyncClient(timeout=300.0) as client:
         session_id = await whatsapp._resolve_session_uuid(client)
         r = await client.get(
             f"{whatsapp.OPENWA_URL}/api/sessions/{session_id}/history",
@@ -103,10 +107,13 @@ async def run(
     since: Optional[datetime] = None,
     until: Optional[datetime] = None,
     group: Optional[str] = None,
+    from_start: bool = False,
 ) -> dict:
+    if from_start:
+        since = datetime.fromtimestamp(0, tz=timezone.utc)
     since = since or await _default_since()
     if since is None:
-        raise SystemExit("No tickets exist yet to infer the outage start from; pass --since.")
+        raise SystemExit("No tickets exist yet to infer the outage start from; pass --since or --from-start.")
     until = until or datetime.now(timezone.utc)
     print(f"Window (UTC): {since.isoformat()} -> {until.isoformat()}" + (f"  group={group}" if group else ""))
 
@@ -181,5 +188,6 @@ if __name__ == "__main__":
     parser.add_argument("--since", type=_parse_time, help="window start, ISO time (default: newest ticket)")
     parser.add_argument("--until", type=_parse_time, help="window end, ISO time (default: now)")
     parser.add_argument("--group", help="only this group JID")
+    parser.add_argument("--from-start", action="store_true", help="replay all captured history (ignores --since)")
     args = parser.parse_args()
-    asyncio.run(run(args.apply, args.since, args.until, args.group))
+    asyncio.run(run(args.apply, args.since, args.until, args.group, args.from_start))
