@@ -609,6 +609,24 @@ describe('SessionService', () => {
     });
   });
 
+  describe('getHistory', () => {
+    it('delegates to the engine, even when the session is not running', async () => {
+      (repository.findOne as jest.Mock).mockResolvedValue(createMockSession());
+      const history = [{ id: 'h-1', timestamp: 1 }];
+      mockEngine.getHistory = jest.fn().mockResolvedValue(history);
+
+      await expect(service.getHistory('sess-uuid-1', { since: 1 })).resolves.toBe(history);
+      expect(engineFactory.create).toHaveBeenCalledWith({ sessionId: 'test-session' });
+      expect(mockEngine.getHistory).toHaveBeenCalledWith({ since: 1 });
+    });
+
+    it('rejects with 400 for an engine without a history source', async () => {
+      (repository.findOne as jest.Mock).mockResolvedValue(createMockSession());
+
+      await expect(service.getHistory('sess-uuid-1', {})).rejects.toThrow(BadRequestException);
+    });
+  });
+
   describe('onApplicationBootstrap', () => {
     it('auto-starts every previously linked session, including FAILED ones, and skips unlinked', async () => {
       const linked = createMockSession({ id: 'a', phone: '254700000000', status: SessionStatus.FAILED });

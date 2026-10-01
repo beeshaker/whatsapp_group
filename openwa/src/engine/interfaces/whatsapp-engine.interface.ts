@@ -215,6 +215,12 @@ export interface DisconnectMeta {
   restartRequired?: boolean;
 }
 
+export interface HistoryQuery {
+  chatId?: string;
+  since?: number; // epoch seconds, inclusive
+  until?: number; // epoch seconds, inclusive
+}
+
 export interface EngineEventCallbacks {
   onQRCode?: (qr: string) => void;
   onReady?: (phone: string, pushName: string) => void;
@@ -232,6 +238,9 @@ export interface IWhatsAppEngine {
   logout(): Promise<void>; // Logs out and clears session data (requires QR scan again)
   destroy(): Promise<void>;
   clearAuthState(): Promise<void>; // Deletes saved auth on disk; works whether or not the engine is running
+  // Past messages captured outside the live path (e.g. Baileys' link-time history
+  // sync), oldest first. Optional: engines without a history source omit it.
+  getHistory?(opts?: HistoryQuery): Promise<IncomingMessage[]>;
 
   // Status
   getStatus(): EngineStatus;

@@ -12,7 +12,13 @@ import { Repository, In, DataSource } from 'typeorm';
 import { Session, SessionStatus } from './entities/session.entity';
 import { CreateSessionDto } from './dto';
 import { EngineFactory } from '../../engine/engine.factory';
-import { IWhatsAppEngine, EngineStatus, DisconnectMeta } from '../../engine/interfaces/whatsapp-engine.interface';
+import {
+  IWhatsAppEngine,
+  EngineStatus,
+  DisconnectMeta,
+  HistoryQuery,
+  IncomingMessage,
+} from '../../engine/interfaces/whatsapp-engine.interface';
 import { createLogger } from '../../common/services/logger.service';
 import { EventsGateway } from '../events/events.gateway';
 import { WebhookService } from '../webhook/webhook.service';
@@ -654,6 +660,20 @@ export class SessionService implements OnModuleDestroy, OnModuleInit, OnApplicat
       lastError: info.lastError,
       needsRelink: info.needsRelink,
     };
+  }
+
+  /**
+   * Past messages the engine captured outside the live path (Baileys' link-time
+   * history sync). Never dispatched to webhooks -- meant for one-off backfills.
+   */
+  async getHistory(id: string, opts: HistoryQuery): Promise<IncomingMessage[]> {
+    const session = await this.findOne(id);
+    // The history store lives on disk, so a stopped session can still be read.
+    const engine = this.engines.get(id) ?? this.engineFactory.create({ sessionId: session.name });
+    if (!engine.getHistory) {
+      throw new BadRequestException("This session's engine does not support message history");
+    }
+    return engine.getHistory(opts);
   }
 
   getEngine(id: string): IWhatsAppEngine | undefined {

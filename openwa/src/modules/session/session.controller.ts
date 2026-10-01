@@ -1,11 +1,23 @@
-import { Controller, Get, Post, Delete, Param, Body, HttpCode, HttpStatus } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Post,
+  Delete,
+  Param,
+  Body,
+  Query,
+  HttpCode,
+  HttpStatus,
+  BadRequestException,
+} from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { SessionService } from './session.service';
 import { CreateSessionDto, SessionResponseDto, QRCodeResponseDto } from './dto';
 import { Session } from './entities/session.entity';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction } from '../audit/entities/audit-log.entity';
 import { RequireRole } from '../auth/decorators/auth.decorators';
+import { IncomingMessage } from '../../engine/interfaces/whatsapp-engine.interface';
 import { ApiKeyRole } from '../auth/entities/api-key.entity';
 
 @ApiTags('sessions')
@@ -186,6 +198,36 @@ export class SessionController {
       });
     }
     return qrState;
+  }
+
+  @Get(':id/history')
+  @RequireRole(ApiKeyRole.OPERATOR)
+  @ApiOperation({
+    summary: 'Past messages captured from the link-time history sync (Baileys), oldest first. For one-off backfills.',
+  })
+  @ApiParam({ name: 'id', description: 'Session ID' })
+  @ApiQuery({ name: 'chatId', required: false })
+  @ApiQuery({ name: 'since', required: false, type: Number, description: 'Epoch seconds, inclusive' })
+  @ApiQuery({ name: 'until', required: false, type: Number, description: 'Epoch seconds, inclusive' })
+  @ApiResponse({ status: 200, description: 'Messages in the engine-neutral IncomingMessage shape' })
+  @ApiResponse({ status: 400, description: 'Engine does not support history, or bad since/until' })
+  async getHistory(
+    @Param('id') id: string,
+    @Query('chatId') chatId?: string,
+    @Query('since') since?: string,
+    @Query('until') until?: string,
+  ): Promise<IncomingMessage[]> {
+    const toEpoch = (value: string | undefined, name: string): number | undefined => {
+      if (value === undefined || value === '') return undefined;
+      const n = Number(value);
+      if (!Number.isFinite(n)) throw new BadRequestException(`${name} must be epoch seconds`);
+      return n;
+    };
+    return this.sessionService.getHistory(id, {
+      chatId: chatId || undefined,
+      since: toEpoch(since, 'since'),
+      until: toEpoch(until, 'until'),
+    });
   }
 
   @Get(':id/groups')

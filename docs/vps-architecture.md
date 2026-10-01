@@ -141,6 +141,20 @@ Two actions, exposed on **both** the tenant `/settings` page and the billing adm
 
 Both work from any state. A backend/billing deployed against an older OpenWA falls back to `stop`+`start` for Restart, and reports that Link needs an OpenWA deploy.
 
+### Backfilling messages missed during an outage (Baileys only)
+
+When a Baileys session is linked, the phone pushes a sync of recent chat history. OpenWA stores it (never dispatched live) in `data/baileys/history/<session>.jsonl` and serves it at `GET /api/sessions/:id/history?chatId=&since=&until=` (epoch seconds). Because the sync only happens **at link time**, the OpenWA build with this capture must already be running *before* the re-link you want history from.
+
+Turn the gap into tickets with the one-off script (dry run first; it never sends WhatsApp messages and is safe to re-run):
+
+```bash
+cd /opt/clients/<name>
+docker compose exec backend python scripts/backfill_history.py            # dry run: shows window + messages
+docker compose exec backend python scripts/backfill_history.py --apply    # create tickets
+```
+
+`--since` defaults to the newest existing ticket (the last message before the drop), `--until` to now; override with ISO times (UTC). Tickets it creates are tagged `action='history_backfill'` in `audit_log`. If the dry run shows nothing near the start of the window, the gap is older than the phone synced. Fall back to the phone's Export chat for those groups.
+
 **Manual equivalent** (production `openwa` image has no `curl`):
 ```bash
 docker compose exec openwa node -e "

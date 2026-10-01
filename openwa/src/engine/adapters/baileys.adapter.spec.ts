@@ -378,6 +378,87 @@ describe('BaileysAdapter', () => {
     });
   });
 
+  describe('history sync (messaging-history.set)', () => {
+    function historyMsg(id: string, ts: number, overrides: Record<string, any> = {}) {
+      return {
+        key: { remoteJid: '123@g.us', participant: '254711223344@s.whatsapp.net', id, fromMe: false },
+        message: { conversation: `body ${id}` },
+        messageTimestamp: ts,
+        pushName: 'Jane Doe',
+        ...overrides,
+      };
+    }
+
+    const historyFile = () => path.join(tmpDir, 'history', 'test.jsonl');
+
+    async function syncHistory(messages: any[]) {
+      const { handlers } = setupMockSock();
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      const onMessage = jest.fn();
+      await adapter.initialize({ onMessage });
+      const before = fs.existsSync(historyFile()) ? fs.readFileSync(historyFile(), 'utf8').length : 0;
+      handlers['messaging-history.set']({ messages, chats: [], contacts: [], isLatest: true, syncType: 1 });
+      await waitFor(() => fs.existsSync(historyFile()) && fs.readFileSync(historyFile(), 'utf8').length > before);
+      return { adapter, onMessage };
+    }
+
+    it('stores normalized history on disk and never dispatches it live', async () => {
+      const { adapter, onMessage } = await syncHistory([historyMsg('h-1', 1782300000)]);
+
+      expect(onMessage).not.toHaveBeenCalled();
+      expect(await adapter.getHistory()).toEqual([
+        expect.objectContaining({
+          id: 'h-1',
+          chatId: '123@g.us',
+          body: 'body h-1',
+          type: 'chat',
+          author: '254711223344@c.us',
+          notifyName: 'Jane Doe',
+          isGroup: true,
+          timestamp: 1782300000,
+        }),
+      ]);
+    });
+
+    it('drops own messages and messages with no content', async () => {
+      const { adapter } = await syncHistory([
+        historyMsg('mine', 1782300000, { key: { remoteJid: '123@g.us', id: 'mine', fromMe: true } }),
+        historyMsg('stub', 1782300001, { message: null }),
+        historyMsg('keep', 1782300002),
+      ]);
+
+      expect((await adapter.getHistory()).map(m => m.id)).toEqual(['keep']);
+    });
+
+    it('dedupes repeated syncs and filters by chat and time window, oldest first', async () => {
+      await syncHistory([historyMsg('b', 200), historyMsg('a', 100)]);
+      const { adapter } = await syncHistory([
+        historyMsg('b', 200),
+        historyMsg('c', 300),
+        historyMsg('other', 150, { key: { remoteJid: '999@g.us', id: 'other', fromMe: false } }),
+      ]);
+
+      expect((await adapter.getHistory()).map(m => m.id)).toEqual(['a', 'other', 'b', 'c']);
+      expect((await adapter.getHistory({ chatId: '123@g.us', since: 150, until: 300 })).map(m => m.id)).toEqual([
+        'b',
+        'c',
+      ]);
+    });
+
+    it('survives clearAuthState (re-link wipes auth, not history)', async () => {
+      const { adapter } = await syncHistory([historyMsg('h-1', 1782300000)]);
+
+      await adapter.clearAuthState();
+
+      expect(await adapter.getHistory()).toHaveLength(1);
+    });
+
+    it('returns [] when no history was ever captured', async () => {
+      const adapter = new BaileysAdapter({ sessionId: 'never', authDir: tmpDir });
+      expect(await adapter.getHistory()).toEqual([]);
+    });
+  });
+
   describe('messages.reaction handling', () => {
     it('emits an IncomingReaction with chatId/senderId from the outer key and target info from reaction.key', async () => {
       const { handlers } = setupMockSock();

@@ -14,6 +14,7 @@ import {
   MessageResult,
   MediaInput,
   IncomingMessage,
+  HistoryQuery,
   IncomingReaction,
   Contact,
   Group,
@@ -153,6 +154,13 @@ export class BaileysAdapter implements IWhatsAppEngine {
       }
     });
 
+    // The phone pushes recent chat history once, right after a device is
+    // linked. It is never dispatched live (old messages must not trigger
+    // auto-replies); it is kept on disk for one-off backfills via getHistory().
+    this.sock.ev.on('messaging-history.set', ({ messages, syncType, isLatest }) => {
+      void this.saveHistory(messages, syncType, isLatest);
+    });
+
     this.sock.ev.on('messages.reaction', reactions => {
       for (const reaction of reactions) {
         this.handleReaction(reaction);
@@ -204,35 +212,10 @@ export class BaileysAdapter implements IWhatsAppEngine {
     }
 
     try {
-      const chatId = resolveRemoteJid(msg.key) || '';
-      const author = resolveParticipantJid(msg.key);
-      // proto.IMessage (the real installed type of msg.message) has no index
-      // signature, unlike the Record<string, unknown> that mapBaileysMessageType
-      // (baileys-jid.util, Task 2) declares for its parameter -- cast at the
-      // call site rather than touching that already-completed file.
-      const type = mapBaileysMessageType(msg.message as Record<string, unknown> | null | undefined);
-      const timestamp = timestampToNumber(msg.messageTimestamp);
-      const body = this.extractBody(msg);
+      const incomingMessage = this.toIncomingMessage(msg);
+      const { id, chatId, author, timestamp, type } = incomingMessage;
 
-      this.store.add({ id: msg.key.id || '', chatId, author, timestamp, raw: msg });
-
-      const isGroup = chatId.endsWith('@g.us');
-      const incomingMessage: IncomingMessage = {
-        id: msg.key.id || '',
-        from: chatId,
-        // For a group message "to" is the group itself; for a DM it's this
-        // session's own number (matching whatsapp-web.js's msg.to semantics).
-        to: isGroup ? chatId : this.phoneNumber ? `${this.phoneNumber}@c.us` : '',
-        chatId,
-        body,
-        type,
-        timestamp,
-        fromMe: msg.key.fromMe || false,
-        isGroup,
-        author,
-        notifyName: msg.pushName || undefined,
-        media: undefined,
-      };
+      this.store.add({ id, chatId, author, timestamp, raw: msg });
 
       if (type !== 'chat' && type !== 'unknown') {
         try {
@@ -243,15 +226,91 @@ export class BaileysAdapter implements IWhatsAppEngine {
         }
       }
 
-      const quoted = this.extractQuotedMessage(msg);
-      if (quoted) {
-        incomingMessage.quotedMessage = quoted;
-      }
-
       this.callbacks.onMessage?.(incomingMessage);
     } catch (error) {
       this.logger.error('Error processing incoming message', String(error));
     }
+  }
+
+  /** Normalizes a Baileys message to the engine-neutral shape (no media download). */
+  private toIncomingMessage(msg: WAMessage): IncomingMessage {
+    const chatId = resolveRemoteJid(msg.key) || '';
+    const isGroup = chatId.endsWith('@g.us');
+    const incomingMessage: IncomingMessage = {
+      id: msg.key.id || '',
+      from: chatId,
+      // For a group message "to" is the group itself; for a DM it's this
+      // session's own number (matching whatsapp-web.js's msg.to semantics).
+      to: isGroup ? chatId : this.phoneNumber ? `${this.phoneNumber}@c.us` : '',
+      chatId,
+      body: this.extractBody(msg),
+      // proto.IMessage (the real installed type of msg.message) has no index
+      // signature, unlike the Record<string, unknown> that mapBaileysMessageType
+      // (baileys-jid.util, Task 2) declares for its parameter -- cast at the
+      // call site rather than touching that already-completed file.
+      type: mapBaileysMessageType(msg.message as Record<string, unknown> | null | undefined),
+      timestamp: timestampToNumber(msg.messageTimestamp),
+      fromMe: msg.key.fromMe || false,
+      isGroup,
+      author: resolveParticipantJid(msg.key),
+      notifyName: msg.pushName || undefined,
+      media: undefined,
+    };
+    const quoted = this.extractQuotedMessage(msg);
+    if (quoted) {
+      incomingMessage.quotedMessage = quoted;
+    }
+    return incomingMessage;
+  }
+
+  private historyPath(): string {
+    // Deliberately outside <authDir>/<sessionId>, which clearAuthState() wipes
+    // on every re-link -- exactly when the history sync arrives.
+    return path.join(this.config.authDir, 'history', `${this.config.sessionId}.jsonl`);
+  }
+
+  private async saveHistory(messages: WAMessage[], syncType: unknown, isLatest: boolean | undefined): Promise<void> {
+    try {
+      const lines = messages
+        .filter(msg => msg.key?.id && !msg.key.fromMe && msg.message)
+        .map(msg => JSON.stringify(this.toIncomingMessage(msg)) + '\n');
+      this.logger.log(
+        `History sync: ${messages.length} messages, ${lines.length} kept (syncType=${String(syncType)}, isLatest=${String(isLatest)})`,
+      );
+      if (lines.length === 0) return;
+      await fs.promises.mkdir(path.dirname(this.historyPath()), { recursive: true });
+      await fs.promises.appendFile(this.historyPath(), lines.join(''));
+    } catch (error) {
+      this.logger.error('Failed to save history sync', String(error));
+    }
+  }
+
+  async getHistory(opts: HistoryQuery = {}): Promise<IncomingMessage[]> {
+    let raw: string;
+    try {
+      raw = await fs.promises.readFile(this.historyPath(), 'utf8');
+    } catch {
+      return [];
+    }
+    // Later syncs can resend a message; keep one copy per id.
+    const byId = new Map<string, IncomingMessage>();
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const msg = JSON.parse(line) as IncomingMessage;
+        byId.set(msg.id, msg);
+      } catch {
+        // a torn final line from a crash mid-append -- skip it
+      }
+    }
+    return [...byId.values()]
+      .filter(
+        msg =>
+          (!opts.chatId || msg.chatId === opts.chatId) &&
+          (opts.since === undefined || msg.timestamp >= opts.since) &&
+          (opts.until === undefined || msg.timestamp <= opts.until),
+      )
+      .sort((a, b) => a.timestamp - b.timestamp);
   }
 
   private extractBody(msg: WAMessage): string {
@@ -358,6 +417,7 @@ export class BaileysAdapter implements IWhatsAppEngine {
     this.sock?.ev.removeAllListeners('connection.update');
     this.sock?.ev.removeAllListeners('creds.update');
     this.sock?.ev.removeAllListeners('messages.upsert');
+    this.sock?.ev.removeAllListeners('messaging-history.set');
     this.sock?.ev.removeAllListeners('messages.reaction');
     this.sock?.ev.removeAllListeners('messages.update');
     try {
