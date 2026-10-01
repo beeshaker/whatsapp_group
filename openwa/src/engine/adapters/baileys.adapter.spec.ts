@@ -37,7 +37,7 @@ async function waitFor(predicate: () => boolean, timeoutMs = 2000, intervalMs = 
   }
 }
 
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any --
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment --
  * This spec mocks @whiskeysockets/baileys's makeWASocket/useMultiFileAuthState wholesale and
  * builds a minimal fake WASocket (only the `ev`/`user` surface BaileysAdapter actually touches),
  * so several assertions and the fake socket itself are necessarily loosely typed. */
@@ -67,7 +67,10 @@ describe('BaileysAdapter', () => {
       end: jest.fn().mockResolvedValue(undefined),
       logout: jest.fn().mockResolvedValue(undefined),
     };
-    mockUseMultiFileAuthState.mockResolvedValue({ state: {} as any, saveCreds: jest.fn().mockResolvedValue(undefined) });
+    mockUseMultiFileAuthState.mockResolvedValue({
+      state: {} as any,
+      saveCreds: jest.fn().mockResolvedValue(undefined),
+    });
     mockFetchLatestWaWebVersion.mockResolvedValue({ version: [2, 3000, 9999999999], isLatest: true });
     mockMakeWASocket.mockReturnValue(mockSock);
     return { mockSock, handlers };
@@ -168,8 +171,35 @@ describe('BaileysAdapter', () => {
         lastDisconnect: { error: new Error('conflict'), date: new Date() },
       });
 
-      expect(onDisconnected).toHaveBeenCalledWith('conflict');
+      expect(onDisconnected).toHaveBeenCalledWith('conflict', { loggedOut: false, restartRequired: false });
       expect(adapter.getStatus()).toBe(EngineStatus.DISCONNECTED);
+    });
+
+    it('flags a 401 close as loggedOut so the service wipes auth instead of retrying', async () => {
+      const { handlers } = setupMockSock();
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      const onDisconnected = jest.fn();
+      await adapter.initialize({ onDisconnected });
+
+      const error = Object.assign(new Error('Connection Failure'), { output: { statusCode: 401 } });
+      handlers['connection.update']({ connection: 'close', lastDisconnect: { error, date: new Date() } });
+
+      expect(onDisconnected).toHaveBeenCalledWith('Connection Failure (401)', {
+        loggedOut: true,
+        restartRequired: false,
+      });
+    });
+
+    it('flags a 515 close (post-QR-scan restart) as restartRequired', async () => {
+      const { handlers } = setupMockSock();
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      const onDisconnected = jest.fn();
+      await adapter.initialize({ onDisconnected });
+
+      const error = Object.assign(new Error('Stream Errored (restart required)'), { output: { statusCode: 515 } });
+      handlers['connection.update']({ connection: 'close', lastDisconnect: { error, date: new Date() } });
+
+      expect(onDisconnected).toHaveBeenCalledWith(expect.any(String), { loggedOut: false, restartRequired: true });
     });
   });
 
@@ -344,9 +374,7 @@ describe('BaileysAdapter', () => {
       });
       await new Promise(process.nextTick);
 
-      expect(onMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ isGroup: false, to: '254700000000@c.us' }),
-      );
+      expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ isGroup: false, to: '254700000000@c.us' }));
     });
   });
 
@@ -392,6 +420,29 @@ describe('BaileysAdapter', () => {
   });
 
   describe('disconnect / logout / destroy', () => {
+    it('clearAuthState() deletes the auth directory even when never initialized', async () => {
+      const authPath = path.join(tmpDir, 'test');
+      fs.mkdirSync(authPath, { recursive: true });
+      fs.writeFileSync(path.join(authPath, 'creds.json'), '{}');
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+
+      await adapter.clearAuthState();
+
+      expect(fs.existsSync(authPath)).toBe(false);
+    });
+
+    it('logout() still wipes auth when the socket logout call throws', async () => {
+      const { mockSock } = setupMockSock();
+      mockSock.logout.mockRejectedValue(new Error('not connected'));
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      await adapter.initialize({});
+      const authPath = path.join(tmpDir, 'test');
+
+      await adapter.logout();
+
+      expect(fs.existsSync(authPath)).toBe(false);
+    });
+
     it('disconnect() ends the socket and sets status to DISCONNECTED without deleting auth files', async () => {
       const { mockSock } = setupMockSock();
       const adapter = new BaileysAdapter({ sessionId: 'dunhill', authDir: tmpDir });
@@ -472,7 +523,12 @@ describe('BaileysAdapter', () => {
         type: 'notify',
         messages: [
           {
-            key: { remoteJid: '123@g.us', participant: '254711223344@s.whatsapp.net', id: 'wa-quoted-1', fromMe: false },
+            key: {
+              remoteJid: '123@g.us',
+              participant: '254711223344@s.whatsapp.net',
+              id: 'wa-quoted-1',
+              fromMe: false,
+            },
             message: { conversation: 'original' },
             messageTimestamp: 1700000000,
           },
@@ -496,7 +552,12 @@ describe('BaileysAdapter', () => {
         type: 'notify',
         messages: [
           {
-            key: { remoteJid: '123@g.us', participant: '254711223344@s.whatsapp.net', id: 'some-other-id', fromMe: false },
+            key: {
+              remoteJid: '123@g.us',
+              participant: '254711223344@s.whatsapp.net',
+              id: 'some-other-id',
+              fromMe: false,
+            },
             message: { conversation: 'original' },
             messageTimestamp: 1700000000,
           },
@@ -566,9 +627,7 @@ describe('BaileysAdapter', () => {
 
       const groups = await adapter.getGroups();
 
-      expect(groups).toEqual([
-        { id: '123@g.us', name: 'Dunhill Ops', participantsCount: 2, isAdmin: true },
-      ]);
+      expect(groups).toEqual([{ id: '123@g.us', name: 'Dunhill Ops', participantsCount: 2, isAdmin: true }]);
     });
   });
 
@@ -607,10 +666,7 @@ describe('BaileysAdapter', () => {
       const buffer = Buffer.from('raw-bytes');
       await adapter.sendDocumentMessage('123@g.us', { mimetype: 'application/pdf', data: buffer });
 
-      expect(mockSock.sendMessage).toHaveBeenCalledWith(
-        '123@g.us',
-        expect.objectContaining({ document: buffer }),
-      );
+      expect(mockSock.sendMessage).toHaveBeenCalledWith('123@g.us', expect.objectContaining({ document: buffer }));
     });
 
     it('passes a URL string as { url } instead of decoding it as base64', async () => {
@@ -633,4 +689,4 @@ describe('BaileysAdapter', () => {
   });
 });
 
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any */
+/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment */

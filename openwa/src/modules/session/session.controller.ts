@@ -26,6 +26,7 @@ export class SessionController {
       pushName: session.pushName,
       connectedAt: session.connectedAt,
       lastActive: session.lastActiveAt,
+      ...this.sessionService.getRuntimeInfo(session.id),
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
     };
@@ -132,6 +133,42 @@ export class SessionController {
     return this.transformSession(session);
   }
 
+  @Post(':id/restart')
+  @RequireRole(ApiKeyRole.OPERATOR)
+  @ApiOperation({
+    summary: 'Restart the connection, keeping the saved login (no QR scan needed). Works in any state.',
+  })
+  @ApiParam({ name: 'id', description: 'Session ID' })
+  @ApiResponse({ status: 200, description: 'Session restarting', type: SessionResponseDto })
+  @ApiResponse({ status: 404, description: 'Session not found' })
+  async restart(@Param('id') id: string): Promise<SessionResponseDto> {
+    const session = await this.sessionService.restart(id);
+    await this.auditService.logInfo(AuditAction.SESSION_STARTED, {
+      sessionId: session.id,
+      sessionName: session.name,
+      metadata: { mode: 'restart' },
+    });
+    return this.transformSession(session);
+  }
+
+  @Post(':id/relink')
+  @RequireRole(ApiKeyRole.OPERATOR)
+  @ApiOperation({
+    summary: 'Wipe the saved login and start fresh so a new QR code is shown. Works in any state.',
+  })
+  @ApiParam({ name: 'id', description: 'Session ID' })
+  @ApiResponse({ status: 200, description: 'Session re-linking', type: SessionResponseDto })
+  @ApiResponse({ status: 404, description: 'Session not found' })
+  async relink(@Param('id') id: string): Promise<SessionResponseDto> {
+    const session = await this.sessionService.relink(id);
+    await this.auditService.logInfo(AuditAction.SESSION_STARTED, {
+      sessionId: session.id,
+      sessionName: session.name,
+      metadata: { mode: 'relink' },
+    });
+    return this.transformSession(session);
+  }
+
   @Get(':id/qr')
   @ApiOperation({ summary: 'Get QR code for session authentication' })
   @ApiParam({ name: 'id', description: 'Session ID' })
@@ -140,17 +177,15 @@ export class SessionController {
     description: 'QR code data',
     type: QRCodeResponseDto,
   })
-  @ApiResponse({
-    status: 400,
-    description: 'QR code not ready or session already authenticated',
-  })
   @ApiResponse({ status: 404, description: 'Session not found' })
   async getQRCode(@Param('id') id: string): Promise<QRCodeResponseDto> {
-    const qrCode = await this.sessionService.getQRCode(id);
-    await this.auditService.logInfo(AuditAction.SESSION_QR_GENERATED, {
-      sessionId: id,
-    });
-    return qrCode;
+    const qrState = await this.sessionService.getQRCode(id);
+    if (qrState.qrCode) {
+      await this.auditService.logInfo(AuditAction.SESSION_QR_GENERATED, {
+        sessionId: id,
+      });
+    }
+    return qrState;
   }
 
   @Get(':id/groups')

@@ -93,3 +93,96 @@ async def reply_to_message(
     if context_snippet is not None:
         payload["contextSnippet"] = context_snippet
     return await _post_message("messages/reply", payload)
+
+
+# ---------------------------------------------------------------------------
+# Session control (Settings → WhatsApp Connection)
+# ---------------------------------------------------------------------------
+
+def _headers() -> dict:
+    return {"X-API-Key": OPENWA_API_KEY}
+
+
+async def _find_session(client: httpx.AsyncClient) -> dict | None:
+    r = await client.get(f"{OPENWA_URL}/api/sessions", headers=_headers())
+    r.raise_for_status()
+    for s in r.json():
+        if s.get("name") == OPENWA_SESSION:
+            return s
+    return None
+
+
+async def get_session_state() -> dict:
+    """Current connection state for the Settings page. Never raises.
+
+    Returns {status, phone, qrCode, lastError, lastDisconnectReason, needsRelink}.
+    status is OpenWA's session status upper-cased (READY, QR_READY, FAILED, ...),
+    or NOT_FOUND / UNREACHABLE when the session or gateway can't be reached.
+    """
+    state = {
+        "status": "UNREACHABLE", "phone": None, "qrCode": None,
+        "lastError": None, "lastDisconnectReason": None, "needsRelink": False,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            session = await _find_session(client)
+            if session is None:
+                state["status"] = "NOT_FOUND"
+                return state
+            state.update(
+                status=(session.get("status") or "UNKNOWN").upper(),
+                phone=session.get("phone"),
+                lastError=session.get("lastError"),
+                lastDisconnectReason=session.get("lastDisconnectReason"),
+                needsRelink=bool(session.get("needsRelink")),
+            )
+            if state["status"] == "QR_READY":
+                qr = await client.get(f"{OPENWA_URL}/api/sessions/{session['id']}/qr", headers=_headers())
+                # Older OpenWA builds answer 400 when no QR is ready yet.
+                if qr.status_code == 200:
+                    state["qrCode"] = qr.json().get("qrCode")
+    except Exception as exc:
+        logger.warning("Failed to read WhatsApp session state: %s", exc)
+        state["lastError"] = str(exc)
+    return state
+
+
+async def reconnect_session(mode: str) -> dict:
+    """Restart ("restart": keep login) or re-link ("relink": wipe login, fresh QR)
+    the WhatsApp session, creating it first if it doesn't exist yet.
+
+    Returns {"ok": bool, "detail": str | None}. Never raises.
+    """
+    if mode not in ("restart", "relink"):
+        raise ValueError(f"unknown reconnect mode {mode!r}")
+    global _session_uuid
+    _session_uuid = None  # the session may be recreated below
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            session = await _find_session(client)
+            if session is None:
+                created = await client.post(
+                    f"{OPENWA_URL}/api/sessions",
+                    headers={**_headers(), "Content-Type": "application/json"},
+                    json={"name": OPENWA_SESSION},
+                )
+                if created.status_code == 409:
+                    session = await _find_session(client)
+                else:
+                    created.raise_for_status()
+                    session = created.json()
+            base = f"{OPENWA_URL}/api/sessions/{session['id']}"
+
+            r = await client.post(f"{base}/{mode}", headers=_headers())
+            if r.status_code == 404 and mode == "restart":
+                # OpenWA predates /restart -- fall back to the old stop + start.
+                await client.post(f"{base}/stop", headers=_headers())
+                r = await client.post(f"{base}/start", headers=_headers())
+            elif r.status_code == 404:
+                return {"ok": False, "detail": "This WhatsApp gateway is out of date and can't re-link yet. Contact support."}
+            if r.status_code >= 400:
+                return {"ok": False, "detail": f"Gateway returned {r.status_code}: {r.text[:200]}"}
+            return {"ok": True, "detail": None}
+    except Exception as exc:
+        logger.warning("WhatsApp %s failed: %s", mode, exc)
+        return {"ok": False, "detail": f"Could not reach the WhatsApp gateway: {exc}"}

@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { Client, LocalAuth, MessageMedia } from 'whatsapp-web.js';
 import * as qrcode from 'qrcode';
 import * as path from 'path';
+import * as fs from 'fs';
 import {
   IWhatsAppEngine,
   EngineStatus,
@@ -90,6 +91,8 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
           `Using proxy: ${this.config.proxy.type}://${this.config.proxy.url.replace(/:[^:@]*@/, ':***@')}`,
         );
       }
+
+      this.removeStaleBrowserLocks();
 
       this.client = new Client({
         authStrategy: new LocalAuth({
@@ -233,13 +236,40 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
 
     this.client.on('disconnected', reason => {
       this.setStatus(EngineStatus.DISCONNECTED);
-      this.callbacks.onDisconnected?.(reason);
+      // LOGOUT / UNPAIRED / UNPAIRED_IDLE mean the phone (or WhatsApp) removed
+      // this linked device -- the LocalAuth profile can never log in again.
+      const loggedOut = /^(LOGOUT|UNPAIRED)/i.test(String(reason));
+      this.callbacks.onDisconnected?.(String(reason), { loggedOut });
     });
 
     this.client.on('auth_failure', () => {
       this.setStatus(EngineStatus.FAILED);
-      this.callbacks.onDisconnected?.('Authentication failed');
+      this.callbacks.onDisconnected?.('Authentication failed', { loggedOut: true });
     });
+  }
+
+  private profileDir(): string {
+    // Matches whatsapp-web.js LocalAuth's own layout: <dataPath>/session-<clientId>
+    return path.join(path.resolve(this.config.sessionDataPath), `session-${this.config.sessionId}`);
+  }
+
+  /**
+   * Chromium leaves Singleton* lock files in its profile dir when it is killed
+   * (container restart, OOM, crash). The next launch then refuses to start
+   * ("The browser is already running"), leaving the session stuck in FAILED.
+   */
+  private removeStaleBrowserLocks(): void {
+    for (const name of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
+      try {
+        fs.rmSync(path.join(this.profileDir(), name), { force: true });
+      } catch (error) {
+        this.logger.warn(`Could not remove stale ${name}`, String(error));
+      }
+    }
+  }
+
+  async clearAuthState(): Promise<void> {
+    await fs.promises.rm(this.profileDir(), { recursive: true, force: true });
   }
 
   private setStatus(status: EngineStatus): void {
@@ -284,8 +314,16 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
 
   async destroy(): Promise<void> {
     if (this.client) {
-      await this.client.destroy();
+      const client = this.client;
       this.client = null;
+      // Drop listeners first so the teardown's own 'disconnected' event can't
+      // be mistaken for a real drop and trigger another reconnect.
+      client.removeAllListeners();
+      try {
+        await client.destroy();
+      } catch (error) {
+        this.logger.warn('Destroy client failed:', String(error));
+      }
       this.setStatus(EngineStatus.DISCONNECTED);
     }
   }

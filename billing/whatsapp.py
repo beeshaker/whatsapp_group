@@ -131,3 +131,101 @@ async def send_dm_text(phone: str, text: str) -> None:
             )
     except Exception as exc:
         _log.warning("send_dm_text failed for %s: %s", phone, exc)
+
+
+# ---------------------------------------------------------------------------
+# Session control (admin client page → Restart / Link with new QR)
+# Mirrors backend/whatsapp.py's get_session_state / reconnect_session so the
+# tenant Settings page and this admin page always agree on state.
+# ---------------------------------------------------------------------------
+
+async def _find_session(http: httpx.AsyncClient, client: Client) -> dict | None:
+    r = await http.get(f"{client.openwa_url}/api/sessions", headers={"X-API-Key": client.openwa_api_key or ""})
+    r.raise_for_status()
+    for s in r.json():
+        if s.get("name") == client.openwa_session:
+            return s
+    return None
+
+
+async def get_session_state(client: Client) -> dict:
+    """Current WhatsApp connection state for a client. Never raises.
+
+    Returns {status, phone, qrCode, lastError, lastDisconnectReason, needsRelink}.
+    status is OpenWA's status upper-cased (READY, QR_READY, FAILED, ...), or
+    NOT_CONFIGURED / NOT_FOUND / UNREACHABLE.
+    """
+    state = {
+        "status": "UNREACHABLE", "phone": None, "qrCode": None,
+        "lastError": None, "lastDisconnectReason": None, "needsRelink": False,
+    }
+    if not client.openwa_url or not client.openwa_session:
+        state["status"] = "NOT_CONFIGURED"
+        return state
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            session = await _find_session(http, client)
+            if session is None:
+                state["status"] = "NOT_FOUND"
+                return state
+            state.update(
+                status=(session.get("status") or "UNKNOWN").upper(),
+                phone=session.get("phone"),
+                lastError=session.get("lastError"),
+                lastDisconnectReason=session.get("lastDisconnectReason"),
+                needsRelink=bool(session.get("needsRelink")),
+            )
+            if state["status"] == "QR_READY":
+                qr = await http.get(
+                    f"{client.openwa_url}/api/sessions/{session['id']}/qr",
+                    headers={"X-API-Key": client.openwa_api_key or ""},
+                )
+                # Older OpenWA builds answer 400 when no QR is ready yet.
+                if qr.status_code == 200:
+                    state["qrCode"] = qr.json().get("qrCode")
+    except Exception as exc:
+        _log.warning("get_session_state failed for %s: %s", client.subdomain, exc)
+        state["lastError"] = str(exc)
+    return state
+
+
+async def reconnect_session(client: Client, mode: str) -> dict:
+    """Restart ("restart": keep login) or re-link ("relink": wipe login, fresh QR)
+    a client's WhatsApp session, creating it first if it doesn't exist yet.
+
+    Returns {"ok": bool, "detail": str | None}. Never raises.
+    """
+    if mode not in ("restart", "relink"):
+        raise ValueError(f"unknown reconnect mode {mode!r}")
+    if not client.openwa_url or not client.openwa_session:
+        return {"ok": False, "detail": "Set the OpenWA URL and session name first."}
+    headers = {"X-API-Key": client.openwa_api_key or ""}
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as http:
+            session = await _find_session(http, client)
+            if session is None:
+                created = await http.post(
+                    f"{client.openwa_url}/api/sessions",
+                    headers={**headers, "Content-Type": "application/json"},
+                    json={"name": client.openwa_session},
+                )
+                if created.status_code == 409:
+                    session = await _find_session(http, client)
+                else:
+                    created.raise_for_status()
+                    session = created.json()
+            base = f"{client.openwa_url}/api/sessions/{session['id']}"
+
+            r = await http.post(f"{base}/{mode}", headers=headers)
+            if r.status_code == 404 and mode == "restart":
+                # OpenWA predates /restart -- fall back to the old stop + start.
+                await http.post(f"{base}/stop", headers=headers)
+                r = await http.post(f"{base}/start", headers=headers)
+            elif r.status_code == 404:
+                return {"ok": False, "detail": "This client's OpenWA predates /relink. Deploy the latest openwa/ first."}
+            if r.status_code >= 400:
+                return {"ok": False, "detail": f"OpenWA returned {r.status_code}: {r.text[:200]}"}
+            return {"ok": True, "detail": None}
+    except Exception as exc:
+        _log.warning("WhatsApp %s failed for %s: %s", mode, client.subdomain, exc)
+        return {"ok": False, "detail": f"Could not reach OpenWA: {exc}"}

@@ -2375,21 +2375,6 @@ async def admin_profile_page(
 # Settings page + WhatsApp reconnect API
 # ---------------------------------------------------------------------------
 
-async def _openwa_find_session() -> tuple[str | None, str | None]:
-    """Return (session_uuid, status) for the configured OPENWA_SESSION, or (None, None)."""
-    import whatsapp as _wa
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        r = await client.get(
-            f"{_wa.OPENWA_URL}/api/sessions",
-            headers={"X-API-Key": _wa.OPENWA_API_KEY},
-        )
-        r.raise_for_status()
-        for s in r.json():
-            if s.get("name") == _wa.OPENWA_SESSION:
-                return s["id"], s.get("status", "UNKNOWN")
-    return None, None
-
-
 @app.get("/billing", response_class=HTMLResponse)
 async def billing_page(
     request: Request,
@@ -2443,67 +2428,22 @@ async def settings_page(
 
 @app.get("/api/settings/whatsapp-status")
 async def api_whatsapp_status(_: str = Depends(require_admin)):
-    try:
-        session_id, status = await _openwa_find_session()
-        if not session_id:
-            return JSONResponse({"status": "NOT_FOUND"})
-        return JSONResponse({"status": status, "id": session_id})
-    except Exception as exc:
-        return JSONResponse({"status": "ERROR", "detail": str(exc)}, status_code=200)
-
-
-@app.post("/api/settings/whatsapp-reconnect")
-async def api_whatsapp_reconnect(_: str = Depends(require_admin)):
     import whatsapp as _wa
-    try:
-        session_id, _ = await _openwa_find_session()
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            if not session_id:
-                create_r = await client.post(
-                    f"{_wa.OPENWA_URL}/api/sessions",
-                    headers={"X-API-Key": _wa.OPENWA_API_KEY, "Content-Type": "application/json"},
-                    json={"name": _wa.OPENWA_SESSION},
-                )
-                if create_r.status_code == 409:
-                    session_id, _ = await _openwa_find_session()
-                else:
-                    create_r.raise_for_status()
-                    session_id = create_r.json()["id"]
-            else:
-                await client.post(
-                    f"{_wa.OPENWA_URL}/api/sessions/{session_id}/stop",
-                    headers={"X-API-Key": _wa.OPENWA_API_KEY},
-                )
-            r = await client.post(
-                f"{_wa.OPENWA_URL}/api/sessions/{session_id}/start",
-                headers={"X-API-Key": _wa.OPENWA_API_KEY},
-            )
-            return JSONResponse({"ok": r.status_code < 400, "status": r.status_code})
-    except Exception as exc:
-        return JSONResponse({"ok": False, "detail": str(exc)}, status_code=500)
+    return JSONResponse(await _wa.get_session_state())
 
 
-@app.get("/api/settings/whatsapp-qr")
-async def api_whatsapp_qr(_: str = Depends(require_admin)):
+@app.post("/api/settings/whatsapp-restart")
+async def api_whatsapp_restart(_: str = Depends(require_admin)):
     import whatsapp as _wa
-    try:
-        session_id, _ = await _openwa_find_session()
-        if not session_id:
-            return JSONResponse({"error": "Session not found"}, status_code=404)
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.get(
-                f"{_wa.OPENWA_URL}/api/sessions/{session_id}/qr",
-                headers={"X-API-Key": _wa.OPENWA_API_KEY},
-            )
-            if r.status_code == 200:
-                return JSONResponse(r.json())
-            sr = await client.get(
-                f"{_wa.OPENWA_URL}/api/sessions/{session_id}",
-                headers={"X-API-Key": _wa.OPENWA_API_KEY},
-            )
-            return JSONResponse({"status": sr.json().get("status", "UNKNOWN")})
-    except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+    result = await _wa.reconnect_session("restart")
+    return JSONResponse(result, status_code=200 if result["ok"] else 502)
+
+
+@app.post("/api/settings/whatsapp-relink")
+async def api_whatsapp_relink(_: str = Depends(require_admin)):
+    import whatsapp as _wa
+    result = await _wa.reconnect_session("relink")
+    return JSONResponse(result, status_code=200 if result["ok"] else 502)
 
 
 _GROUP_JID_RE = re.compile(r"[\w-]+@g\.us")

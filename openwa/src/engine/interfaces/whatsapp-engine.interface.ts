@@ -32,9 +32,9 @@ export interface IncomingMessage {
   timestamp: number;
   fromMe: boolean;
   isGroup: boolean;
-  author?: string;      // sender JID for group messages (e.g. "254711223344@c.us")
-  notifyName?: string;  // sender display name from WhatsApp
-  chatName?: string;    // group or contact display name
+  author?: string; // sender JID for group messages (e.g. "254711223344@c.us")
+  notifyName?: string; // sender display name from WhatsApp
+  chatName?: string; // group or contact display name
   media?: {
     mimetype: string;
     filename?: string;
@@ -206,13 +206,22 @@ export interface PaginatedProducts {
   };
 }
 
+export interface DisconnectMeta {
+  // WhatsApp revoked this device (unlinked from the phone, or auth rejected).
+  // The saved auth state is dead; retrying with it can never succeed.
+  loggedOut?: boolean;
+  // The engine asked to be reconnected straight away (e.g. Baileys' restart
+  // right after a QR scan) -- no backoff needed.
+  restartRequired?: boolean;
+}
+
 export interface EngineEventCallbacks {
   onQRCode?: (qr: string) => void;
   onReady?: (phone: string, pushName: string) => void;
   onMessage?: (message: IncomingMessage) => void;
   onMessageAck?: (messageId: string, ack: number) => void;
   onMessageReaction?: (reaction: IncomingReaction) => void;
-  onDisconnected?: (reason: string) => void;
+  onDisconnected?: (reason: string, meta?: DisconnectMeta) => void;
   onStateChanged?: (state: EngineStatus) => void;
 }
 
@@ -222,6 +231,7 @@ export interface IWhatsAppEngine {
   disconnect(): Promise<void>; // Closes browser but keeps session (can reconnect without QR)
   logout(): Promise<void>; // Logs out and clears session data (requires QR scan again)
   destroy(): Promise<void>;
+  clearAuthState(): Promise<void>; // Deletes saved auth on disk; works whether or not the engine is running
 
   // Status
   getStatus(): EngineStatus;

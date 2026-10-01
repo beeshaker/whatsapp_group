@@ -5,13 +5,14 @@ import {
   BadRequestException,
   OnModuleDestroy,
   OnModuleInit,
+  OnApplicationBootstrap,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
 import { Session, SessionStatus } from './entities/session.entity';
 import { CreateSessionDto } from './dto';
 import { EngineFactory } from '../../engine/engine.factory';
-import { IWhatsAppEngine, EngineStatus } from '../../engine/interfaces/whatsapp-engine.interface';
+import { IWhatsAppEngine, EngineStatus, DisconnectMeta } from '../../engine/interfaces/whatsapp-engine.interface';
 import { createLogger } from '../../common/services/logger.service';
 import { EventsGateway } from '../events/events.gateway';
 import { WebhookService } from '../webhook/webhook.service';
@@ -24,8 +25,33 @@ interface ReconnectState {
   baseDelay: number;
 }
 
+/**
+ * Diagnostics kept in memory (not persisted) so the tenant/admin UIs can
+ * explain why a session isn't connected. Repopulated naturally after a
+ * restart because linked sessions are auto-started on boot.
+ */
+export interface SessionRuntimeInfo {
+  lastError: string | null;
+  lastDisconnectReason: string | null;
+  // WhatsApp revoked this device; a fresh QR is (being) shown and someone
+  // must scan it -- no amount of retrying will reconnect on its own.
+  needsRelink: boolean;
+}
+
+export interface QRCodeState {
+  qrCode: string | null;
+  status: SessionStatus;
+  lastError: string | null;
+  needsRelink: boolean;
+}
+
+// After the fast exponential-backoff attempts are used up, keep trying at
+// this interval instead of giving up for good (a dropped session would
+// otherwise stay offline until someone noticed and clicked Reconnect).
+const SLOW_RETRY_DELAY_MS = 5 * 60 * 1000;
+
 @Injectable()
-export class SessionService implements OnModuleDestroy, OnModuleInit {
+export class SessionService implements OnModuleDestroy, OnModuleInit, OnApplicationBootstrap {
   private readonly logger = createLogger('SessionService');
 
   // In-memory map of active engine instances
@@ -33,6 +59,8 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
 
   // Reconnection state per session
   private reconnectStates: Map<string, ReconnectState> = new Map();
+
+  private runtime: Map<string, SessionRuntimeInfo> = new Map();
 
   constructor(
     @InjectRepository(Session, 'data')
@@ -70,17 +98,27 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
     }
   }
 
-  async onModuleDestroy(): Promise<void> {
-    // Clean up all engines on shutdown
-    for (const [sessionId, engine] of this.engines) {
-      this.logger.log(`Destroying engine for session ${sessionId}`, {
-        sessionId,
-        action: 'shutdown',
+  /**
+   * Bring previously-linked sessions back up after a container/Docker restart
+   * (including ones left FAILED), so a restart never leaves a tenant offline
+   * until someone clicks Reconnect. Runs after every module's onModuleInit so
+   * the engine plugins are registered.
+   */
+  async onApplicationBootstrap(): Promise<void> {
+    const sessions = await this.sessionRepository.find();
+    for (const session of sessions) {
+      if (!session.phone) continue;
+      this.logger.log(`Auto-starting previously linked session: ${session.name}`, {
+        sessionId: session.id,
+        action: 'auto_start',
       });
-      await engine.destroy();
+      await this.start(session.id).catch((error: unknown) => {
+        this.recordError(session.id, error);
+      });
     }
-    this.engines.clear();
+  }
 
+  async onModuleDestroy(): Promise<void> {
     // Clear all reconnect timers
     for (const [, state] of this.reconnectStates) {
       if (state.timer) {
@@ -88,6 +126,15 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
       }
     }
     this.reconnectStates.clear();
+
+    // Clean up all engines on shutdown
+    for (const sessionId of [...this.engines.keys()]) {
+      this.logger.log(`Destroying engine for session ${sessionId}`, {
+        sessionId,
+        action: 'shutdown',
+      });
+      await this.teardownEngine(sessionId);
+    }
   }
 
   async create(dto: CreateSessionDto): Promise<Session> {
@@ -154,11 +201,13 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
     this.cancelReconnect(id);
 
     // Stop engine if running
-    const engine = this.engines.get(id);
-    if (engine) {
-      await engine.destroy();
-      this.engines.delete(id);
-    }
+    await this.teardownEngine(id);
+
+    // Saved auth is keyed by session *name*, so it outlives the DB row. Wipe it,
+    // otherwise re-creating a session with the same name silently reloads the
+    // old (possibly dead) login instead of showing a fresh QR.
+    await this.clearAuthState(session);
+    this.runtime.delete(id);
 
     // Execute hook BEFORE delete so plugins can access session data
     await this.hookManager.execute(
@@ -187,10 +236,49 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
   async start(id: string): Promise<Session> {
     const session = await this.findOne(id);
 
-    if (this.engines.has(id)) {
-      throw new BadRequestException('Session is already started');
+    const existing = this.engines.get(id);
+    if (existing) {
+      const engineStatus = existing.getStatus();
+      if (engineStatus !== EngineStatus.FAILED && engineStatus !== EngineStatus.DISCONNECTED) {
+        throw new BadRequestException('Session is already started');
+      }
+      // A dead engine is still registered -- replace it rather than refusing.
+      this.cancelReconnect(id);
+      await this.teardownEngine(id);
     }
 
+    await this.boot(id, session);
+    return this.findOne(id);
+  }
+
+  /**
+   * Soft reconnect: tear the engine down and start it again, keeping the saved
+   * login. Fixes transient drops without a QR scan. Safe in any state.
+   */
+  async restart(id: string): Promise<Session> {
+    const session = await this.findOne(id);
+    this.logger.log(`Restarting session: ${session.name}`, { sessionId: id, action: 'restart' });
+    this.cancelReconnect(id);
+    await this.teardownEngine(id);
+    await this.boot(id, session);
+    return this.findOne(id);
+  }
+
+  /**
+   * Hard reconnect: tear down, wipe the saved login, and start fresh so a new
+   * QR is shown. Use when a restart doesn't recover, or to link another phone.
+   */
+  async relink(id: string): Promise<Session> {
+    const session = await this.findOne(id);
+    this.logger.log(`Re-linking session (auth wiped): ${session.name}`, { sessionId: id, action: 'relink' });
+    this.cancelReconnect(id);
+    await this.teardownEngine(id);
+    await this.clearAuthState(session);
+    await this.boot(id, session);
+    return this.findOne(id);
+  }
+
+  private async boot(id: string, session: Session): Promise<void> {
     // Execute hook before starting
     await this.hookManager.execute(
       'session:starting',
@@ -212,11 +300,18 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
       maxAttempts: config?.maxReconnectAttempts ?? 5,
       baseDelay: config?.reconnectBaseDelay ?? 5000,
     });
+    const info = this.getRuntimeInfo(id);
+    info.lastError = null;
 
     await this.initializeEngine(id, session);
-    return this.findOne(id);
   }
 
+  /**
+   * Creates and registers the engine, then starts it in the background.
+   * Engine startup (especially headless Chrome) can take far longer than an
+   * HTTP client will wait, so callers get INITIALIZING back immediately and
+   * follow progress via status / QR polling.
+   */
   private async initializeEngine(id: string, session: Session): Promise<void> {
     this.logger.log(`Initializing engine for session: ${session.name}`, {
       sessionId: id,
@@ -230,194 +325,247 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
       proxyType: session.proxyType || undefined,
     });
     this.engines.set(id, engine);
-
-    await engine.initialize({
-      onQRCode: (): void => {
-        this.logger.log('QR code generated', {
-          sessionId: id,
-          action: 'qr_generated',
-        });
-
-        // Execute hook for QR event
-        void this.hookManager.execute(
-          'session:qr',
-          { sessionId: id },
-          {
-            sessionId: id,
-            source: 'Engine',
-          },
-        );
-
-        void this.updateStatus(id, SessionStatus.QR_READY);
-      },
-      onReady: (phone: string, pushName: string): void => {
-        this.logger.log(`Session ready: ${phone}`, {
-          sessionId: id,
-          phone,
-          pushName,
-          action: 'ready',
-        });
-
-        // Execute hook for ready event
-        void this.hookManager.execute(
-          'session:ready',
-          { phone, pushName },
-          {
-            sessionId: id,
-            source: 'Engine',
-          },
-        );
-
-        // Reset reconnect attempts on successful connection
-        const reconnectState = this.reconnectStates.get(id);
-        if (reconnectState) {
-          reconnectState.attempts = 0;
-        }
-
-        void this.sessionRepository.update(id, {
-          status: SessionStatus.READY,
-          phone,
-          pushName,
-          connectedAt: new Date(),
-          lastActiveAt: new Date(),
-        });
-      },
-      onMessage: (message): void => {
-        this.logger.debug(`Message received from ${message.from}`, {
-          sessionId: id,
-          messageId: message.id,
-          from: message.from,
-          action: 'message_received',
-        });
-        // Update last active timestamp
-        void this.sessionRepository.update(id, { lastActiveAt: new Date() });
-        // Convert IncomingMessage to plain object for dispatch
-        const messageData = { ...message };
-
-        // Execute hook for message received - plugins can modify or stop processing
-        void this.hookManager
-          .execute('message:received', messageData, {
-            sessionId: id,
-            source: 'Engine',
-          })
-          .then(({ continue: shouldContinue, data: finalMessage }) => {
-            if (!shouldContinue) {
-              // Plugin stopped processing (e.g., auto-reply handled it)
-              return;
-            }
-
-            // Dispatch to webhooks with potentially modified message
-            void this.webhookService.dispatch(id, 'message.received', finalMessage as Record<string, unknown>);
-            // Emit real-time event to WebSocket clients
-            this.eventsGateway.emitMessage(id, finalMessage as Record<string, unknown>);
-          });
-      },
-      onMessageReaction: (reaction): void => {
-        this.logger.debug(`Reaction received: ${reaction.emoji}`, {
-          sessionId: id,
-          action: 'reaction_received',
-        });
-        void this.hookManager
-          .execute('message:reaction', { ...reaction }, { sessionId: id, source: 'Engine' })
-          .then(({ continue: shouldContinue, data: finalReaction }) => {
-            if (!shouldContinue) {
-              return;
-            }
-            void this.webhookService.dispatch(id, 'message.reaction', finalReaction as Record<string, unknown>);
-          });
-      },
-      onDisconnected: (reason: string): void => {
-        this.logger.warn(`Session disconnected: ${reason}`, {
-          sessionId: id,
-          reason,
-          action: 'disconnected',
-        });
-
-        // Execute hook for disconnected event
-        void this.hookManager.execute(
-          'session:disconnected',
-          { reason },
-          {
-            sessionId: id,
-            source: 'Engine',
-          },
-        );
-
-        void this.updateStatus(id, SessionStatus.DISCONNECTED);
-
-        // Attempt to reconnect
-        this.scheduleReconnect(id, session);
-      },
-      onStateChanged: (engineState: EngineStatus): void => {
-        const statusMap: Record<EngineStatus, SessionStatus> = {
-          [EngineStatus.DISCONNECTED]: SessionStatus.DISCONNECTED,
-          [EngineStatus.INITIALIZING]: SessionStatus.INITIALIZING,
-          [EngineStatus.QR_READY]: SessionStatus.QR_READY,
-          [EngineStatus.AUTHENTICATING]: SessionStatus.AUTHENTICATING,
-          [EngineStatus.READY]: SessionStatus.READY,
-          [EngineStatus.FAILED]: SessionStatus.FAILED,
-        };
-        const newStatus = statusMap[engineState];
-        if (newStatus) {
-          void this.updateStatus(id, newStatus);
-        }
-      },
-    });
-
     await this.updateStatus(id, SessionStatus.INITIALIZING);
+
+    // Every callback first checks it still belongs to the current engine, so a
+    // torn-down engine's late events can't overwrite the new engine's status
+    // or schedule duplicate reconnects.
+    const isCurrent = (): boolean => this.engines.get(id) === engine;
+
+    engine
+      .initialize({
+        onQRCode: (): void => {
+          if (!isCurrent()) return;
+          this.logger.log('QR code generated', {
+            sessionId: id,
+            action: 'qr_generated',
+          });
+
+          // Execute hook for QR event
+          void this.hookManager.execute(
+            'session:qr',
+            { sessionId: id },
+            {
+              sessionId: id,
+              source: 'Engine',
+            },
+          );
+
+          void this.updateStatus(id, SessionStatus.QR_READY);
+        },
+        onReady: (phone: string, pushName: string): void => {
+          if (!isCurrent()) return;
+          this.logger.log(`Session ready: ${phone}`, {
+            sessionId: id,
+            phone,
+            pushName,
+            action: 'ready',
+          });
+
+          // Execute hook for ready event
+          void this.hookManager.execute(
+            'session:ready',
+            { phone, pushName },
+            {
+              sessionId: id,
+              source: 'Engine',
+            },
+          );
+
+          // Reset reconnect attempts on successful connection
+          const reconnectState = this.reconnectStates.get(id);
+          if (reconnectState) {
+            reconnectState.attempts = 0;
+          }
+          const info = this.getRuntimeInfo(id);
+          info.lastError = null;
+          info.needsRelink = false;
+
+          void this.sessionRepository.update(id, {
+            status: SessionStatus.READY,
+            phone,
+            pushName,
+            connectedAt: new Date(),
+            lastActiveAt: new Date(),
+          });
+          this.eventsGateway.emitSessionStatus(id, SessionStatus.READY);
+        },
+        onMessage: (message): void => {
+          if (!isCurrent()) return;
+          this.logger.debug(`Message received from ${message.from}`, {
+            sessionId: id,
+            messageId: message.id,
+            from: message.from,
+            action: 'message_received',
+          });
+          // Update last active timestamp
+          void this.sessionRepository.update(id, { lastActiveAt: new Date() });
+          // Convert IncomingMessage to plain object for dispatch
+          const messageData = { ...message };
+
+          // Execute hook for message received - plugins can modify or stop processing
+          void this.hookManager
+            .execute('message:received', messageData, {
+              sessionId: id,
+              source: 'Engine',
+            })
+            .then(({ continue: shouldContinue, data: finalMessage }) => {
+              if (!shouldContinue) {
+                // Plugin stopped processing (e.g., auto-reply handled it)
+                return;
+              }
+
+              // Dispatch to webhooks with potentially modified message
+              void this.webhookService.dispatch(id, 'message.received', finalMessage);
+              // Emit real-time event to WebSocket clients
+              this.eventsGateway.emitMessage(id, finalMessage);
+            });
+        },
+        onMessageReaction: (reaction): void => {
+          if (!isCurrent()) return;
+          this.logger.debug(`Reaction received: ${reaction.emoji}`, {
+            sessionId: id,
+            action: 'reaction_received',
+          });
+          void this.hookManager
+            .execute('message:reaction', { ...reaction }, { sessionId: id, source: 'Engine' })
+            .then(({ continue: shouldContinue, data: finalReaction }) => {
+              if (!shouldContinue) {
+                return;
+              }
+              void this.webhookService.dispatch(id, 'message.reaction', finalReaction);
+            });
+        },
+        onDisconnected: (reason: string, meta?: DisconnectMeta): void => {
+          if (!isCurrent()) return;
+          this.handleDisconnected(id, reason, meta);
+        },
+        onStateChanged: (engineState: EngineStatus): void => {
+          if (!isCurrent()) return;
+          const statusMap: Record<EngineStatus, SessionStatus> = {
+            [EngineStatus.DISCONNECTED]: SessionStatus.DISCONNECTED,
+            [EngineStatus.INITIALIZING]: SessionStatus.INITIALIZING,
+            [EngineStatus.QR_READY]: SessionStatus.QR_READY,
+            [EngineStatus.AUTHENTICATING]: SessionStatus.AUTHENTICATING,
+            [EngineStatus.READY]: SessionStatus.READY,
+            [EngineStatus.FAILED]: SessionStatus.FAILED,
+          };
+          const newStatus = statusMap[engineState];
+          if (newStatus) {
+            void this.updateStatus(id, newStatus);
+          }
+        },
+      })
+      .catch((error: unknown) => {
+        if (!isCurrent()) return;
+        this.recordError(id, error);
+        void this.updateStatus(id, SessionStatus.FAILED);
+        this.scheduleReconnect(id);
+      });
   }
 
-  private scheduleReconnect(id: string, session: Session): void {
-    const state = this.reconnectStates.get(id);
-    if (!state) return;
+  private handleDisconnected(id: string, reason: string, meta?: DisconnectMeta): void {
+    this.logger.warn(`Session disconnected: ${reason}`, {
+      sessionId: id,
+      reason,
+      loggedOut: !!meta?.loggedOut,
+      action: 'disconnected',
+    });
+    this.getRuntimeInfo(id).lastDisconnectReason = reason;
 
-    if (state.attempts >= state.maxAttempts) {
-      this.logger.error(`Max reconnect attempts reached for session: ${session.name}`, undefined, {
-        sessionId: id,
-        attempts: state.attempts,
-        action: 'reconnect_failed',
-      });
-      return;
-    }
-
-    // Exponential backoff: baseDelay * 2^attempts (with jitter)
-    const delay = state.baseDelay * Math.pow(2, state.attempts) + Math.random() * 1000;
-    state.attempts++;
-
-    this.logger.log(
-      `Scheduling reconnect attempt ${state.attempts}/${state.maxAttempts} in ${Math.round(delay / 1000)}s`,
+    // Execute hook for disconnected event
+    void this.hookManager.execute(
+      'session:disconnected',
+      { reason },
       {
         sessionId: id,
-        attempt: state.attempts,
-        delayMs: delay,
-        action: 'reconnect_scheduled',
+        source: 'Engine',
       },
     );
 
+    if (meta?.loggedOut) {
+      // The saved login is dead. Retrying with it only loops; go straight to a
+      // fresh QR so whoever opens the reconnect page can just scan.
+      void this.recoverFromLogout(id);
+      return;
+    }
+
+    void this.updateStatus(id, SessionStatus.DISCONNECTED);
+    this.scheduleReconnect(id, { immediate: meta?.restartRequired });
+  }
+
+  private async recoverFromLogout(id: string): Promise<void> {
+    this.getRuntimeInfo(id).needsRelink = true;
+    try {
+      const session = await this.findOne(id);
+      const state = this.reconnectStates.get(id);
+      if (state?.timer) {
+        clearTimeout(state.timer);
+        state.timer = null;
+      }
+      await this.teardownEngine(id);
+      await this.clearAuthState(session);
+      await this.initializeEngine(id, session);
+    } catch (error: unknown) {
+      this.recordError(id, error);
+      void this.updateStatus(id, SessionStatus.FAILED);
+    }
+  }
+
+  private scheduleReconnect(id: string, options: { immediate?: boolean } = {}): void {
+    const state = this.reconnectStates.get(id);
+    if (!state) return;
+    if (state.timer) {
+      clearTimeout(state.timer);
+      state.timer = null;
+    }
+
+    let delay: number;
+    if (options.immediate) {
+      delay = 1000;
+    } else if (state.attempts >= state.maxAttempts) {
+      if (state.attempts === state.maxAttempts) {
+        this.logger.error(
+          `Max reconnect attempts reached; retrying every ${SLOW_RETRY_DELAY_MS / 60000} min`,
+          undefined,
+          {
+            sessionId: id,
+            attempts: state.attempts,
+            action: 'reconnect_failed',
+          },
+        );
+        void this.updateStatus(id, SessionStatus.FAILED);
+      }
+      state.attempts++;
+      delay = SLOW_RETRY_DELAY_MS;
+    } else {
+      // Exponential backoff: baseDelay * 2^attempts (with jitter)
+      delay = state.baseDelay * Math.pow(2, state.attempts) + Math.random() * 1000;
+      state.attempts++;
+    }
+
+    this.logger.log(`Scheduling reconnect attempt ${state.attempts} in ${Math.round(delay / 1000)}s`, {
+      sessionId: id,
+      attempt: state.attempts,
+      delayMs: delay,
+      action: 'reconnect_scheduled',
+    });
+
     state.timer = setTimeout(() => {
-      void this.executeReconnect(id, session, state);
+      state.timer = null;
+      void this.executeReconnect(id);
     }, delay);
   }
 
-  private async executeReconnect(id: string, session: Session, state: ReconnectState): Promise<void> {
+  private async executeReconnect(id: string): Promise<void> {
     try {
-      // Clean up old engine
-      const oldEngine = this.engines.get(id);
-      if (oldEngine) {
-        await oldEngine.destroy();
-        this.engines.delete(id);
-      }
-
-      // Re-initialize
+      const session = await this.findOne(id);
+      await this.teardownEngine(id);
       await this.initializeEngine(id, session);
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`Reconnect attempt ${state.attempts} failed`, errorMessage, {
-        sessionId: id,
-        action: 'reconnect_error',
-      });
+      this.recordError(id, error);
       // Schedule another attempt
-      this.scheduleReconnect(id, session);
+      this.scheduleReconnect(id);
     }
   }
 
@@ -430,18 +578,58 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
     this.reconnectStates.delete(id);
   }
 
+  /**
+   * Unregisters the engine *before* destroying it (so its teardown events are
+   * ignored by the isCurrent() guard) and never throws -- a half-dead engine
+   * must not block the next start.
+   */
+  private async teardownEngine(id: string, mode: 'destroy' | 'disconnect' = 'destroy'): Promise<void> {
+    const engine = this.engines.get(id);
+    if (!engine) return;
+    this.engines.delete(id);
+    try {
+      await (mode === 'disconnect' ? engine.disconnect() : engine.destroy());
+    } catch (error: unknown) {
+      this.logger.warn(`Engine ${mode} failed (ignored)`, {
+        sessionId: id,
+        error: error instanceof Error ? error.message : String(error),
+        action: 'engine_teardown_error',
+      });
+    }
+  }
+
+  private async clearAuthState(session: Session): Promise<void> {
+    try {
+      // A throwaway adapter is enough: constructing one has no side effects,
+      // and clearAuthState only needs the session name to find its auth dir.
+      await this.engineFactory.create({ sessionId: session.name }).clearAuthState();
+    } catch (error: unknown) {
+      this.recordError(session.id, error);
+    }
+  }
+
+  private recordError(id: string, error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    this.getRuntimeInfo(id).lastError = message;
+    this.logger.error(`Session error: ${message}`, undefined, { sessionId: id, action: 'session_error' });
+  }
+
+  getRuntimeInfo(id: string): SessionRuntimeInfo {
+    let info = this.runtime.get(id);
+    if (!info) {
+      info = { lastError: null, lastDisconnectReason: null, needsRelink: false };
+      this.runtime.set(id, info);
+    }
+    return info;
+  }
+
   async stop(id: string): Promise<Session> {
     const session = await this.findOne(id);
 
     // Cancel any reconnection attempts
     this.cancelReconnect(id);
 
-    const engine = this.engines.get(id);
-
-    if (engine) {
-      await engine.disconnect();
-      this.engines.delete(id);
-    }
+    await this.teardownEngine(id, 'disconnect');
 
     this.logger.log(`Session stopped: ${session.name}`, {
       sessionId: id,
@@ -451,26 +639,20 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
     return this.findOne(id);
   }
 
-  async getQRCode(id: string): Promise<{ qrCode: string; status: SessionStatus }> {
+  /**
+   * Always resolves (no 400s) so pollers can render the real state: a QR when
+   * one is ready, otherwise the status plus any error explaining why not.
+   */
+  async getQRCode(id: string): Promise<QRCodeState> {
     const session = await this.findOne(id);
     const engine = this.engines.get(id);
-
-    if (!engine) {
-      throw new BadRequestException('Session is not started. Call POST /sessions/:id/start first.');
-    }
-
-    const qrCode = engine.getQRCode();
-
-    if (!qrCode) {
-      if (session.status === SessionStatus.READY) {
-        throw new BadRequestException('Session is already authenticated, no QR code needed');
-      }
-      throw new BadRequestException('QR code is not ready yet. Please wait...');
-    }
+    const info = this.getRuntimeInfo(id);
 
     return {
-      qrCode,
+      qrCode: engine?.getQRCode() ?? null,
       status: session.status,
+      lastError: info.lastError,
+      needsRelink: info.needsRelink,
     };
   }
 

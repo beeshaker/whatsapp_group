@@ -36,6 +36,9 @@
       color: var(--green); font-size: .875rem; font-weight: 700; margin-top: 1rem;
     }
     .success-banner.show { display: flex; }
+    .wa-msg { display: none; margin-top: 1rem; padding: .65rem .9rem; border-radius: var(--radius-lg);
+      background: var(--red-soft); color: var(--red); font-size: .8rem; line-height: 1.5; }
+    .wa-msg.show { display: block; }
   </style>
 </head>
 <body>
@@ -60,7 +63,7 @@
     <div id="qr-area" class="qr-area" style="display:none">
       <img id="qr-img" src="" alt="WhatsApp QR code">
       <div class="qr-hint">
-        Open WhatsApp on your phone &rarr; <strong>Linked Devices</strong> &rarr; <strong>Link a Device</strong><br>
+        Open WhatsApp on the bot's phone &rarr; <strong>Linked Devices</strong> &rarr; <strong>Link a Device</strong><br>
         then scan this code. It refreshes automatically.
       </div>
     </div>
@@ -69,10 +72,21 @@
       ✓ WhatsApp connected successfully!
     </div>
 
+    <div class="wa-msg" id="wa-msg"></div>
+
     <div style="margin-top:1.25rem;display:flex;gap:.75rem;flex-wrap:wrap">
-      <button class="btn btn-primary" id="reconnect-btn" onclick="startReconnect()">
-        Reconnect WhatsApp
+      <button class="btn btn-primary" id="restart-btn" onclick="waAction('restart')"
+        title="Reconnect using the saved login. No QR scan needed.">
+        Restart connection
       </button>
+      <button class="btn btn-ghost" id="relink-btn" onclick="waAction('relink')"
+        title="Forget the saved login and show a fresh QR code to scan.">
+        Link with new QR
+      </button>
+    </div>
+    <div class="qr-hint" style="text-align:left">
+      Try <strong>Restart connection</strong> first. If it doesn't connect within a minute, or you're linking a
+      different phone, use <strong>Link with new QR</strong>.
     </div>
   </div>
 
@@ -91,104 +105,107 @@
 </div>
 
 <script>
-const CONNECTED_STATUSES = ['WORKING', 'CONNECTED', 'READY', 'AUTHENTICATED'];
-let qrPollInterval = null;
 
 (function() {
   const el = document.getElementById('nav-avatar');
   if (el) el.textContent = {{ username | tojson }}.slice(0, 2).toUpperCase();
 })();
 
-async function checkStatus() {
-  try {
-    const data = await fetch('/api/settings/whatsapp-status').then(r => r.json());
-    setStatusDisplay(data.status);
-  } catch(e) {
-    setStatusDisplay('ERROR');
-  }
+// One poller drives the whole card: OpenWA reconnects on its own, so the page
+// must reflect the live state, not just the result of the last button press.
+let waTimer = null;
+let waActionAt = null;      // when Restart / Link was last pressed
+let waWasReady = null;
+const WA_STUCK_MS = 90000;
+
+function waDescribe(d) {
+  const s = d.status;
+  if (s === 'READY') return ['connected', 'Connected', d.phone ? `Linked to +${d.phone}. Receiving messages.` : 'Receiving messages.'];
+  if (s === 'QR_READY') return ['loading', 'Scan the QR code',
+    d.needsRelink ? 'WhatsApp unlinked this device. Scan the code below to reconnect.' : 'Waiting for the code to be scanned.'];
+  if (['INITIALIZING', 'AUTHENTICATING', 'CREATED'].includes(s)) return ['loading', 'Connecting…', 'This can take up to a minute.'];
+  if (s === 'DISCONNECTED') return ['disconnected', 'Disconnected — reconnecting automatically',
+    d.lastDisconnectReason ? `Reason: ${d.lastDisconnectReason}` : 'Retrying in the background.'];
+  if (s === 'FAILED') return ['disconnected', 'Connection failed', 'Retrying every few minutes. Try Restart connection, or Link with new QR.'];
+  if (s === 'NOT_FOUND') return ['disconnected', 'Not set up', 'Click Link with new QR to connect WhatsApp.'];
+  if (s === 'UNREACHABLE') return ['disconnected', 'WhatsApp gateway unreachable', 'The service may be restarting. Retrying…'];
+  return ['disconnected', 'Disconnected', `Status: ${(s || 'unknown').toLowerCase()}`];
 }
 
-function setStatusDisplay(status) {
-  const dot = document.getElementById('status-dot');
-  const label = document.getElementById('status-label');
-  const sub = document.getElementById('status-sub');
+function waShowError(text) {
+  const el = document.getElementById('wa-msg');
+  el.textContent = text || '';
+  el.classList.toggle('show', !!text);
+}
 
-  dot.className = 'status-dot';
-  if (CONNECTED_STATUSES.includes((status || '').toUpperCase())) {
-    dot.classList.add('connected');
-    label.textContent = 'Connected';
-    sub.textContent = 'WhatsApp is active and receiving messages.';
-    stopQrPoll();
-    document.getElementById('qr-area').style.display = 'none';
-  } else if (status === 'NOT_FOUND' || status === 'ERROR') {
-    dot.classList.add('disconnected');
-    label.textContent = 'Session not found';
-    sub.textContent = 'OpenWA session could not be located.';
+function waRender(d) {
+  const [dotClass, label, sub] = waDescribe(d);
+  document.getElementById('status-dot').className = 'status-dot ' + dotClass;
+  document.getElementById('status-label').textContent = label;
+  document.getElementById('status-sub').textContent = sub;
+
+  const qrArea = document.getElementById('qr-area');
+  if (d.status === 'QR_READY' && d.qrCode) {
+    document.getElementById('qr-img').src = d.qrCode;
+    qrArea.style.display = 'block';
   } else {
-    dot.classList.add('disconnected');
-    label.textContent = 'Disconnected';
-    sub.textContent = `Status: ${status || 'unknown'}`;
+    qrArea.style.display = 'none';
   }
-}
 
-async function startReconnect() {
-  const btn = document.getElementById('reconnect-btn');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Starting…';
+  const ready = d.status === 'READY';
+  if (ready && waWasReady === false) document.getElementById('success-banner').classList.add('show');
+  if (!ready) document.getElementById('success-banner').classList.remove('show');
+  waWasReady = ready;
 
-  try {
-    await fetch('/api/settings/whatsapp-reconnect', { method: 'POST' });
-  } catch(e) {}
-
-  document.getElementById('qr-area').style.display = 'block';
-  document.getElementById('success-banner').classList.remove('show');
-  startQrPoll();
-
-  btn.disabled = false;
-  btn.textContent = 'Reconnect WhatsApp';
-}
-
-function startQrPoll() {
-  stopQrPoll();
-  pollQr();
-  qrPollInterval = setInterval(pollQr, 3000);
-}
-
-function stopQrPoll() {
-  if (qrPollInterval) { clearInterval(qrPollInterval); qrPollInterval = null; }
-}
-
-async function pollQr() {
-  try {
-    const data = await fetch('/api/settings/whatsapp-qr').then(r => r.json());
-    const status = (data.status || '').toUpperCase();
-
-    if (CONNECTED_STATUSES.includes(status)) {
-      stopQrPoll();
-      document.getElementById('qr-area').style.display = 'none';
-      document.getElementById('success-banner').classList.add('show');
-      setStatusDisplay(status);
-      return;
-    }
-
-    if (data.qrCode) {
-      document.getElementById('qr-img').src = data.qrCode;
-      document.getElementById('qr-area').style.display = 'block';
-      document.querySelector('.qr-hint').textContent =
-        'Open WhatsApp → Linked Devices → Link a Device, then scan this code.';
-      return;
-    }
-
-    // QR not ready yet — show transitional status
-    document.getElementById('qr-area').style.display = 'block';
-    document.getElementById('qr-img').removeAttribute('src');
-    document.querySelector('.qr-hint').textContent =
-      status ? `Session is ${status.toLowerCase()} — waiting for QR code…` : 'Starting session…';
-  } catch(e) {
-    document.getElementById('qr-area').style.display = 'block';
-    document.getElementById('qr-img').removeAttribute('src');
-    document.querySelector('.qr-hint').textContent = 'Error checking status: ' + e.message + ' — retrying…';
+  if (ready) {
+    waActionAt = null;
+    waShowError('');
+  } else if (d.lastError && ['FAILED', 'UNREACHABLE', 'DISCONNECTED'].includes(d.status)) {
+    waShowError('Last error: ' + d.lastError);
+  } else if (waActionAt && Date.now() - waActionAt > WA_STUCK_MS && d.status !== 'QR_READY') {
+    waShowError('Still not connected after 90 seconds. Try Link with new QR.');
+  } else {
+    waShowError('');
   }
+  return ready;
+}
+
+async function waPoll() {
+  clearTimeout(waTimer);
+  let ready = false;
+  try {
+    const d = await fetch('/api/settings/whatsapp-status').then(r => r.json());
+    ready = waRender(d);
+  } catch (e) {
+    waRender({ status: 'UNREACHABLE', lastError: e.message });
+  }
+  // Poll fast while (re)connecting, slowly once connected to catch later drops.
+  waTimer = setTimeout(waPoll, ready ? 30000 : 3000);
+}
+
+async function waAction(mode) {
+  if (mode === 'relink' && !confirm(
+    'This forgets the saved WhatsApp login and shows a new QR code. ' +
+    'The bot stays offline until someone scans it with the bot\'s phone. Continue?')) return;
+
+  const btn = document.getElementById(mode + '-btn');
+  const original = btn.textContent;
+  document.getElementById('restart-btn').disabled = true;
+  document.getElementById('relink-btn').disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Working…';
+  waShowError('');
+  try {
+    const r = await fetch('/api/settings/whatsapp-' + mode, { method: 'POST' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) waShowError(d.detail || `Request failed (HTTP ${r.status}).`);
+    else { waActionAt = Date.now(); waWasReady = false; }
+  } catch (e) {
+    waShowError('Request failed: ' + e.message);
+  }
+  btn.textContent = original;
+  document.getElementById('restart-btn').disabled = false;
+  document.getElementById('relink-btn').disabled = false;
+  waPoll();
 }
 
 let whatsappGroupsList = null; // [{id, name}, ...] or null if live fetch unavailable
@@ -333,8 +350,7 @@ async function addTicketGroup() {
 }
 
 loadTicketGroups();
-checkStatus();
-setInterval(checkStatus, 30000);
+waPoll();
 </script>
 </body>
 </html>

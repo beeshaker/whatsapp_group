@@ -200,12 +200,21 @@ curl http://localhost:800X/health   # should return {"status":"ok"}
 
 ## Step 7 — Scan WhatsApp QR code
 
+**First, put the client on the Baileys engine** (no headless Chrome to break when WhatsApp Web updates — see `vps-architecture.md`). The code default is still `whatsapp-web.js` so that existing clients aren't switched silently, so this must be set explicitly per client:
+
+```bash
+docker run --rm -v CLIENTNAME_openwa_data:/data alpine sh -c "echo 'ENGINE_TYPE=baileys' >> /data/.env.generated"
+cd /opt/clients/CLIENTNAME && docker compose up -d --force-recreate openwa
+```
+
 Send the client this URL:
 ```
 https://CLIENTNAME.whats2manage.com/setup
 ```
 
 On the dedicated bot SIM: **WhatsApp → three dots → Linked Devices → Link a Device → scan the QR**.
+
+Later, if the bot disconnects, the client admin (or you, from the billing client page) can use **Restart connection** first, then **Link with new QR** if that doesn't recover within a minute.
 
 ---
 

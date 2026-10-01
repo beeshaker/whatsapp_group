@@ -1,7 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as qrcode from 'qrcode';
-import makeWASocket, { useMultiFileAuthState, downloadMediaMessage, fetchLatestWaWebVersion } from '@whiskeysockets/baileys';
+import makeWASocket, {
+  useMultiFileAuthState,
+  downloadMediaMessage,
+  fetchLatestWaWebVersion,
+} from '@whiskeysockets/baileys';
 import type { WASocket, WAMessage, WAMessageKey, WAMediaUpload } from '@whiskeysockets/baileys';
 import {
   IWhatsAppEngine,
@@ -67,6 +71,11 @@ function toBaileysMediaUpload(media: { data: Buffer | string }): WAMediaUpload {
   return Buffer.from(media.data, 'base64');
 }
 
+// Baileys DisconnectReason codes. Inlined rather than imported so the
+// module stays loadable where '@whiskeysockets/baileys' is jest-mocked.
+const BAILEYS_LOGGED_OUT = 401;
+const BAILEYS_RESTART_REQUIRED = 515;
+
 export class BaileysAdapter implements IWhatsAppEngine {
   private sock: WASocket | null = null;
   private status: EngineStatus = EngineStatus.DISCONNECTED;
@@ -127,9 +136,14 @@ export class BaileysAdapter implements IWhatsAppEngine {
       }
 
       if (update.connection === 'close') {
-        const reason = update.lastDisconnect?.error?.message || 'Connection closed';
+        const error = update.lastDisconnect?.error as (Error & { output?: { statusCode?: number } }) | undefined;
+        const statusCode = error?.output?.statusCode;
+        const reason = error?.message || 'Connection closed';
         this.setStatus(EngineStatus.DISCONNECTED);
-        this.callbacks.onDisconnected?.(reason);
+        this.callbacks.onDisconnected?.(statusCode ? `${reason} (${statusCode})` : reason, {
+          loggedOut: statusCode === BAILEYS_LOGGED_OUT,
+          restartRequired: statusCode === BAILEYS_RESTART_REQUIRED,
+        });
       }
     });
 
@@ -325,11 +339,19 @@ export class BaileysAdapter implements IWhatsAppEngine {
   }
 
   async logout(): Promise<void> {
-    await this.sock?.logout();
-    const authPath = path.join(this.config.authDir, this.config.sessionId);
-    fs.rmSync(authPath, { recursive: true, force: true });
+    try {
+      await this.sock?.logout();
+    } catch (error) {
+      // Not connected / already logged out -- still wipe the local auth below.
+      this.logger.warn('Logout failed:', String(error));
+    }
+    await this.clearAuthState();
     this.sock = null;
     this.setStatus(EngineStatus.DISCONNECTED);
+  }
+
+  async clearAuthState(): Promise<void> {
+    await fs.promises.rm(path.join(this.config.authDir, this.config.sessionId), { recursive: true, force: true });
   }
 
   async destroy(): Promise<void> {
@@ -338,7 +360,11 @@ export class BaileysAdapter implements IWhatsAppEngine {
     this.sock?.ev.removeAllListeners('messages.upsert');
     this.sock?.ev.removeAllListeners('messages.reaction');
     this.sock?.ev.removeAllListeners('messages.update');
-    await this.sock?.end(undefined);
+    try {
+      await this.sock?.end(undefined);
+    } catch (error) {
+      this.logger.warn('Socket end failed during destroy:', String(error));
+    }
     this.sock = null;
   }
 

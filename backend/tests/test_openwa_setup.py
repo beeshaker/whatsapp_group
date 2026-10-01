@@ -33,55 +33,29 @@ async def test_setup_session_name_returns_configured_session(client):
     assert r.json() == {"sessionName": "dunhill"}
 
 
-async def test_reconnect_creates_session_when_missing(authenticated_client):
-    create_resp = MagicMock()
-    create_resp.status_code = 201
-    create_resp.json.return_value = {"id": "new-uuid", "name": "opsgateway"}
-    create_resp.raise_for_status = MagicMock()
-
-    start_resp = MagicMock()
-    start_resp.status_code = 200
-
-    inner = MagicMock()
-    inner.post = AsyncMock(side_effect=[create_resp, start_resp])
-    ctx = MagicMock()
-    ctx.__aenter__ = AsyncMock(return_value=inner)
-    ctx.__aexit__ = AsyncMock(return_value=False)
-
-    with patch("main._openwa_find_session", new=AsyncMock(return_value=(None, None))), \
-         patch("main.httpx.AsyncClient", return_value=ctx):
-        r = await authenticated_client.post("/api/settings/whatsapp-reconnect")
-
+async def test_settings_restart_returns_ok(authenticated_client):
+    with patch("whatsapp.reconnect_session", new=AsyncMock(return_value={"ok": True, "detail": None})) as m:
+        r = await authenticated_client.post("/api/settings/whatsapp-restart")
     assert r.status_code == 200
     assert r.json()["ok"] is True
-
-    create_call = inner.post.call_args_list[0]
-    assert create_call[0][0].endswith("/api/sessions")
-    start_call = inner.post.call_args_list[1]
-    assert "new-uuid/start" in start_call[0][0]
+    m.assert_awaited_once_with("restart")
 
 
-async def test_reconnect_stops_and_starts_existing_session(authenticated_client):
-    start_resp = MagicMock()
-    start_resp.status_code = 200
+async def test_settings_relink_surfaces_failure_as_502(authenticated_client):
+    with patch("whatsapp.reconnect_session", new=AsyncMock(return_value={"ok": False, "detail": "nope"})) as m:
+        r = await authenticated_client.post("/api/settings/whatsapp-relink")
+    assert r.status_code == 502
+    assert r.json()["detail"] == "nope"
+    m.assert_awaited_once_with("relink")
 
-    inner = MagicMock()
-    inner.post = AsyncMock(return_value=start_resp)
-    ctx = MagicMock()
-    ctx.__aenter__ = AsyncMock(return_value=inner)
-    ctx.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("main._openwa_find_session", new=AsyncMock(return_value=("existing-uuid", "disconnected"))), \
-         patch("main.httpx.AsyncClient", return_value=ctx):
-        r = await authenticated_client.post("/api/settings/whatsapp-reconnect")
-
+async def test_settings_status_returns_session_state(authenticated_client):
+    state = {"status": "QR_READY", "qrCode": "data:x", "phone": None,
+             "lastError": None, "lastDisconnectReason": "LOGOUT", "needsRelink": True}
+    with patch("whatsapp.get_session_state", new=AsyncMock(return_value=state)):
+        r = await authenticated_client.get("/api/settings/whatsapp-status")
     assert r.status_code == 200
-    assert r.json()["ok"] is True
-
-    stop_call = inner.post.call_args_list[0]
-    assert "existing-uuid/stop" in stop_call[0][0]
-    start_call = inner.post.call_args_list[1]
-    assert "existing-uuid/start" in start_call[0][0]
+    assert r.json() == state
 
 
 async def test_openwa_proxy_passes_through_json_on_success(client):

@@ -23,6 +23,15 @@ export class SessionResponseDto {
   @ApiPropertyOptional({ example: '2025-02-02T10:30:00Z' })
   lastActive?: Date | null;
 
+  @ApiPropertyOptional({ description: 'Most recent start/connection error, if any', example: null })
+  lastError?: string | null;
+
+  @ApiPropertyOptional({ description: 'Reason given for the most recent disconnect', example: 'LOGOUT' })
+  lastDisconnectReason?: string | null;
+
+  @ApiPropertyOptional({ description: 'WhatsApp unlinked this device; a fresh QR must be scanned' })
+  needsRelink?: boolean;
+
   @ApiProperty({ example: '2025-02-02T09:00:00Z' })
   createdAt: Date;
 
@@ -32,11 +41,18 @@ export class SessionResponseDto {
 
 export class QRCodeResponseDto {
   @ApiProperty({
-    description: 'QR code as data URL',
+    description: 'QR code as data URL, or null when no QR is currently available',
     example: 'data:image/png;base64,...',
+    nullable: true,
   })
-  qrCode: string;
+  qrCode: string | null;
 
   @ApiProperty({ enum: SessionStatus, example: SessionStatus.QR_READY })
   status: SessionStatus;
+
+  @ApiPropertyOptional({ nullable: true })
+  lastError: string | null;
+
+  @ApiProperty()
+  needsRelink: boolean;
 }

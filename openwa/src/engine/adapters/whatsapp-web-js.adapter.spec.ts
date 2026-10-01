@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { WhatsAppWebJsAdapter } from './whatsapp-web-js.adapter';
 import { EngineStatus, IncomingReaction } from '../interfaces/whatsapp-engine.interface';
 
@@ -8,6 +11,98 @@ import { EngineStatus, IncomingReaction } from '../interfaces/whatsapp-engine.in
  * implementation plan and are safe in this test-only context. */
 
 describe('WhatsAppWebJsAdapter', () => {
+  describe('reconnect robustness', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wwjs-adapter-test-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    function setupHandlers(adapter: WhatsAppWebJsAdapter, callbacks: Record<string, jest.Mock>) {
+      const handlers: Record<string, (...args: any[]) => void> = {};
+      (adapter as any).client = {
+        on: jest.fn((event: string, handler: (...args: any[]) => void) => {
+          handlers[event] = handler;
+        }),
+      };
+      (adapter as any).setupEventHandlers();
+      (adapter as any).callbacks = callbacks;
+      return handlers;
+    }
+
+    it('clearAuthState() deletes the LocalAuth profile dir without a running client', async () => {
+      const profile = path.join(tmpDir, 'session-test');
+      fs.mkdirSync(profile, { recursive: true });
+      fs.writeFileSync(path.join(profile, 'Cookies'), '');
+      const adapter = new WhatsAppWebJsAdapter({ sessionId: 'test', sessionDataPath: tmpDir });
+
+      await adapter.clearAuthState();
+
+      expect(fs.existsSync(profile)).toBe(false);
+    });
+
+    it('removes stale Chromium Singleton* locks but keeps the login', () => {
+      const profile = path.join(tmpDir, 'session-test');
+      fs.mkdirSync(profile, { recursive: true });
+      fs.writeFileSync(path.join(profile, 'Cookies'), '');
+      fs.symlinkSync('dead-host-1234', path.join(profile, 'SingletonLock'));
+      const adapter = new WhatsAppWebJsAdapter({ sessionId: 'test', sessionDataPath: tmpDir });
+
+      (adapter as any).removeStaleBrowserLocks();
+
+      expect(fs.readdirSync(profile)).toEqual(['Cookies']);
+    });
+
+    it.each(['LOGOUT', 'UNPAIRED', 'UNPAIRED_IDLE'])('flags a %s disconnect as loggedOut', reason => {
+      const adapter = new WhatsAppWebJsAdapter({ sessionId: 'test', sessionDataPath: tmpDir });
+      const onDisconnected = jest.fn();
+      const handlers = setupHandlers(adapter, { onDisconnected });
+
+      handlers['disconnected'](reason);
+
+      expect(onDisconnected).toHaveBeenCalledWith(reason, { loggedOut: true });
+    });
+
+    it('treats other disconnects (e.g. NAVIGATION) as transient', () => {
+      const adapter = new WhatsAppWebJsAdapter({ sessionId: 'test', sessionDataPath: tmpDir });
+      const onDisconnected = jest.fn();
+      const handlers = setupHandlers(adapter, { onDisconnected });
+
+      handlers['disconnected']('NAVIGATION');
+
+      expect(onDisconnected).toHaveBeenCalledWith('NAVIGATION', { loggedOut: false });
+    });
+
+    it('flags auth_failure as loggedOut', () => {
+      const adapter = new WhatsAppWebJsAdapter({ sessionId: 'test', sessionDataPath: tmpDir });
+      const onDisconnected = jest.fn();
+      const handlers = setupHandlers(adapter, { onDisconnected });
+
+      handlers['auth_failure']();
+
+      expect(onDisconnected).toHaveBeenCalledWith('Authentication failed', { loggedOut: true });
+    });
+
+    it('destroy() swallows a failing browser close and still resets state', async () => {
+      const adapter = new WhatsAppWebJsAdapter({ sessionId: 'test', sessionDataPath: tmpDir });
+      const client = {
+        removeAllListeners: jest.fn(),
+        destroy: jest.fn().mockRejectedValue(new Error('Target closed')),
+      };
+      (adapter as any).client = client;
+
+      await expect(adapter.destroy()).resolves.toBeUndefined();
+
+      expect(client.removeAllListeners).toHaveBeenCalled();
+      expect((adapter as any).client).toBeNull();
+      expect(adapter.getStatus()).toBe(EngineStatus.DISCONNECTED);
+    });
+  });
+
   describe('message_reaction handling', () => {
     function setup() {
       const handlers: Record<string, (...args: any[]) => void> = {};

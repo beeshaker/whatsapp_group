@@ -102,12 +102,18 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
   <form method="post" action="/clients/{{ client.id }}/push-reminder" style="display:inline">
     <button class="action" type="submit">Push Reminder to Group</button>
   </form>
-  <button class="action" style="background:#075e54" onclick="openReconnect()"
-    {% if not client.openwa_url or not client.openwa_session %}disabled title="Set OpenWA URL and session name first"{% endif %}>
-    Reconnect WhatsApp
+  <button class="action" style="background:#075e54" onclick="openReconnect('restart')"
+    {% if not client.openwa_url or not client.openwa_session %}disabled title="Set OpenWA URL and session name first"
+    {% else %}title="Reconnect using the saved login. No QR scan needed. Try this first."{% endif %}>
+    Restart WhatsApp
+  </button>
+  <button class="action" style="background:#128c7e" onclick="openReconnect('relink')"
+    {% if not client.openwa_url or not client.openwa_session %}disabled title="Set OpenWA URL and session name first"
+    {% else %}title="Forget the saved login and show a fresh QR (stuck session, or linking a different phone)."{% endif %}>
+    Link with new QR
   </button>
   <form method="post" action="/clients/{{ client.id }}/disconnect-whatsapp" style="display:inline"
-    onsubmit="return confirm('This fully disconnects {{ client.name }}\'s WhatsApp session — the client will need to scan a fresh QR code. Use this to recover a stuck session or to allow a different phone number to link. Continue?')">
+    onsubmit="return confirm('This deletes {{ client.name }}\'s WhatsApp session and its saved login. The bot is offline until someone uses Link with new QR and scans it. To just re-pair, use Link with new QR instead. Continue?')">
     <button class="action danger" type="submit"
       {% if not client.openwa_url or not client.openwa_session %}disabled title="Set OpenWA URL and session name first"{% endif %}>
       Disconnect Session
@@ -122,7 +128,7 @@ th{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#666}
   <p style="color:green;margin-top:.5rem">Invite sent to {{ client.admin_whatsapp_phone }}.</p>
   {% endif %}
   {% if request.query_params.get('disconnected') %}
-  <p style="color:#721c24;margin-top:.5rem">WhatsApp session disconnected. Ask the client to scan a fresh QR code (Reconnect WhatsApp).</p>
+  <p style="color:#721c24;margin-top:.5rem">WhatsApp session deleted. Use Link with new QR and have the client scan it.</p>
   {% endif %}
   {% if client.status in ('grace', 'billing_only', 'closed') %}
   <form method="post" action="/clients/{{ client.id }}/reactivate" style="display:inline">
@@ -213,7 +219,12 @@ async function refreshWaStatus() {
     const label = document.getElementById('wa-label');
     const up = CONNECTED.includes((data.status || '').toUpperCase());
     badge.className = 'wa-status ' + (up ? 'wa-online' : 'wa-offline');
-    label.textContent = up ? 'WhatsApp connected' : ('WhatsApp ' + (data.status || 'disconnected').toLowerCase());
+    label.textContent = up ? 'WhatsApp connected'
+      : data.needsRelink ? 'WhatsApp needs re-link (scan QR)'
+      : ('WhatsApp ' + (data.status || 'disconnected').toLowerCase().replace('_', ' '));
+    badge.title = [data.lastError && ('Last error: ' + data.lastError),
+                   data.lastDisconnectReason && ('Last disconnect: ' + data.lastDisconnectReason)]
+                  .filter(Boolean).join('\n');
     document.getElementById('live-phone-display').textContent =
       data.phone ? ('Connected number: ' + data.phone) : '';
     document.getElementById('phone-mismatch-warning').style.display =
@@ -325,12 +336,41 @@ function renderAddTicketGroupField() {
 
 loadLiveWaGroups();
 
-async function openReconnect() {
+// Same states and wording as the tenant Settings page (backend/templates/settings.html).
+function waDescribe(d) {
+  const s = d.status;
+  if (s === 'READY') return ['ok', '✓ Connected' + (d.phone ? ` as +${escapeHtml(d.phone)}` : '') + '. You can close this.'];
+  if (s === 'QR_READY') return ['', d.needsRelink ? 'WhatsApp unlinked this device. Scan to reconnect&hellip;' : 'Waiting for scan&hellip;'];
+  if (['INITIALIZING', 'AUTHENTICATING', 'CREATED'].includes(s)) return ['', 'Connecting&hellip; (can take up to a minute)'];
+  if (s === 'DISCONNECTED') return ['', 'Disconnected, reconnecting automatically&hellip;'];
+  if (s === 'FAILED') return ['err', 'Connection failed. Try Link with new QR.'];
+  if (s === 'NOT_FOUND') return ['err', 'No session yet. Use Link with new QR.'];
+  if (s === 'NOT_CONFIGURED') return ['err', 'Set the OpenWA URL and session name first.'];
+  if (s === 'UNREACHABLE') return ['err', 'OpenWA is unreachable. Check that the container is running.'];
+  return ['', `Status: ${escapeHtml((s || 'unknown').toLowerCase())}`];
+}
+
+let reconnectStartedAt = null;
+
+async function openReconnect(mode) {
+  if (mode === 'relink' && !confirm(
+    'This forgets the saved WhatsApp login and shows a new QR code. ' +
+    'The bot stays offline until the client scans it. Continue?')) return;
   document.getElementById('qr-overlay').classList.add('open');
-  document.getElementById('qr-content').innerHTML = '<div class="modal-status"><span class="spinner"></span> Starting session&hellip;</div>';
+  const content = document.getElementById('qr-content');
+  content.innerHTML = `<div class="modal-status"><span class="spinner"></span> ${mode === 'relink' ? 'Resetting login' : 'Restarting'}&hellip;</div>`;
   try {
-    await fetch(`/clients/${CLIENT_ID}/reconnect-whatsapp`, { method: 'POST' });
-  } catch(e) {}
+    const r = await fetch(`/clients/${CLIENT_ID}/${mode}-whatsapp`, { method: 'POST' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) {
+      content.innerHTML = `<div class="modal-status err">✗ ${escapeHtml(d.detail || `Request failed (HTTP ${r.status})`)}</div>`;
+      return;
+    }
+  } catch(e) {
+    content.innerHTML = `<div class="modal-status err">✗ ${escapeHtml(e.message)}</div>`;
+    return;
+  }
+  reconnectStartedAt = Date.now();
   startQrPoll();
 }
 
@@ -360,29 +400,24 @@ async function pollQr() {
       return;
     }
 
-    console.log('[QR poll]', res.status, data);
-
-    if (data.error) {
-      content.innerHTML = `<div class="modal-status err">✗ ${data.error}</div>`;
-      return;
-    }
-
-    const status = (data.status || '').toUpperCase();
-
-    if (CONNECTED.includes(status)) {
+    const [cls, msg] = waDescribe(data);
+    if (data.status === 'READY') {
       stopQrPoll();
-      content.innerHTML = '<div class="modal-status ok" style="color:#155724;font-size:1rem">✓ Connected! You can close this.</div>';
+      content.innerHTML = `<div class="modal-status ok" style="font-size:1rem">${msg}</div>`;
       refreshWaStatus();
       return;
     }
 
-    if (data.qrCode) {
-      content.innerHTML = `<img src="${data.qrCode}" alt="QR Code" style="width:240px;height:240px;border:1px solid #eee;border-radius:8px"><div class="modal-status"><span class="spinner"></span> Waiting for scan&hellip;</div>`;
-      return;
+    let html = data.qrCode
+      ? `<img src="${data.qrCode}" alt="QR Code" style="width:240px;height:240px;border:1px solid #eee;border-radius:8px">`
+      : '';
+    html += `<div class="modal-status ${cls}">${cls === 'err' ? '✗' : '<span class="spinner"></span>'} ${msg}</div>`;
+    if (data.lastError && data.status !== 'QR_READY') {
+      html += `<div class="modal-status err" style="font-weight:400;font-size:.8rem">Last error: ${escapeHtml(data.lastError)}</div>`;
+    } else if (reconnectStartedAt && Date.now() - reconnectStartedAt > 90000 && data.status !== 'QR_READY') {
+      html += '<div class="modal-status err" style="font-weight:400;font-size:.8rem">Still not connected after 90 seconds. Try Link with new QR.</div>';
     }
-
-    const msg = status ? `Session is <strong>${status}</strong> — waiting for QR&hellip;` : 'Starting session&hellip;';
-    content.innerHTML = `<div class="modal-status"><span class="spinner"></span> ${msg}</div>`;
+    content.innerHTML = html;
   } catch(e) {
     content.innerHTML = `<div class="modal-status err">✗ ${e.message}</div>`;
     console.error('[QR poll error]', e);

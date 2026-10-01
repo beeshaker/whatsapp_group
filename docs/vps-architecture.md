@@ -122,18 +122,31 @@ Restarting `docker.service` again can retrigger the same race if `billing-app` s
 
 ---
 
-## Gotcha: a session stuck in `FAILED` status is never auto-retried on container restart
+## WhatsApp session recovery (OpenWA, since 2026-10-01)
 
-`SessionService.onModuleInit()` (`openwa/src/modules/session/session.service.ts:52-71`) resets sessions back to `DISCONNECTED` on boot — but only for sessions whose last status was `READY`, `INITIALIZING`, `QR_READY`, or `AUTHENTICATING`. **`FAILED` is deliberately excluded.** Nothing else auto-retries a `FAILED` session either. So if a session's engine failed to initialize once (e.g. a crash, a bad config, a dependency that wasn't ready yet), it stays `FAILED` in the database forever — even across container rebuilds/restarts that fix the underlying cause — until someone explicitly kicks it.
+Before 2026-10-01, a session that dropped was effectively never recovered: `FAILED` sessions were never retried, nothing restarted sessions after a container restart, auto-retry gave up after 5 attempts, and every "Reconnect" path reloaded the same saved login — so a dead login (phone unlinked the device) made every fresh QR fail too. `SessionService` (`openwa/src/modules/session/session.service.ts`) now:
 
-**Symptom:** the client's `/setup` page shows `Session status: failed`, and `docker compose logs openwa` shows no `Initializing engine for session` line at all after a restart — because nothing ever asked it to try again.
+- **Auto-starts on boot** every previously linked session (any session with a `phone`), including `FAILED` ones (`onApplicationBootstrap`).
+- **Logged-out drops** (whatsapp-web.js `LOGOUT`/`UNPAIRED*`/`auth_failure`, Baileys close code 401) wipe the saved login and go straight to a fresh QR; the session reports `needsRelink: true` until scanned.
+- **Transient drops** retry with backoff (5 attempts), then mark `FAILED` but **keep retrying every 5 minutes**.
+- **Delete** also wipes the saved login (it is keyed by session *name*, so it used to survive delete-and-recreate).
+- `GET /api/sessions` includes in-memory `lastError`, `lastDisconnectReason`, `needsRelink`; `GET /sessions/:id/qr` always returns 200 with `{qrCode|null, status, lastError, needsRelink}`.
 
-**Fix — explicitly start the session** (safe to call regardless of current status; it only blocks if the engine is already running in-memory, which a fresh container process never has):
+Two actions, exposed on **both** the tenant `/settings` page and the billing admin client page:
+
+| Action | OpenWA endpoint | Effect |
+|---|---|---|
+| Restart connection | `POST /api/sessions/:id/restart` | Tear down + start again, **keeping** the login. For transient drops. |
+| Link with new QR | `POST /api/sessions/:id/relink` | Tear down, **wipe** the login, start fresh → new QR. For dead logins or a phone change. |
+
+Both work from any state. A backend/billing deployed against an older OpenWA falls back to `stop`+`start` for Restart, and reports that Link needs an OpenWA deploy.
+
+**Manual equivalent** (production `openwa` image has no `curl`):
 ```bash
 docker compose exec openwa node -e "
 require('http').request({
   host: 'localhost', port: 2785,
-  path: '/api/sessions/<session-id>/start',
+  path: '/api/sessions/<session-id>/restart',   // or /relink for a fresh QR
   method: 'POST',
   headers: { 'X-API-Key': 'dev-admin-key' }
 }, res => { let b=''; res.on('data', c=>b+=c); res.on('end', ()=>console.log(res.statusCode, b)); }).end();
