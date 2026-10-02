@@ -101,15 +101,18 @@ export class BaileysAdapter implements IWhatsAppEngine {
 
       const { state, saveCreds } = await useMultiFileAuthState(authPath);
 
-      // @whiskeysockets/baileys@7.0.0-rc13's bundled default WA Web version
-      // (2.3000.1035194821) is stale and WhatsApp's servers reject it outright
-      // ("Connection Failure" immediately after "attempting registration...",
-      // before a QR is ever issued -- see WhiskeySockets/Baileys#2679). Fetch
-      // the actual current version at connect time instead of trusting the
-      // library's bundled default. If the fetch itself fails (e.g. no
-      // outbound network to the version-check endpoint), fall back to the
-      // bundled default rather than blocking startup entirely.
-      const { version } = await fetchLatestWaWebVersion().catch(error => {
+      // Baileys' bundled default WA Web version goes stale and WhatsApp's
+      // servers reject it outright ("Connection Failure" immediately after
+      // "attempting registration...", before a QR is ever issued -- see
+      // WhiskeySockets/Baileys#2679). Fetch the actual current version at
+      // connect time instead of trusting the library's bundled default. If
+      // the fetch itself fails (e.g. no outbound network to the version-check
+      // endpoint), fall back to the bundled default rather than blocking
+      // startup entirely.
+      //
+      // Baileys is pinned to 6.x: since 2026-10 WhatsApp terminates new-device
+      // registration from 7.0.0-rc13/rc14 with 428 before a QR is issued.
+      const { version } = await fetchLatestWaWebVersion({}).catch(error => {
         this.logger.error('Failed to fetch latest WA Web version, using bundled default', String(error));
         return { version: undefined };
       });
@@ -204,11 +207,10 @@ export class BaileysAdapter implements IWhatsAppEngine {
 
   private handleConnectionOpen(): void {
     const user = this.sock?.user;
-    // Baileys 7.x prefers "@lid" (opaque linked-device identifiers) as
-    // Contact.id; Contact.phoneNumber carries the real @s.whatsapp.net
-    // address when WhatsApp has disclosed it. Prefer phoneNumber so our own
-    // number always resolves to an actual phone number, not an opaque lid.
-    const ownJid = user ? resolveRemoteJid({ remoteJid: user.phoneNumber || user.id }) : '';
+    // Contact.id may be an "@lid" (opaque linked-device identifier); prefer
+    // the phone-number JID so our own number always resolves to an actual
+    // phone number, not an opaque lid.
+    const ownJid = user ? resolveContactJid(user) : '';
     this.phoneNumber = ownJid ? ownJid.split('@')[0] : null;
     this.pushName = user?.notify || user?.name || null;
     this.qrCode = null;
@@ -408,9 +410,10 @@ export class BaileysAdapter implements IWhatsAppEngine {
     }
   }
 
-  async disconnect(): Promise<void> {
-    await this.sock?.end(undefined);
+  disconnect(): Promise<void> {
+    this.sock?.end(undefined);
     this.setStatus(EngineStatus.DISCONNECTED);
+    return Promise.resolve();
   }
 
   async logout(): Promise<void> {
@@ -429,7 +432,7 @@ export class BaileysAdapter implements IWhatsAppEngine {
     await fs.promises.rm(path.join(this.config.authDir, this.config.sessionId), { recursive: true, force: true });
   }
 
-  async destroy(): Promise<void> {
+  destroy(): Promise<void> {
     this.sock?.ev.removeAllListeners('connection.update');
     this.sock?.ev.removeAllListeners('creds.update');
     this.sock?.ev.removeAllListeners('messages.upsert');
@@ -437,11 +440,12 @@ export class BaileysAdapter implements IWhatsAppEngine {
     this.sock?.ev.removeAllListeners('messages.reaction');
     this.sock?.ev.removeAllListeners('messages.update');
     try {
-      await this.sock?.end(undefined);
+      this.sock?.end(undefined);
     } catch (error) {
       this.logger.warn('Socket end failed during destroy:', String(error));
     }
     this.sock = null;
+    return Promise.resolve();
   }
 
   getStatus(): EngineStatus {

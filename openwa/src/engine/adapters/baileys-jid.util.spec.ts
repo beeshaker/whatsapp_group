@@ -52,6 +52,18 @@ describe('baileys-jid.util', () => {
       expect(resolveRemoteJid({ remoteJid: '123456789@g.us' })).toBe('123456789@g.us');
     });
 
+    it('uses Baileys 6.x senderPn for an @lid 1:1 chat', () => {
+      expect(resolveRemoteJid({ remoteJid: 'AB12CD34@lid', senderPn: '254711223344@s.whatsapp.net' })).toBe(
+        '254711223344@c.us',
+      );
+    });
+
+    it('ignores senderPn for a group chat', () => {
+      expect(resolveRemoteJid({ remoteJid: '123456789@g.us', senderPn: '254711223344@s.whatsapp.net' })).toBe(
+        '123456789@g.us',
+      );
+    });
+
     it('returns undefined when neither field is present', () => {
       expect(resolveRemoteJid({})).toBeUndefined();
     });
@@ -64,6 +76,12 @@ describe('baileys-jid.util', () => {
       ).toBe('254711223344@c.us');
     });
 
+    it('uses Baileys 6.x participantPn when participant is an @lid', () => {
+      expect(resolveParticipantJid({ participant: 'AB12CD34@lid', participantPn: '254711223344@s.whatsapp.net' })).toBe(
+        '254711223344@c.us',
+      );
+    });
+
     it('returns undefined when neither field is present (e.g. a 1:1 chat)', () => {
       expect(resolveParticipantJid({})).toBeUndefined();
     });
@@ -74,6 +92,10 @@ describe('baileys-jid.util', () => {
       expect(resolveContactJid({ id: 'AB12CD34@lid', phoneNumber: '254711223344@s.whatsapp.net' })).toBe(
         '254711223344@c.us',
       );
+    });
+
+    it('uses Baileys 6.x jid when phoneNumber is absent', () => {
+      expect(resolveContactJid({ id: 'AB12CD34@lid', jid: '254711223344@s.whatsapp.net' })).toBe('254711223344@c.us');
     });
 
     it('falls back to id when phoneNumber is absent', () => {

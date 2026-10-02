@@ -43,41 +43,48 @@ export function toBaileysJid(engineJid: string): string {
 interface RemoteJidSource {
   remoteJid?: string | null;
   remoteJidAlt?: string | null;
+  senderPn?: string | null;
 }
 
 interface ParticipantJidSource {
   participant?: string | null;
   participantAlt?: string | null;
+  participantPn?: string | null;
 }
 
 /**
- * Baileys 7.x's WAMessageKey carries both a primary field (which may be an
- * opaque "@lid" linked-device identifier) and an "Alt" field (the real
- * phone-number JID), when WhatsApp has disclosed the phone-number mapping.
- * Always prefer the phone-number form so replyToMessage's authorHint
- * (a bare phone number from the backend) can actually match.
+ * A WAMessageKey's primary field may be an opaque "@lid" linked-device
+ * identifier; when WhatsApp has disclosed the phone-number mapping it also
+ * carries the real phone-number JID -- as "remoteJidAlt"/"participantAlt" in
+ * Baileys 7.x, or "senderPn"/"participantPn" in Baileys 6.x. Always prefer
+ * the phone-number form so replyToMessage's authorHint (a bare phone number
+ * from the backend) can actually match.
  */
 export function resolveRemoteJid(key: RemoteJidSource): string | undefined {
-  const raw = key.remoteJidAlt || key.remoteJid;
+  // senderPn is the 1:1 sender's number, so it only stands in for an @lid chat.
+  const senderPn = key.remoteJid?.endsWith('@lid') ? key.senderPn : undefined;
+  const raw = key.remoteJidAlt || senderPn || key.remoteJid;
   return raw ? toEngineJid(raw) : undefined;
 }
 
 export function resolveParticipantJid(key: ParticipantJidSource): string | undefined {
-  const raw = key.participantAlt || key.participant;
+  const raw = key.participantAlt || key.participantPn || key.participant;
   return raw ? toEngineJid(raw) : undefined;
 }
 
 interface ContactJidSource {
   id: string;
   phoneNumber?: string;
+  jid?: string;
 }
 
 /**
  * Same @lid-vs-phone-number preference as resolveParticipantJid, applied to
- * group participant Contact entries (GroupMetadata.participants).
+ * Contact entries (GroupMetadata.participants, sock.user): the phone-number
+ * JID is "phoneNumber" in Baileys 7.x and "jid" in Baileys 6.x.
  */
 export function resolveContactJid(contact: ContactJidSource): string {
-  return toEngineJid(contact.phoneNumber || contact.id);
+  return toEngineJid(contact.phoneNumber || contact.jid || contact.id);
 }
 
 const BAILEYS_MEDIA_TYPE_MAP: Record<string, string> = {
