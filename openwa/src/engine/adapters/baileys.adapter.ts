@@ -120,10 +120,12 @@ export class BaileysAdapter implements IWhatsAppEngine {
       this.sock = makeWASocket({
         auth: state,
         ...(version ? { version } : {}),
+        // Always keep the link-time history sync (saved for backfills). Baileys
+        // 6.x otherwise drops every history chunk unless syncFullHistory is on.
+        shouldSyncHistoryMessage: () => true,
         ...(this.config.fullHistory
           ? {
               syncFullHistory: true,
-              shouldSyncHistoryMessage: () => true,
               // WhatsApp only sends full history to desktop-class companions.
               // Literal tuple rather than Browsers.macOS() so the module stays
               // loadable where '@whiskeysockets/baileys' is jest-mocked.

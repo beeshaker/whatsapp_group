@@ -97,7 +97,11 @@ describe('BaileysAdapter', () => {
       const expectedAuthPath = path.join(tmpDir, 'dunhill');
       expect(fs.existsSync(expectedAuthPath)).toBe(true);
       expect(mockUseMultiFileAuthState).toHaveBeenCalledWith(expectedAuthPath);
-      expect(mockMakeWASocket).toHaveBeenCalledWith({ auth: {}, version: [2, 3000, 9999999999] });
+      expect(mockMakeWASocket).toHaveBeenCalledWith({
+        auth: {},
+        version: [2, 3000, 9999999999],
+        shouldSyncHistoryMessage: expect.any(Function),
+      });
 
       handlers['creds.update']();
       const { saveCreds } = await mockUseMultiFileAuthState.mock.results[0].value;
@@ -120,7 +124,7 @@ describe('BaileysAdapter', () => {
 
       await adapter.initialize({});
 
-      expect(mockMakeWASocket).toHaveBeenCalledWith({ auth: {} });
+      expect(mockMakeWASocket).toHaveBeenCalledWith({ auth: {}, shouldSyncHistoryMessage: expect.any(Function) });
     });
   });
 
@@ -390,7 +394,7 @@ describe('BaileysAdapter', () => {
       expect(opts.browser[1]).toBe('Desktop');
     });
 
-    it('leaves Baileys history defaults alone otherwise', async () => {
+    it('keeps the recent history sync but not full history otherwise', async () => {
       setupMockSock();
       const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
       await adapter.initialize({});
@@ -398,6 +402,8 @@ describe('BaileysAdapter', () => {
       const opts = mockMakeWASocket.mock.calls[0][0] as any;
       expect(opts.syncFullHistory).toBeUndefined();
       expect(opts.browser).toBeUndefined();
+      // Baileys 6.x drops every history chunk unless this is set explicitly.
+      expect(opts.shouldSyncHistoryMessage({ syncType: 3 })).toBe(true);
     });
   });
 
