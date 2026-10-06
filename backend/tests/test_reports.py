@@ -3,6 +3,7 @@ import importlib
 import io
 import zoneinfo
 from datetime import datetime, timedelta, timezone
+from html import unescape
 
 import pytest
 import pytest_asyncio
@@ -133,9 +134,15 @@ async def test_trend_switches_to_weekly_over_31_days(seeded, db_session):
     assert sum(b["new"] for b in ov["trend"]["buckets"]) == 6
 
 
-async def test_plate_table_is_full_history(seeded, db_session):
-    rows = {r["plate"]: r for r in await reports.plate_table(
-        db_session, None, datetime.now(timezone.utc))}
+async def _plate_rows(db, days, **kw):
+    earliest = await reports.earliest_day(db, None, NAIROBI)
+    start, end, _, _ = reports.resolve_range(NAIROBI, days, earliest=earliest, **kw)
+    return {r["plate"]: r for r in await reports.plate_table(
+        db, None, start, end, datetime.now(timezone.utc))}
+
+
+async def test_plate_table_all_time_is_full_history(seeded, db_session):
+    rows = await _plate_rows(db_session, "all")
     assert set(rows) == {"KAAA111A", "KBBB222B", "KCCC333C"}
     assert rows["KAAA111A"] | {"last_reported": None} == {
         "plate": "KAAA111A", "tickets": 3, "reports": 4, "open": 3, "recent": 4,
@@ -145,6 +152,23 @@ async def test_plate_table_is_full_history(seeded, db_session):
     # 60 days old: still listed with its ticket and category, just not recent.
     c = rows["KCCC333C"]
     assert (c["tickets"], c["reports"], c["recent"], c["top_category"]) == (1, 1, 0, "brakes")
+
+
+async def test_plate_table_follows_selected_range(seeded, db_session):
+    rows = await _plate_rows(db_session, "30")
+    assert set(rows) == {"KAAA111A", "KBBB222B"}     # C last reported 60 days ago
+    rows = await _plate_rows(db_session, None, date_from="2000-01-01", date_to="2000-01-31")
+    assert rows == {}
+
+
+async def test_plate_table_follow_up_only_in_range(seeded, db_session):
+    """A plate whose ticket predates the range but got a follow-up inside it
+    is listed with 0 tickets, 1 report and its ticket's category."""
+    db_session.add(IncidentUpdate(incident_id=seeded["c"], message_body="again",
+                                  received_at=_ago(days=2)))
+    await db_session.commit()
+    c = (await _plate_rows(db_session, "7"))["KCCC333C"]
+    assert (c["tickets"], c["reports"], c["open"], c["top_category"]) == (0, 1, 1, "brakes")
 
 
 async def test_repeat_flag_counts_follow_ups_on_one_ticket(db_session):
@@ -157,7 +181,7 @@ async def test_repeat_flag_counts_follow_ups_on_one_ticket(db_session):
         db_session.add(IncidentUpdate(incident_id=t.id, message_body="again", received_at=_ago(days=d)))
     db_session.add(IncidentUpdate(incident_id=t.id, message_body="latest", received_at=_ago(days=1)))
     await db_session.commit()
-    [row] = await reports.plate_table(db_session, None, datetime.now(timezone.utc))
+    [row] = (await _plate_rows(db_session, "30")).values()
     assert (row["tickets"], row["reports"], row["recent"], row["repeat"]) == (1, 4, 4, True)
     assert row["last_reported"] > _ago(days=1, minutes=1)
 
@@ -281,3 +305,46 @@ async def test_reports_page_all_time_chip(seeded, fleet_admin):
     html = (await fleet_admin.get("/reports?days=all")).text
     assert 'class="range-chip active" href="/reports?days=all"' in html
     assert 'id="stat-new">6<' in html
+
+
+async def test_reports_page_links_to_filtered_lists(seeded, fleet_admin):
+    html = unescape((await fleet_admin.get("/reports")).text)
+    open_qs = "status=review&status=new&status=acknowledged"
+    assert f'href="/?{open_qs}"' in html                       # open tickets
+    assert 'href="/reports?days=all&open=1#vehicles"' in html  # vehicles with open issues
+    assert f'href="/?{open_qs}&plate=no"' in html           # open without a plate
+    assert f'href="/?{open_qs}&priority=low"' in html
+    assert f'href="/?{open_qs}&cat=brakes"' in html
+    assert 'id="open-only"' in html
+    assert 'href="/reports/tickets?kind=new&days=30"' in html
+    assert 'href="/reports/tickets?kind=resolved&days=30"' in html
+
+
+async def test_period_tickets_match_headline_counts(seeded, db_session):
+    start, end, first, last = reports.resolve_range(NAIROBI, "30")
+    new = await reports.period_tickets(db_session, None, start, end, "new")
+    resolved = await reports.period_tickets(db_session, None, start, end, "resolved")
+    ov = await reports.fleet_overview(db_session, None, start, end, first, last, NAIROBI)
+    assert len(new) == ov["new_in_range"] == 5
+    assert [t["incident"].id for t in resolved] == [seeded["b"]]
+    assert len(resolved) == ov["resolved_in_range"]
+
+
+async def test_period_tickets_page(seeded, fleet_admin):
+    r = await fleet_admin.get("/reports/tickets?kind=resolved&days=30")
+    assert r.status_code == 200
+    html = unescape(r.text)
+    assert f'href="/archive?ticket={seeded["b"]}"' in html
+    assert 'href="/reports/plate/KBBB222B"' in html
+    assert 'href="/reports?days=30"' in html            # back link keeps the range
+
+    html = unescape((await fleet_admin.get("/reports/tickets?kind=new&from=2020-01-01&to=2099-01-01")).text)
+    assert html.count('class="ticket-id"') == 6          # custom range covers every ticket
+    assert 'href="/reports?from=2020-01-01&to=2099-01-01"' in html
+
+
+async def test_period_tickets_page_404s_and_scoping(seeded, fleet_admin, fleet_g1_user, non_fleet_admin):
+    assert (await fleet_admin.get("/reports/tickets?kind=bogus")).status_code == 404
+    assert (await non_fleet_admin.get("/reports/tickets")).status_code == 404
+    html = (await fleet_g1_user.get("/reports/tickets?kind=resolved")).text
+    assert "KBBB222B" not in html                        # g2 only

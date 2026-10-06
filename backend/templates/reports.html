@@ -44,6 +44,11 @@
     .stat .n { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
     .stat .l { font-size: 0.8125rem; color: var(--muted-2); margin-top: 2px; }
     .stat .hint { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+    /* Linked stats and bars open the matching filtered ticket list. */
+    .stat-link { display: block; color: inherit; text-decoration: none; border-radius: var(--radius-md); }
+    .stat-link:hover .l, .hint a:hover { color: var(--teal-deep); text-decoration: underline; }
+    .stat-link .l::after { content: " →"; color: var(--muted); }
+    .hint a { color: inherit; }
 
     .two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 
@@ -71,6 +76,9 @@
     .hbar-track { display: block; height: 10px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
     .hbar-fill { display: block; height: 100%; border-radius: 4px; background: var(--teal); }
     .hbar-n { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted-2); font-weight: 600; }
+    a.hbar-row { color: inherit; text-decoration: none; border-radius: var(--radius-md); margin: -3px -6px; padding: 3px 6px; }
+    a.hbar-row:hover { background: var(--surface-2); }
+    a.hbar-row:hover .hbar-label { color: var(--teal-deep); text-decoration: underline; }
     .empty { color: var(--muted); font-size: 0.875rem; }
 
     /* ── Vehicles table ── */
@@ -122,12 +130,16 @@
   </div>
 
   <!-- ── Headline numbers ── -->
+  {# "Open" here is anything not resolved or ignored (reports.OPEN_EXCLUDED);
+     the ticket list shows ignored too, so links pin the open statuses. #}
+  {% set open_qs = 'status=review&status=new&status=acknowledged' %}
+  {% set range_qs = ('days=' ~ range_days) if range_days else ('from=' ~ first_day ~ '&to=' ~ last_day) %}
   <div class="stat-grid section">
-    <div class="card stat"><div class="n" id="stat-open">{{ overview.open_count }}</div><div class="l">Open tickets</div><div class="hint">right now</div></div>
-    <div class="card stat"><div class="n" id="stat-vehicles-open">{{ overview.vehicles_open }}</div><div class="l">Vehicles with open issues</div>
-      <div class="hint">{% if overview.open_unassigned %}+ {{ overview.open_unassigned }} open without a plate{% else %}right now{% endif %}</div></div>
-    <div class="card stat"><div class="n" id="stat-new">{{ overview.new_in_range }}</div><div class="l">New tickets</div><div class="hint">in this period</div></div>
-    <div class="card stat"><div class="n" id="stat-resolved">{{ overview.resolved_in_range }}</div><div class="l">Resolved</div><div class="hint">in this period</div></div>
+    <div class="card stat"><a class="stat-link" href="/?{{ open_qs }}" title="Show open tickets"><div class="n" id="stat-open">{{ overview.open_count }}</div><div class="l">Open tickets</div></a><div class="hint">right now</div></div>
+    <div class="card stat"><a class="stat-link" href="/reports?days=all&open=1#vehicles" title="Show vehicles with open tickets"><div class="n" id="stat-vehicles-open">{{ overview.vehicles_open }}</div><div class="l">Vehicles with open issues</div></a>
+      <div class="hint">{% if overview.open_unassigned %}<a href="/?{{ open_qs }}&plate=no" title="Show open tickets without a plate">+ {{ overview.open_unassigned }} open without a plate</a>{% else %}right now{% endif %}</div></div>
+    <div class="card stat"><a class="stat-link" href="/reports/tickets?kind=new&{{ range_qs }}" title="Show tickets received in this period"><div class="n" id="stat-new">{{ overview.new_in_range }}</div><div class="l">New tickets</div></a><div class="hint">in this period</div></div>
+    <div class="card stat"><a class="stat-link" href="/reports/tickets?kind=resolved&{{ range_qs }}" title="Show tickets resolved in this period"><div class="n" id="stat-resolved">{{ overview.resolved_in_range }}</div><div class="l">Resolved</div></a><div class="hint">in this period</div></div>
   </div>
 
   <!-- ── Trend ── -->
@@ -164,11 +176,11 @@
       {% if overview.open_count %}
       <div class="hbar-list" id="backlog-priority">
         {% for p, n in overview.backlog_by_priority %}
-        <div class="hbar-row">
+        <a class="hbar-row" href="/?{{ open_qs }}&priority={{ p }}" title="Show open {{ p }} tickets">
           <span class="hbar-label"><span class="badge badge-{{ p }}">{{ p }}</span></span>
           <span class="hbar-track"><span class="hbar-fill" style="width: {{ (n / pmax * 100) if pmax else 0 }}%"></span></span>
           <span class="hbar-n">{{ n }}</span>
-        </div>
+        </a>
         {% endfor %}
       </div>
       {% else %}
@@ -182,11 +194,11 @@
       {% set cmax = overview.backlog_by_category[0][1] %}
       <div class="hbar-list" id="backlog-category">
         {% for c, n in overview.backlog_by_category %}
-        <div class="hbar-row">
-          <span class="hbar-label" title="{{ category_labels.get(c, c) }}">{{ category_labels.get(c, c) }}</span>
+        <a class="hbar-row" href="/?{{ open_qs }}&cat={{ c | urlencode }}" title="Show open {{ category_labels.get(c, c) }} tickets">
+          <span class="hbar-label">{{ category_labels.get(c, c) }}</span>
           <span class="hbar-track"><span class="hbar-fill" style="width: {{ n / cmax * 100 }}%"></span></span>
           <span class="hbar-n">{{ n }}</span>
-        </div>
+        </a>
         {% endfor %}
       </div>
       {% else %}
@@ -196,12 +208,13 @@
   </div>
 
   <!-- ── Vehicles ── -->
-  <div class="card section">
+  <div class="card section" id="vehicles">
     <h2>Vehicles</h2>
     <div class="card-sub">
-      Full history of every vehicle, whatever period is selected above.
+      Vehicles reported in the selected period (choose <a href="/reports?days=all">All time</a> for every vehicle's full history).
       A rider's message about a bike that already has an open ticket is added to that ticket,
-      so "Reports" counts tickets plus those follow-up messages. A vehicle is flagged
+      so "Reports" counts tickets plus those follow-up messages. "Tickets", "Reports" and "Top issue" cover the period;
+      "Open now", "Last reported" and the flag do not. A vehicle is flagged
       <span class="badge badge-repeat">repeat</span> when it is reported {{ repeat_threshold }}+ times in the last {{ repeat_window_days }} days.
     </div>
     {% if plates %}
@@ -209,6 +222,9 @@
       <input type="search" id="plate-filter" placeholder="Search plate…" aria-label="Search plate">
       <label style="font-size:0.8125rem;color:var(--muted-2);display:flex;gap:6px;align-items:center">
         <input type="checkbox" id="repeat-only" style="width:auto"> Repeat vehicles only
+      </label>
+      <label style="font-size:0.8125rem;color:var(--muted-2);display:flex;gap:6px;align-items:center">
+        <input type="checkbox" id="open-only" style="width:auto"> Open now only
       </label>
     </div>
     <div class="table-scroll">
@@ -243,7 +259,7 @@
       </table>
     </div>
     {% else %}
-    <div class="empty">No tickets with a vehicle plate yet.</div>
+    <div class="empty">No vehicles reported in this period. Try <a href="/reports?days=all">All time</a>.</div>
     {% endif %}
   </div>
 
@@ -383,15 +399,21 @@
   const tbody = table.tBodies[0];
   const filter = document.getElementById('plate-filter');
   const repeatOnly = document.getElementById('repeat-only');
+  const openOnly = document.getElementById('open-only');
+  // ?open=1 comes from the "Vehicles with open issues" stat.
+  openOnly.checked = new URLSearchParams(location.search).get('open') === '1';
   function apply() {
     const q = filter.value.replace(/\s+/g, '').toUpperCase();
     for (const tr of tbody.rows) {
-      const ok = (!q || tr.dataset.plate.includes(q)) && (!repeatOnly.checked || tr.dataset.repeat === '1');
+      const ok = (!q || tr.dataset.plate.includes(q)) && (!repeatOnly.checked || tr.dataset.repeat === '1')
+        && (!openOnly.checked || tr.dataset.open !== '0');
       tr.style.display = ok ? '' : 'none';
     }
   }
   filter.addEventListener('input', apply);
   repeatOnly.addEventListener('change', apply);
+  openOnly.addEventListener('change', apply);
+  apply();
 
   let sortKey = null, asc = true;
   table.querySelectorAll('th.sortable').forEach(th => th.addEventListener('click', () => {

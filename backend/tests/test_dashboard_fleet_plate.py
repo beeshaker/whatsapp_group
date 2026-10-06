@@ -99,3 +99,27 @@ async def test_dashboard_shows_unassigned_when_no_plate_found(fleet_client):
     response = await fleet_client.get("/")
     assert response.status_code == 200
     assert b"Unassigned" in response.content
+
+
+async def test_dashboard_rows_carry_plate_filter_flag(fleet_client):
+    classification = {"issues": [{
+        "category": "brakes", "priority": "high", "confidence": 0.9,
+        "message_snippet": "bike needs service",
+    }]}
+    payload = {
+        "event": "message.received",
+        "data": {
+            "type": "chat", "isGroup": True,
+            "chatId": "riders2@g.us", "chat": {"name": "Pixiilive Riders"},
+            "author": "254700000001@c.us",
+            "body": "bike needs service", "timestamp": 1782293341,
+        },
+    }
+    with patch("main.classify_message", new=AsyncMock(return_value=classification)):
+        with patch("main.push_incident", new=AsyncMock()):
+            await fleet_client.post(
+                "/api/v1/ops/ingest", json=payload, headers={"X-API-Key": GATEWAY_TOKEN}
+            )
+    html = (await fleet_client.get("/")).text
+    assert 'data-plate="no"' in html
+    assert 'data-filter="plate" data-val="no"' in html   # Vehicle chip, linkable via ?plate=no

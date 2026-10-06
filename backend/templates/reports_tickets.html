@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ kind | capitalize }} tickets — Reports</title>
+  <link rel="stylesheet" href="/static/css/base.css">
+  <style>
+    /* Page-local styles for the tickets behind a Reports headline number.
+       Shared tokens / nav / buttons / badges / data-table come from base.css. */
+
+    .page { max-width: 1100px; margin: 0 auto; padding: 2.5rem 1.5rem; }
+    .back { font-size: 0.8125rem; color: var(--teal-deep); text-decoration: none; font-weight: 600; }
+    .back:hover { text-decoration: underline; }
+    a.btn { text-decoration: none; }
+    .page-header {
+      display: flex; align-items: flex-end; justify-content: space-between;
+      gap: 1rem; margin: 0.75rem 0 1.5rem; flex-wrap: wrap;
+    }
+    .page-title { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
+    .page-subtitle { font-size: 0.875rem; color: var(--muted); margin-top: 0.25rem; }
+
+    .card {
+      background: var(--surface); border: 1px solid var(--line);
+      border-radius: var(--radius-xl); box-shadow: var(--shadow); padding: 18px 20px;
+    }
+    .table-scroll { overflow-x: auto; }
+    .ticket-id { font-weight: 700; color: var(--teal-deep); text-decoration: none; }
+    .plate-link { font-weight: 700; color: var(--teal-deep); text-decoration: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .ticket-id:hover, .plate-link:hover { text-decoration: underline; }
+    .when { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--muted-2); }
+    .msg { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .empty { color: var(--muted); font-size: 0.875rem; }
+
+    @media (max-width: 760px) {
+      .page { padding: 1.5rem 16px; }
+    }
+  </style>
+</head>
+<body>
+
+{% set active_page = 'reports' %}
+{% include "_nav.html" %}
+
+<main class="page">
+  <a class="back" href="/reports?{{ range_qs }}">← Fleet reports</a>
+  <div class="page-header">
+    <div>
+      <div class="page-title">{{ 'New' if kind == 'new' else 'Resolved' }} tickets</div>
+      <div class="page-subtitle">
+        {{ tickets | length }} {{ 'received' if kind == 'new' else 'resolved' }} {{ first_day }} → {{ last_day }}
+        {% if kind == 'resolved' %}· a ticket resolved more than once is listed for each time{% endif %}
+      </div>
+    </div>
+    {% if kind == 'new' %}
+    <a class="btn btn-ghost" href="/reports/export.csv?{{ range_qs }}">⬇ Download CSV</a>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    {% if tickets %}
+    <div class="table-scroll">
+      <table class="data-table" id="period-tickets">
+        <thead>
+          <tr>
+            <th>Ticket</th>
+            <th>{{ 'Received' if kind == 'new' else 'Resolved' }}</th>
+            <th>Plate</th>
+            <th>Category</th>
+            <th>Priority</th>
+            <th>Status now</th>
+            <th>Message</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in tickets %}
+          {% set i = t.incident %}
+          <tr>
+            <td><a class="ticket-id" href="/{{ 'archive' if i.status == 'resolved' else '' }}?ticket={{ i.id }}">#{{ i.id }}</a></td>
+            <td class="when">{{ t.at_local }}</td>
+            <td>{% if i.vehicle_plate %}<a class="plate-link" href="/reports/plate/{{ i.vehicle_plate }}">{{ i.vehicle_plate }}</a>{% else %}<span style="color:var(--muted)">—</span>{% endif %}</td>
+            <td>{{ category_labels.get(i.category, i.category) }}</td>
+            <td><span class="badge badge-{{ i.priority }}">{{ i.priority }}</span></td>
+            <td><span class="badge badge-{{ i.status }}">{{ i.status }}</span></td>
+            <td class="msg" title="{{ i.message_body }}">{{ i.message_body }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty">No tickets {{ 'received' if kind == 'new' else 'resolved' }} in this period.</div>
+    {% endif %}
+  </div>
+</main>
+
+<script>
+(function() {
+  const el = document.getElementById('nav-avatar');
+  const username = {{ username | tojson }};
+  if (el && username) el.textContent = username.slice(0, 2).toUpperCase();
+})();
+</script>
+</body>
+</html>

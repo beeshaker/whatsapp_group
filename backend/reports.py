@@ -164,9 +164,13 @@ def _trend(received, resolved, first_day: date, last_day: date, tz: tzinfo) -> d
 async def plate_table(
     db: AsyncSession,
     allowed: Optional[list[str]],
+    start: datetime,
+    end: datetime,
     now: datetime,
 ) -> list[dict]:
-    """One row per plate that has any ticket, over its whole history.
+    """One row per plate reported in [start, end) (pass the all-time range
+    for every plate). `tickets`, `reports` and `top_category` cover that
+    range; `open`, `last_reported` and the repeat flag do not.
 
     In fleet mode a new message about a plate that already has an open ticket
     becomes a follow-up on that ticket, not a new ticket, so a bike's ticket
@@ -191,28 +195,37 @@ async def plate_table(
     def entry(plate: str) -> dict:
         return plates.setdefault(plate, {
             "plate": plate, "tickets": 0, "reports": 0, "open": 0, "recent": 0,
-            "last_reported": None, "categories": Counter(),
+            "last_reported": None, "categories": Counter(), "all_categories": Counter(),
         })
 
-    def report(p: dict, at: datetime) -> None:
-        p["reports"] += 1
+    def report(p: dict, at: datetime) -> bool:
+        in_range = start <= at < end
+        if in_range:
+            p["reports"] += 1
         if at >= repeat_since:
             p["recent"] += 1
         if p["last_reported"] is None or at > p["last_reported"]:
             p["last_reported"] = at
+        return in_range
 
     for plate, category, status, received_at in rows:
         p = entry(plate)
-        p["tickets"] += 1
-        p["categories"][category] += 1
+        p["all_categories"][category] += 1
         if status not in OPEN_EXCLUDED:
             p["open"] += 1
-        report(p, _aware(received_at))
+        if report(p, _aware(received_at)):
+            p["tickets"] += 1
+            p["categories"][category] += 1
     for plate, received_at in update_rows:
         report(entry(plate), _aware(received_at))
 
     result = []
     for p in plates.values():
+        if not p["reports"]:
+            continue
+        # A bike reported in range only via follow-ups has no in-range
+        # ticket; fall back to its ticket's category.
+        top = p["categories"].most_common(1) or p["all_categories"].most_common(1)
         result.append({
             "plate": p["plate"],
             "tickets": p["tickets"],
@@ -221,7 +234,7 @@ async def plate_table(
             "recent": p["recent"],
             "repeat": p["recent"] >= REPEAT_THRESHOLD,
             "last_reported": p["last_reported"],
-            "top_category": p["categories"].most_common(1)[0][0],
+            "top_category": top[0][0],
         })
     result.sort(key=lambda r: (-r["recent"], -r["reports"], r["plate"]))
     return result
@@ -269,6 +282,40 @@ async def plate_timeline(
         }
         for i in incidents
     ]
+
+
+PERIOD_KINDS = ("new", "resolved")
+
+
+async def period_tickets(
+    db: AsyncSession,
+    allowed: Optional[list[str]],
+    start: datetime,
+    end: datetime,
+    kind: str,
+) -> list[dict]:
+    """The tickets behind the "New" / "Resolved" headline numbers, newest
+    first. `at` is when the ticket arrived, or for "resolved" when it was
+    resolved. Like the headline count, "resolved" lists each resolution, so a
+    ticket resolved, reopened and resolved again in range appears twice."""
+    if kind == "new":
+        q = (
+            select(Incident, Incident.received_at)
+            .where(Incident.received_at >= start)
+            .where(Incident.received_at < end)
+            .order_by(Incident.received_at.desc())
+        )
+    else:
+        q = (
+            select(Incident, IncidentStatusHistory.changed_at)
+            .join(IncidentStatusHistory, IncidentStatusHistory.incident_id == Incident.id)
+            .where(IncidentStatusHistory.to_status == "resolved")
+            .where(IncidentStatusHistory.changed_at >= start)
+            .where(IncidentStatusHistory.changed_at < end)
+            .order_by(IncidentStatusHistory.changed_at.desc())
+        )
+    rows = (await db.execute(_scope(q, allowed))).all()
+    return [{"incident": i, "at": _aware(at)} for i, at in rows]
 
 
 EXPORT_COLUMNS = [

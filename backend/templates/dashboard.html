@@ -652,6 +652,16 @@
           </div>
         </div>
 
+        {% if fleet_plate_mode %}
+        <div class="chip-dropdown" data-group="plate">
+          <button type="button" class="chip-btn" onclick="toggleFilterGroup(this)">Vehicle <span class="cnt chip-count" id="selected-plate-count">0</span><span class="chip-caret">&#8964;</span></button>
+          <div class="chip-menu">
+            <div class="fopt" data-filter="plate" data-val="yes" onclick="toggleFilter(this)"><span class="left">Has a plate</span></div>
+            <div class="fopt" data-filter="plate" data-val="no" onclick="toggleFilter(this)"><span class="left">No plate</span></div>
+          </div>
+        </div>
+        {% endif %}
+
         {% if lead_mode %}
         <div class="chip-dropdown" data-group="agent">
           <button type="button" class="chip-btn" onclick="toggleFilterGroup(this)">Agent <span class="cnt chip-count" id="selected-agent-count">0</span><span class="chip-caret">&#8964;</span></button>
@@ -693,7 +703,8 @@
             data-id="{{ i.id }}"
             data-priority="{{ i.priority }}"
             data-status="{{ i.status }}"
-            data-cat="{{ i.category }}"{% if lead_mode %}
+            data-cat="{{ i.category }}"
+            data-plate="{{ 'yes' if i.vehicle_plate else 'no' }}"{% if lead_mode %}
             data-agent="{{ i.lead_agent or '' }}"{% endif %}
             data-updates="{{ update_count }}"
             data-media="{{ media_count }}"
@@ -806,7 +817,7 @@ const POLL_INTERVAL = 30000;
 
 let allIncidents = [];
 let pendingNew = [];
-let activeFilters = { status: new Set(), priority: new Set(), cat: new Set(), agent: new Set() };
+let activeFilters = { status: new Set(), priority: new Set(), cat: new Set(), agent: new Set(), plate: new Set() };
 let maxId = 0;
 
 const statusLabels = LEAD_MODE
@@ -1239,6 +1250,7 @@ function init() {
   });
   updateStats();
   updateCounts();
+  applyUrlFilters();
   updateSelectedFilterCounts();
   applyFilters();
   setInterval(poll, POLL_INTERVAL);
@@ -1247,6 +1259,20 @@ function init() {
     const params = new URLSearchParams(window.location.search);
     const linkedId = parseInt(params.get(LEAD_MODE ? 'lead' : 'ticket'), 10);
     if (linkedId) openDetailModal(linkedId);
+  }
+}
+
+// Deep links from fleet Reports, e.g. /?status=new&priority=urgent&plate=no.
+// Each key may repeat; values must match one of the filter chips.
+function applyUrlFilters() {
+  const params = new URLSearchParams(window.location.search);
+  for (const key of ['status', 'priority', 'cat', 'plate']) {
+    for (const val of params.getAll(key)) {
+      const opt = document.querySelector(`.fopt[data-filter="${key}"][data-val="${CSS.escape(val)}"]`);
+      if (!opt) continue;
+      activeFilters[key].add(val);
+      opt.classList.add('active');
+    }
   }
 }
 
@@ -1371,7 +1397,7 @@ function buildRow(raw) {
   const statusLabel = esc(statusLabels[i.status] || i.status);
 
   return `
-<tr class="ticket-row" data-id="${i.id}" data-priority="${esc(i.priority)}" data-status="${esc(i.status)}" data-cat="${esc(i.category)}" data-agent="${esc(i.lead_agent || '')}" data-updates="${i.update_count}" data-media="${i.media_count}" data-search="${esc(search)}" onclick="openDetailModal(${i.id})">
+<tr class="ticket-row" data-id="${i.id}" data-priority="${esc(i.priority)}" data-status="${esc(i.status)}" data-cat="${esc(i.category)}" data-plate="${i.vehicle_plate ? 'yes' : 'no'}" data-agent="${esc(i.lead_agent || '')}" data-updates="${i.update_count}" data-media="${i.media_count}" data-search="${esc(search)}" onclick="openDetailModal(${i.id})">
   ${prioCell}
   <td class="col-id">#${i.id}</td>
   <td>
@@ -1478,6 +1504,8 @@ function updateSelectedFilterCounts() {
   const priorityCount = document.getElementById('selected-priority-count');
   const catCount = document.getElementById('selected-cat-count');
   const agentCount = document.getElementById('selected-agent-count');
+  const plateCount = document.getElementById('selected-plate-count');
+  if (plateCount) plateCount.textContent = activeFilters.plate.size;
   if (statusCount) statusCount.textContent = activeFilters.status.size;
   if (priorityCount) priorityCount.textContent = activeFilters.priority.size;
   if (catCount) catCount.textContent = activeFilters.cat.size;
@@ -1491,7 +1519,7 @@ function hydrateCategoryIcons(root = document) {
 }
 
 function clearFilters() {
-  activeFilters = { status: new Set(), priority: new Set(), cat: new Set(), agent: new Set() };
+  activeFilters = { status: new Set(), priority: new Set(), cat: new Set(), agent: new Set(), plate: new Set() };
   document.getElementById('search-input').value = '';
   document.querySelectorAll('.fopt.active').forEach(el => el.classList.remove('active'));
   if (LEAD_MODE) {
@@ -1512,8 +1540,9 @@ function applyFilters() {
     const matchPriority = activeFilters.priority.size === 0 || activeFilters.priority.has(row.dataset.priority);
     const matchCat = activeFilters.cat.size === 0 || activeFilters.cat.has(row.dataset.cat);
     const matchAgent = activeFilters.agent.size === 0 || activeFilters.agent.has(row.dataset.agent);
+    const matchPlate = activeFilters.plate.size === 0 || activeFilters.plate.has(row.dataset.plate);
     const matchSearch = !q || (row.dataset.search || '').includes(q);
-    const shouldShow = matchStatus && matchPriority && matchCat && matchAgent && matchSearch;
+    const shouldShow = matchStatus && matchPriority && matchCat && matchAgent && matchPlate && matchSearch;
     row.classList.toggle('hidden', !shouldShow);
     if (shouldShow) visible++;
   });

@@ -2355,7 +2355,7 @@ async def reports_page(
     now = datetime.now(timezone.utc)
 
     overview = await reports.fleet_overview(db, allowed, start, end, first_day, last_day, tz)
-    plates = await reports.plate_table(db, allowed, now)
+    plates = await reports.plate_table(db, allowed, start, end, now)
     for p in plates:
         p["last_reported_local"] = p["last_reported"].astimezone(tz).strftime("%d %b %Y")
     labels = await reports.category_labels(db)
@@ -2407,6 +2407,47 @@ async def plate_report_page(
             "plate": plate,
             "timeline": timeline,
             "open_count": sum(1 for t in timeline if t["incident"].status not in reports.OPEN_EXCLUDED),
+            "category_labels": await reports.category_labels(db),
+        },
+    )
+
+
+@app.get("/reports/tickets", response_class=HTMLResponse)
+async def reports_period_tickets(
+    request: Request,
+    kind: str = "new",
+    days: Optional[str] = None,
+    date_from: Optional[str] = Query(None, alias="from"),
+    date_to: Optional[str] = Query(None, alias="to"),
+    username: str = Depends(require_login),
+    db: AsyncSession = Depends(get_db),
+):
+    if not FLEET_PLATE_MODE or kind not in reports.PERIOD_KINDS:
+        raise HTTPException(status_code=404)
+    tz = zoneinfo.ZoneInfo(SUMMARY_TIMEZONE)
+    allowed = await _get_allowed_groups(username, db)
+    start, end, first_day, last_day = reports.resolve_range(
+        tz, days, date_from, date_to, earliest=await reports.earliest_day(db, allowed, tz),
+    )
+    tickets = await reports.period_tickets(db, allowed, start, end, kind)
+    for t in tickets:
+        t["at_local"] = t["at"].astimezone(tz).strftime("%d %b %Y, %H:%M")
+    custom = bool(date_from and date_to)
+    if custom:
+        range_qs = f"from={first_day.isoformat()}&to={last_day.isoformat()}"
+    else:
+        range_qs = f"days={reports.normalize_days(days)}"
+    return templates.TemplateResponse(
+        "reports_tickets.html",
+        {
+            "request": request,
+            "username": username,
+            "role": await _role_for(username, db),
+            "kind": kind,
+            "tickets": tickets,
+            "first_day": first_day.isoformat(),
+            "last_day": last_day.isoformat(),
+            "range_qs": range_qs,
             "category_labels": await reports.category_labels(db),
         },
     )
