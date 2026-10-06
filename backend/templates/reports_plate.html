@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ plate }} — Reports</title>
+  <link rel="stylesheet" href="/static/css/base.css">
+  <style>
+    /* Page-local styles for one vehicle's ticket history. Shared tokens /
+       nav / buttons / badges come from base.css. */
+
+    .page { max-width: 900px; margin: 0 auto; padding: 2.5rem 1.5rem; }
+    .back { font-size: 0.8125rem; color: var(--teal-deep); text-decoration: none; font-weight: 600; }
+    .back:hover { text-decoration: underline; }
+    a.btn { text-decoration: none; }
+    .page-header {
+      display: flex; align-items: flex-end; justify-content: space-between;
+      gap: 1rem; margin: 0.75rem 0 1.5rem; flex-wrap: wrap;
+    }
+    .page-title { font-size: 1.75rem; font-weight: 700; letter-spacing: 0.02em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .page-subtitle { font-size: 0.875rem; color: var(--muted); margin-top: 0.25rem; }
+
+    .ticket {
+      background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-xl);
+      box-shadow: var(--shadow); padding: 16px 18px; margin-bottom: 12px;
+    }
+    .ticket-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+    .ticket-id { font-weight: 700; color: var(--teal-deep); text-decoration: none; }
+    .ticket-id:hover { text-decoration: underline; }
+    .ticket-meta { font-size: 0.8125rem; color: var(--muted); margin-left: auto; }
+    .ticket-body { font-size: 0.9rem; white-space: pre-wrap; word-break: break-word; }
+    .ticket-reporter { font-size: 0.8125rem; color: var(--muted-2); margin-top: 6px; }
+
+    .events { list-style: none; margin-top: 12px; border-left: 2px solid var(--line); padding-left: 14px; display: flex; flex-direction: column; gap: 8px; }
+    .event { font-size: 0.8125rem; position: relative; }
+    .event::before {
+      content: ""; position: absolute; left: -20px; top: 5px; width: 10px; height: 10px;
+      border-radius: 50%; background: var(--surface); border: 2px solid var(--line);
+    }
+    .event.status::before { border-color: var(--teal); }
+    .event-when { color: var(--muted); margin-right: 6px; font-variant-numeric: tabular-nums; }
+    .event-who { color: var(--muted-2); font-weight: 600; margin-right: 6px; }
+    .event-text { white-space: pre-wrap; word-break: break-word; }
+
+    @media (max-width: 760px) {
+      .page { padding: 1.5rem 16px; }
+      .ticket-meta { margin-left: 0; width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+{% set active_page = 'reports' %}
+{% include "_nav.html" %}
+
+<main class="page">
+  <a class="back" href="/reports">← Fleet reports</a>
+  <div class="page-header">
+    <div>
+      <div class="page-title">{{ plate }}</div>
+      <div class="page-subtitle">{{ timeline | length }} ticket{{ '' if timeline | length == 1 else 's' }} · {{ open_count }} open</div>
+    </div>
+    <a class="btn btn-ghost" href="/reports/export.csv?days=90&plate={{ plate }}">⬇ Export last 90 days</a>
+  </div>
+
+  {% for t in timeline %}
+  {% set i = t.incident %}
+  <div class="ticket">
+    <div class="ticket-head">
+      <a class="ticket-id" href="/{{ 'archive' if i.status == 'resolved' else '' }}?ticket={{ i.id }}">#{{ i.id }}</a>
+      <span class="badge badge-{{ i.priority }}">{{ i.priority }}</span>
+      <span class="badge badge-{{ i.status }}">{{ i.status }}</span>
+      <span style="font-size:0.8125rem;color:var(--muted-2)">{{ category_labels.get(i.category, i.category) }}</span>
+      <span class="ticket-meta">{{ t.received_local }} · {{ i.property_name }}</span>
+    </div>
+    <div class="ticket-body">{{ i.message_body }}</div>
+    {% if i.reporter_name %}<div class="ticket-reporter">Reported by {{ i.reporter_name }}</div>{% endif %}
+    {% if t.events %}
+    <ul class="events">
+      {% for e in t.events %}
+      <li class="event {{ e.kind }}">
+        <span class="event-when">{{ e.at_local }}</span>
+        {% if e.who %}<span class="event-who">{{ e.who }}</span>{% endif %}
+        <span class="event-text">{{ e.text }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  {% endfor %}
+</main>
+
+<script>
+(function() {
+  const el = document.getElementById('nav-avatar');
+  const username = {{ username | tojson }};
+  if (el && username) el.textContent = username.slice(0, 2).toUpperCase();
+})();
+</script>
+</body>
+</html>

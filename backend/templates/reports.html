@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reports — Ops Ticketing</title>
+  <link rel="stylesheet" href="/static/css/base.css">
+  <style>
+    /* Page-local styles for the fleet reports page. Shared tokens / nav /
+       buttons / inputs / badges / data-table come from base.css. */
+
+    .page { max-width: 1100px; margin: 0 auto; padding: 2.5rem 1.5rem; }
+
+    .page-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;
+    }
+    .page-title { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
+    .page-subtitle { font-size: 0.875rem; color: var(--muted); margin-top: 0.25rem; }
+
+    /* ── Range filter ── */
+    .range-bar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .range-chip {
+      padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line);
+      background: var(--surface); color: var(--muted-2); font-size: 0.8125rem;
+      font-weight: 600; text-decoration: none;
+    }
+    .range-chip:hover { background: var(--surface-2); }
+    .range-chip.active { background: var(--teal-soft); color: var(--teal-deep); border-color: var(--teal-soft); }
+    .range-custom { display: flex; align-items: center; gap: 0.375rem; flex-wrap: wrap; }
+    .range-custom input { width: auto; min-width: 0; }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface); border: 1px solid var(--line);
+      border-radius: var(--radius-xl); box-shadow: var(--shadow); padding: 18px 20px;
+    }
+    .card h2 { font-size: 0.9375rem; font-weight: 700; margin-bottom: 4px; }
+    .card .card-sub { font-size: 0.8125rem; color: var(--muted); margin-bottom: 14px; }
+    .section { margin-bottom: 1.25rem; }
+
+    .stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .stat { padding: 16px 18px; }
+    .stat .n { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+    .stat .l { font-size: 0.8125rem; color: var(--muted-2); margin-top: 2px; }
+    .stat .hint { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+
+    .two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+
+    /* ── Trend chart ── */
+    .legend { display: flex; gap: 16px; font-size: 0.8125rem; color: var(--muted-2); margin-bottom: 8px; }
+    .legend-key { display: inline-flex; align-items: center; gap: 6px; }
+    .legend-swatch { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+    .chart-wrap { position: relative; }
+    .chart-wrap svg { display: block; width: 100%; height: 240px; overflow: visible; }
+    .chart-tip {
+      position: absolute; pointer-events: none; background: var(--surface);
+      border: 1px solid var(--line); border-radius: var(--radius-md); box-shadow: var(--shadow);
+      padding: 8px 10px; font-size: 0.8125rem; white-space: nowrap; display: none; z-index: 2;
+    }
+    .chart-tip .tip-date { color: var(--muted); font-size: 0.75rem; margin-bottom: 4px; }
+    .chart-tip .tip-row { display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+    details.table-view { margin-top: 10px; font-size: 0.8125rem; }
+    details.table-view summary { cursor: pointer; color: var(--teal-deep); font-weight: 600; }
+    details.table-view .data-table { margin-top: 8px; }
+
+    /* ── Horizontal bar lists ── */
+    .hbar-list { display: flex; flex-direction: column; gap: 10px; }
+    .hbar-row { display: grid; grid-template-columns: 120px 1fr 36px; align-items: center; gap: 10px; font-size: 0.8125rem; }
+    .hbar-label { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hbar-track { display: block; height: 10px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+    .hbar-fill { display: block; height: 100%; border-radius: 4px; background: var(--teal); }
+    .hbar-n { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted-2); font-weight: 600; }
+    .empty { color: var(--muted); font-size: 0.875rem; }
+
+    /* ── Vehicles table ── */
+    .table-tools { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 10px; }
+    .table-tools input { max-width: 220px; }
+    .table-scroll { overflow-x: auto; }
+    .data-table th.sortable { cursor: pointer; user-select: none; }
+    .data-table th.sortable::after { content: " ↕"; color: var(--muted); font-weight: 400; }
+    .data-table td.num, .data-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .plate-link { font-weight: 700; color: var(--teal-deep); text-decoration: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .plate-link:hover { text-decoration: underline; }
+    .badge-repeat { background: var(--amber-soft); color: var(--amber); }
+
+    /* ── Export ── */
+    .export-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+    .export-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; color: var(--muted-2); font-weight: 600; }
+    .export-form select, .export-form input { min-width: 150px; }
+
+    @media (max-width: 760px) {
+      .page { padding: 1.5rem 16px; }
+      .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .two-col { grid-template-columns: 1fr; }
+      .hbar-row { grid-template-columns: 90px 1fr 32px; }
+      .range-custom input { flex: 1 1 130px; }
+    }
+  </style>
+</head>
+<body>
+
+{% set active_page = 'reports' %}
+{% include "_nav.html" %}
+
+<main class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Fleet reports</div>
+      <div class="page-subtitle" id="range-label">{{ first_day }} → {{ last_day }}</div>
+    </div>
+    <div class="range-bar">
+      {% for d in (7, 30, 90) %}
+      <a class="range-chip {% if range_days == d %}active{% endif %}" href="/reports?days={{ d }}">{{ d }} days</a>
+      {% endfor %}
+      <form class="range-custom" method="get" action="/reports">
+        <input type="date" name="from" value="{{ first_day }}" aria-label="From date" required>
+        <input type="date" name="to" value="{{ last_day }}" aria-label="To date" required>
+        <button class="btn btn-ghost" type="submit">Apply</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── Headline numbers ── -->
+  <div class="stat-grid section">
+    <div class="card stat"><div class="n" id="stat-open">{{ overview.open_count }}</div><div class="l">Open tickets</div><div class="hint">right now</div></div>
+    <div class="card stat"><div class="n" id="stat-vehicles-open">{{ overview.vehicles_open }}</div><div class="l">Vehicles with open issues</div>
+      <div class="hint">{% if overview.open_unassigned %}+ {{ overview.open_unassigned }} open without a plate{% else %}right now{% endif %}</div></div>
+    <div class="card stat"><div class="n" id="stat-new">{{ overview.new_in_range }}</div><div class="l">New tickets</div><div class="hint">in this period</div></div>
+    <div class="card stat"><div class="n" id="stat-resolved">{{ overview.resolved_in_range }}</div><div class="l">Resolved</div><div class="hint">in this period</div></div>
+  </div>
+
+  <!-- ── Trend ── -->
+  <div class="card section">
+    <h2>New vs resolved</h2>
+    <div class="card-sub">Tickets per {{ overview.trend.granularity }}. When "new" stays above "resolved", the backlog is growing.</div>
+    <div class="legend">
+      <span class="legend-key"><span class="legend-swatch" style="background:var(--blue)"></span>New</span>
+      <span class="legend-key"><span class="legend-swatch" style="background:var(--green)"></span>Resolved</span>
+    </div>
+    <div class="chart-wrap" id="trend-wrap">
+      <svg id="trend-chart" role="img" aria-label="New and resolved tickets over time"></svg>
+      <div class="chart-tip" id="trend-tip"></div>
+    </div>
+    <details class="table-view">
+      <summary>Show as table</summary>
+      <table class="data-table">
+        <thead><tr><th>{{ overview.trend.granularity | capitalize }}</th><th class="num">New</th><th class="num">Resolved</th></tr></thead>
+        <tbody>
+          {% for b in overview.trend.buckets %}
+          <tr><td>{{ b.start }}{% if b.end != b.start %} → {{ b.end }}{% endif %}</td><td class="num">{{ b.new }}</td><td class="num">{{ b.resolved }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </details>
+  </div>
+
+  <!-- ── Backlog breakdowns ── -->
+  <div class="two-col section">
+    <div class="card">
+      <h2>Open backlog by priority</h2>
+      <div class="card-sub">Every open ticket, regardless of the period.</div>
+      {% set pmax = overview.backlog_by_priority | map(attribute=1) | max %}
+      {% if overview.open_count %}
+      <div class="hbar-list" id="backlog-priority">
+        {% for p, n in overview.backlog_by_priority %}
+        <div class="hbar-row">
+          <span class="hbar-label"><span class="badge badge-{{ p }}">{{ p }}</span></span>
+          <span class="hbar-track"><span class="hbar-fill" style="width: {{ (n / pmax * 100) if pmax else 0 }}%"></span></span>
+          <span class="hbar-n">{{ n }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty">No open tickets. 🎉</div>
+      {% endif %}
+    </div>
+    <div class="card">
+      <h2>Open backlog by category</h2>
+      <div class="card-sub">What kind of problems are waiting.</div>
+      {% if overview.backlog_by_category %}
+      {% set cmax = overview.backlog_by_category[0][1] %}
+      <div class="hbar-list" id="backlog-category">
+        {% for c, n in overview.backlog_by_category %}
+        <div class="hbar-row">
+          <span class="hbar-label" title="{{ category_labels.get(c, c) }}">{{ category_labels.get(c, c) }}</span>
+          <span class="hbar-track"><span class="hbar-fill" style="width: {{ n / cmax * 100 }}%"></span></span>
+          <span class="hbar-n">{{ n }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty">No open tickets.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ── Vehicles ── -->
+  <div class="card section">
+    <h2>Vehicles</h2>
+    <div class="card-sub">
+      "Tickets" and "Top issue" cover the selected period. A vehicle is flagged
+      <span class="badge badge-repeat">repeat</span> when it has {{ repeat_threshold }}+ tickets in the last {{ repeat_window_days }} days.
+    </div>
+    {% if plates %}
+    <div class="table-tools">
+      <input type="search" id="plate-filter" placeholder="Search plate…" aria-label="Search plate">
+      <label style="font-size:0.8125rem;color:var(--muted-2);display:flex;gap:6px;align-items:center">
+        <input type="checkbox" id="repeat-only" style="width:auto"> Repeat vehicles only
+      </label>
+    </div>
+    <div class="table-scroll">
+      <table class="data-table" id="plates-table">
+        <thead>
+          <tr>
+            <th class="sortable" data-key="plate">Plate</th>
+            <th class="sortable num" data-key="tickets">Tickets</th>
+            <th class="sortable num" data-key="open">Open now</th>
+            <th class="sortable num" data-key="recent">Last {{ repeat_window_days }}d</th>
+            <th class="sortable" data-key="last">Last reported</th>
+            <th>Top issue</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in plates %}
+          <tr data-plate="{{ p.plate }}" data-tickets="{{ p.tickets }}" data-open="{{ p.open }}"
+              data-recent="{{ p.recent }}" data-last="{{ p.last_reported.isoformat() }}" data-repeat="{{ 1 if p.repeat else 0 }}">
+            <td><a class="plate-link" href="/reports/plate/{{ p.plate }}">{{ p.plate }}</a></td>
+            <td class="num">{{ p.tickets }}</td>
+            <td class="num">{{ p.open }}</td>
+            <td class="num">{{ p.recent }}</td>
+            <td>{{ p.last_reported_local }}</td>
+            <td>{{ category_labels.get(p.top_category, p.top_category) if p.top_category else "—" }}</td>
+            <td>{% if p.repeat %}<span class="badge badge-repeat">repeat</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty">No tickets with a vehicle plate yet.</div>
+    {% endif %}
+  </div>
+
+  <!-- ── Export ── -->
+  <div class="card section">
+    <h2>Export tickets</h2>
+    <div class="card-sub">Download a CSV of tickets received {{ first_day }} → {{ last_day }}. Opens in Excel or Google Sheets.</div>
+    <form class="export-form" method="get" action="/reports/export.csv">
+      {% if range_days %}
+      <input type="hidden" name="days" value="{{ range_days }}">
+      {% else %}
+      <input type="hidden" name="from" value="{{ first_day }}">
+      <input type="hidden" name="to" value="{{ last_day }}">
+      {% endif %}
+      <label>Plate
+        <input type="text" name="plate" placeholder="Any" pattern="[Kk][A-Za-z]{3}\s?\d{3}[A-Za-z]?">
+      </label>
+      <label>Category
+        <select name="category">
+          <option value="">Any</option>
+          {% for slug, label in category_labels | dictsort(by='value') %}
+          <option value="{{ slug }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Status
+        <select name="status">
+          <option value="">Any</option>
+          {% for s in ('review', 'new', 'acknowledged', 'resolved', 'ignored') %}
+          <option value="{{ s }}">{{ s | capitalize }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="btn btn-primary" type="submit">⬇ Download CSV</button>
+    </form>
+  </div>
+</main>
+
+<script>
+(function() {
+  const el = document.getElementById('nav-avatar');
+  const username = {{ username | tojson }};
+  if (el && username) el.textContent = username.slice(0, 2).toUpperCase();
+})();
+
+// ── Trend chart: two 2px lines on one axis, crosshair + tooltip on hover ──
+(function() {
+  const buckets = {{ overview.trend.buckets | tojson }};
+  const gran = {{ overview.trend.granularity | tojson }};
+  const svg = document.getElementById('trend-chart');
+  const tip = document.getElementById('trend-tip');
+  const wrap = document.getElementById('trend-wrap');
+  const NS = 'http://www.w3.org/2000/svg';
+  const css = getComputedStyle(document.documentElement);
+  const C = {
+    new: css.getPropertyValue('--blue').trim(),
+    resolved: css.getPropertyValue('--green').trim(),
+    line: css.getPropertyValue('--line').trim(),
+    muted: css.getPropertyValue('--muted').trim(),
+    surface: css.getPropertyValue('--surface').trim(),
+  };
+  const fmt = iso => new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  const mk = (tag, attrs) => { const n = document.createElementNS(NS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); return n; };
+
+  function draw() {
+    svg.innerHTML = '';
+    const W = svg.clientWidth || 600, H = 240;
+    const m = { t: 10, r: 12, b: 26, l: 34 };
+    const iw = W - m.l - m.r, ih = H - m.t - m.b;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    const maxV = Math.max(1, ...buckets.map(b => Math.max(b.new, b.resolved)));
+    const step = maxV <= 5 ? 1 : Math.ceil(maxV / 4);
+    const top = Math.ceil(maxV / step) * step;
+    const x = i => m.l + (buckets.length === 1 ? iw / 2 : (i / (buckets.length - 1)) * iw);
+    const y = v => m.t + ih - (v / top) * ih;
+
+    for (let v = 0; v <= top; v += step) {
+      svg.appendChild(mk('line', { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), stroke: C.line, 'stroke-width': 1 }));
+      const t = mk('text', { x: m.l - 8, y: y(v) + 4, 'text-anchor': 'end', 'font-size': 11, fill: C.muted });
+      t.textContent = v; svg.appendChild(t);
+    }
+    const labelEvery = Math.max(1, Math.ceil(buckets.length / Math.max(2, Math.floor(iw / 70))));
+    buckets.forEach((b, i) => {
+      if (i % labelEvery !== 0 && i !== buckets.length - 1) return;
+      const t = mk('text', { x: x(i), y: H - 6, 'text-anchor': 'middle', 'font-size': 11, fill: C.muted });
+      t.textContent = fmt(b.start); svg.appendChild(t);
+    });
+
+    const cross = mk('line', { y1: m.t, y2: m.t + ih, stroke: C.muted, 'stroke-width': 1, 'stroke-dasharray': '3 3', visibility: 'hidden' });
+    svg.appendChild(cross);
+    const dots = {};
+    for (const key of ['new', 'resolved']) {
+      const d = buckets.map((b, i) => `${i ? 'L' : 'M'}${x(i)},${y(b[key])}`).join(' ');
+      svg.appendChild(mk('path', { d, fill: 'none', stroke: C[key], 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+      dots[key] = mk('circle', { r: 4, fill: C[key], stroke: C.surface, 'stroke-width': 2, visibility: 'hidden' });
+    }
+    // Resolved drawn last so it rings over New where they overlap.
+    svg.appendChild(dots.new); svg.appendChild(dots.resolved);
+
+    const hit = mk('rect', { x: m.l, y: m.t, width: iw, height: ih, fill: 'transparent' });
+    svg.appendChild(hit);
+    function show(evt) {
+      const r = svg.getBoundingClientRect();
+      const px = (evt.clientX - r.left) * (W / r.width);
+      const i = Math.max(0, Math.min(buckets.length - 1, Math.round(buckets.length === 1 ? 0 : (px - m.l) / iw * (buckets.length - 1))));
+      const b = buckets[i];
+      cross.setAttribute('x1', x(i)); cross.setAttribute('x2', x(i)); cross.setAttribute('visibility', 'visible');
+      for (const key of ['new', 'resolved']) {
+        dots[key].setAttribute('cx', x(i)); dots[key].setAttribute('cy', y(b[key])); dots[key].setAttribute('visibility', 'visible');
+      }
+      const label = gran === 'week' && b.end !== b.start ? `${fmt(b.start)} – ${fmt(b.end)}` : fmt(b.start);
+      tip.innerHTML = `<div class="tip-date">${label}</div>` +
+        `<div class="tip-row"><span class="legend-swatch" style="background:${C.new}"></span>New <strong>${b.new}</strong></div>` +
+        `<div class="tip-row"><span class="legend-swatch" style="background:${C.resolved}"></span>Resolved <strong>${b.resolved}</strong></div>`;
+      tip.style.display = 'block';
+      const sx = x(i) * (r.width / W);
+      const left = sx + 14 + tip.offsetWidth > wrap.clientWidth ? sx - 14 - tip.offsetWidth : sx + 14;
+      tip.style.left = left + 'px';
+      tip.style.top = '8px';
+    }
+    function hide() {
+      tip.style.display = 'none'; cross.setAttribute('visibility', 'hidden');
+      dots.new.setAttribute('visibility', 'hidden'); dots.resolved.setAttribute('visibility', 'hidden');
+    }
+    hit.addEventListener('pointermove', show);
+    hit.addEventListener('pointerdown', show);
+    hit.addEventListener('pointerleave', hide);
+  }
+  draw();
+  let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(draw, 100); });
+})();
+
+// ── Vehicles table: search, repeat-only, column sort ──
+(function() {
+  const table = document.getElementById('plates-table');
+  if (!table) return;
+  const tbody = table.tBodies[0];
+  const filter = document.getElementById('plate-filter');
+  const repeatOnly = document.getElementById('repeat-only');
+  function apply() {
+    const q = filter.value.replace(/\s+/g, '').toUpperCase();
+    for (const tr of tbody.rows) {
+      const ok = (!q || tr.dataset.plate.includes(q)) && (!repeatOnly.checked || tr.dataset.repeat === '1');
+      tr.style.display = ok ? '' : 'none';
+    }
+  }
+  filter.addEventListener('input', apply);
+  repeatOnly.addEventListener('change', apply);
+
+  let sortKey = null, asc = true;
+  table.querySelectorAll('th.sortable').forEach(th => th.addEventListener('click', () => {
+    const key = th.dataset.key;
+    asc = sortKey === key ? !asc : key === 'plate';
+    sortKey = key;
+    const rows = [...tbody.rows];
+    rows.sort((a, b) => {
+      const va = a.dataset[key], vb = b.dataset[key];
+      const cmp = key === 'plate' || key === 'last' ? va.localeCompare(vb) : Number(va) - Number(vb);
+      return asc ? cmp : -cmp;
+    });
+    rows.forEach(r => tbody.appendChild(r));
+  }));
+})();
+</script>
+</body>
+</html>

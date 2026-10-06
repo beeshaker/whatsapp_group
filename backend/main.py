@@ -1,5 +1,7 @@
 import asyncio
+import csv
 import hmac
+import io
 import logging
 import os
 import re
@@ -32,6 +34,7 @@ from database import get_db, init_db, AsyncSessionLocal
 from media import MEDIA_DIR, download_media
 from models import Incident, IncidentCategory, IncidentMedia, IncidentStatusHistory, IncidentUpdate, User, UserGroup, AuditLog, AdminProfile, AdminGroupSubscription
 from odoo_stub import push_incident
+import reports
 from summaries import build_summary, format_whatsapp_summary, window_for_date
 from lead_fields import is_valid_phone, normalize_phone
 from vehicle_plate import is_valid_plate, normalize_plate, resolve_plate_for_issue
@@ -328,6 +331,9 @@ except ValueError:
 templates = Jinja2Templates(
     directory=os.path.join(os.path.dirname(__file__), "templates")
 )
+# _nav.html shows the Reports link only on fleet tenants; a global so every
+# page that includes the nav gets it without passing it explicitly.
+templates.env.globals["fleet_plate_mode"] = FLEET_PLATE_MODE
 
 
 @asynccontextmanager
@@ -2321,6 +2327,130 @@ async def overview(
             "newest_unactioned": newest_unactioned,
             "newest_unactioned_local_times": newest_unactioned_local_times,
         },
+    )
+
+
+async def _role_for(username: str, db: AsyncSession) -> str:
+    user_result = await db.execute(select(User).where(User.username == username))
+    user_obj = user_result.scalar_one_or_none()
+    return user_obj.role if user_obj else "user"
+
+
+@app.get("/reports", response_class=HTMLResponse)
+async def reports_page(
+    request: Request,
+    days: Optional[int] = None,
+    date_from: Optional[str] = Query(None, alias="from"),
+    date_to: Optional[str] = Query(None, alias="to"),
+    username: str = Depends(require_login),
+    db: AsyncSession = Depends(get_db),
+):
+    if not FLEET_PLATE_MODE:
+        raise HTTPException(status_code=404)
+    tz = zoneinfo.ZoneInfo(SUMMARY_TIMEZONE)
+    start, end, first_day, last_day = reports.resolve_range(tz, days, date_from, date_to)
+    allowed = await _get_allowed_groups(username, db)
+    now = datetime.now(timezone.utc)
+
+    overview = await reports.fleet_overview(db, allowed, start, end, first_day, last_day, tz)
+    plates = await reports.plate_table(db, allowed, start, end, now)
+    for p in plates:
+        p["last_reported_local"] = p["last_reported"].astimezone(tz).strftime("%d %b %Y")
+    labels = await reports.category_labels(db)
+
+    custom = bool(date_from and date_to)
+    return templates.TemplateResponse(
+        "reports.html",
+        {
+            "request": request,
+            "username": username,
+            "role": await _role_for(username, db),
+            "overview": overview,
+            "plates": plates,
+            "category_labels": labels,
+            "range_days": None if custom else (days if days in (7, 30, 90) else 30),
+            "first_day": first_day.isoformat(),
+            "last_day": last_day.isoformat(),
+            "repeat_threshold": reports.REPEAT_THRESHOLD,
+            "repeat_window_days": reports.REPEAT_WINDOW_DAYS,
+        },
+    )
+
+
+@app.get("/reports/plate/{plate}", response_class=HTMLResponse)
+async def plate_report_page(
+    plate: str,
+    request: Request,
+    username: str = Depends(require_login),
+    db: AsyncSession = Depends(get_db),
+):
+    if not FLEET_PLATE_MODE or not is_valid_plate(plate):
+        raise HTTPException(status_code=404)
+    plate = normalize_plate(plate)
+    allowed = await _get_allowed_groups(username, db)
+    timeline = await reports.plate_timeline(db, allowed, plate)
+    if not timeline:
+        raise HTTPException(status_code=404)
+    tz = zoneinfo.ZoneInfo(SUMMARY_TIMEZONE)
+    for t in timeline:
+        t["received_local"] = t["received_at"].astimezone(tz).strftime("%d %b %Y, %H:%M")
+        for e in t["events"]:
+            e["at_local"] = e["at"].astimezone(tz).strftime("%d %b %H:%M")
+    return templates.TemplateResponse(
+        "reports_plate.html",
+        {
+            "request": request,
+            "username": username,
+            "role": await _role_for(username, db),
+            "plate": plate,
+            "timeline": timeline,
+            "open_count": sum(1 for t in timeline if t["incident"].status not in reports.OPEN_EXCLUDED),
+            "category_labels": await reports.category_labels(db),
+        },
+    )
+
+
+def _csv_safe(value):
+    # Stop spreadsheet apps from evaluating rider-typed text as a formula.
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
+@app.get("/reports/export.csv")
+async def reports_export(
+    days: Optional[int] = None,
+    date_from: Optional[str] = Query(None, alias="from"),
+    date_to: Optional[str] = Query(None, alias="to"),
+    plate: Optional[str] = None,
+    category: Optional[str] = None,
+    status: Optional[str] = None,
+    username: str = Depends(require_login),
+    db: AsyncSession = Depends(get_db),
+):
+    if not FLEET_PLATE_MODE:
+        raise HTTPException(status_code=404)
+    tz = zoneinfo.ZoneInfo(SUMMARY_TIMEZONE)
+    start, end, first_day, last_day = reports.resolve_range(tz, days, date_from, date_to)
+    if plate:
+        if not is_valid_plate(plate):
+            raise HTTPException(status_code=422, detail="Invalid vehicle plate")
+        plate = normalize_plate(plate)
+    allowed = await _get_allowed_groups(username, db)
+    rows = await reports.export_rows(
+        db, allowed, start, end, tz, plate=plate, category=category or None, status=status or None,
+    )
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(reports.EXPORT_COLUMNS)
+    for row in rows:
+        writer.writerow([_csv_safe(v) for v in row])
+    filename = f"tickets_{first_day.isoformat()}_{last_day.isoformat()}.csv"
+    # BOM so Excel opens the UTF-8 (emoji, Swahili) text correctly.
+    return Response(
+        content="﻿" + buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

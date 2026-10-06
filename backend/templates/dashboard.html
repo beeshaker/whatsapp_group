@@ -1242,10 +1242,11 @@ function init() {
   updateSelectedFilterCounts();
   applyFilters();
   setInterval(poll, POLL_INTERVAL);
-  if (LEAD_MODE) {
+  {
+    // ?lead= from the lead Overview page, ?ticket= from fleet Reports.
     const params = new URLSearchParams(window.location.search);
-    const leadId = parseInt(params.get('lead'), 10);
-    if (leadId) openDetailModal(leadId);
+    const linkedId = parseInt(params.get(LEAD_MODE ? 'lead' : 'ticket'), 10);
+    if (linkedId) openDetailModal(linkedId);
   }
 }
 
