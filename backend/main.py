@@ -2339,7 +2339,7 @@ async def _role_for(username: str, db: AsyncSession) -> str:
 @app.get("/reports", response_class=HTMLResponse)
 async def reports_page(
     request: Request,
-    days: Optional[int] = None,
+    days: Optional[str] = None,
     date_from: Optional[str] = Query(None, alias="from"),
     date_to: Optional[str] = Query(None, alias="to"),
     username: str = Depends(require_login),
@@ -2348,12 +2348,14 @@ async def reports_page(
     if not FLEET_PLATE_MODE:
         raise HTTPException(status_code=404)
     tz = zoneinfo.ZoneInfo(SUMMARY_TIMEZONE)
-    start, end, first_day, last_day = reports.resolve_range(tz, days, date_from, date_to)
     allowed = await _get_allowed_groups(username, db)
+    start, end, first_day, last_day = reports.resolve_range(
+        tz, days, date_from, date_to, earliest=await reports.earliest_day(db, allowed, tz),
+    )
     now = datetime.now(timezone.utc)
 
     overview = await reports.fleet_overview(db, allowed, start, end, first_day, last_day, tz)
-    plates = await reports.plate_table(db, allowed, start, end, now)
+    plates = await reports.plate_table(db, allowed, now)
     for p in plates:
         p["last_reported_local"] = p["last_reported"].astimezone(tz).strftime("%d %b %Y")
     labels = await reports.category_labels(db)
@@ -2368,7 +2370,7 @@ async def reports_page(
             "overview": overview,
             "plates": plates,
             "category_labels": labels,
-            "range_days": None if custom else (days if days in (7, 30, 90) else 30),
+            "range_days": None if custom else reports.normalize_days(days),
             "first_day": first_day.isoformat(),
             "last_day": last_day.isoformat(),
             "repeat_threshold": reports.REPEAT_THRESHOLD,
@@ -2419,7 +2421,7 @@ def _csv_safe(value):
 
 @app.get("/reports/export.csv")
 async def reports_export(
-    days: Optional[int] = None,
+    days: Optional[str] = None,
     date_from: Optional[str] = Query(None, alias="from"),
     date_to: Optional[str] = Query(None, alias="to"),
     plate: Optional[str] = None,
@@ -2430,13 +2432,15 @@ async def reports_export(
 ):
     if not FLEET_PLATE_MODE:
         raise HTTPException(status_code=404)
-    tz = zoneinfo.ZoneInfo(SUMMARY_TIMEZONE)
-    start, end, first_day, last_day = reports.resolve_range(tz, days, date_from, date_to)
     if plate:
         if not is_valid_plate(plate):
             raise HTTPException(status_code=422, detail="Invalid vehicle plate")
         plate = normalize_plate(plate)
+    tz = zoneinfo.ZoneInfo(SUMMARY_TIMEZONE)
     allowed = await _get_allowed_groups(username, db)
+    start, end, first_day, last_day = reports.resolve_range(
+        tz, days, date_from, date_to, earliest=await reports.earliest_day(db, allowed, tz),
+    )
     rows = await reports.export_rows(
         db, allowed, start, end, tz, plate=plate, category=category or None, status=status or None,
     )

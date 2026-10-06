@@ -60,7 +60,7 @@
       <div class="page-title">{{ plate }}</div>
       <div class="page-subtitle">{{ timeline | length }} ticket{{ '' if timeline | length == 1 else 's' }} · {{ open_count }} open</div>
     </div>
-    <a class="btn btn-ghost" href="/reports/export.csv?days=90&plate={{ plate }}">⬇ Export last 90 days</a>
+    <a class="btn btn-ghost" href="/reports/export.csv?days=all&plate={{ plate }}">⬇ Export full history</a>
   </div>
 
   {% for t in timeline %}

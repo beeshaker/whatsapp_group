@@ -30,16 +30,29 @@ def _scope(q, allowed: Optional[list[str]]):
     return q.where(Incident.group_id.in_(allowed)) if allowed is not None else q
 
 
+RANGE_CHOICES = ("7", "30", "90", "all")
+
+
+def normalize_days(days: Optional[str]) -> str:
+    return days if days in RANGE_CHOICES else "30"
+
+
+async def earliest_day(db: AsyncSession, allowed: Optional[list[str]], tz: tzinfo) -> Optional[date]:
+    first = (await db.execute(_scope(select(func.min(Incident.received_at)), allowed))).scalar_one()
+    return _aware(first).astimezone(tz).date() if first else None
+
+
 def resolve_range(
     tz: tzinfo,
-    days: Optional[int] = None,
+    days: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    earliest: Optional[date] = None,
 ) -> tuple[datetime, datetime, date, date]:
     """Returns (start, end, first_day, last_day): start/end are the UTC
     instants of local midnight on first_day and the day after last_day.
-    Custom from/to wins when both parse; otherwise the last `days` days
-    (default 30) ending today."""
+    Custom from/to wins when both parse; otherwise `days` ("7", "30", "90",
+    default "30") ending today, or "all" from `earliest` (the first ticket)."""
     today = datetime.now(tz).date()
     first = last = None
     if date_from and date_to:
@@ -50,9 +63,12 @@ def resolve_range(
         if first and last and first > last:
             first, last = last, first
     if first is None:
-        span = days if days in (7, 30, 90) else 30
+        days = normalize_days(days)
         last = today
-        first = today - timedelta(days=span - 1)
+        if days == "all":
+            first = min(earliest or today, today)
+        else:
+            first = today - timedelta(days=int(days) - 1)
     # Bounds go to the DB as UTC: SQLite drops the offset of an aware
     # parameter rather than converting it, and rows are stored as UTC.
     start = datetime.combine(first, datetime.min.time(), tzinfo=tz).astimezone(timezone.utc)
@@ -112,9 +128,10 @@ async def fleet_overview(
 
 
 def _trend(received, resolved, first_day: date, last_day: date, tz: tzinfo) -> dict:
-    """Daily buckets up to 31 days, weekly (7-day, starting at first_day) beyond."""
+    """Daily buckets up to 31 days, weekly up to ~6 months, 4-weekly beyond;
+    buckets start at first_day."""
     span = (last_day - first_day).days + 1
-    step = 1 if span <= 31 else 7
+    step = 1 if span <= 31 else 7 if span <= 182 else 28
     n = (span + step - 1) // step
 
     def bucket(dt: datetime) -> int:
@@ -140,56 +157,73 @@ def _trend(received, resolved, first_day: date, last_day: date, tz: tzinfo) -> d
             "new": new_counts[i],
             "resolved": resolved_counts[i],
         })
-    return {"granularity": "day" if step == 1 else "week", "buckets": buckets}
+    granularity = {1: "day", 7: "week", 28: "4 weeks"}[step]
+    return {"granularity": granularity, "buckets": buckets}
 
 
 async def plate_table(
     db: AsyncSession,
     allowed: Optional[list[str]],
-    start: datetime,
-    end: datetime,
     now: datetime,
 ) -> list[dict]:
-    """One row per plate that has any ticket. `tickets` and `top_category`
-    use the selected range; `open`, `last_reported` and the repeat flag
-    (REPEAT_THRESHOLD+ tickets in the last REPEAT_WINDOW_DAYS) do not."""
+    """One row per plate that has any ticket, over its whole history.
+
+    In fleet mode a new message about a plate that already has an open ticket
+    becomes a follow-up on that ticket, not a new ticket, so a bike's ticket
+    count understates how often it is reported. `reports` counts tickets plus
+    follow-up messages, and the repeat flag uses reports in the last
+    REPEAT_WINDOW_DAYS."""
     rows = (await db.execute(_scope(
         select(Incident.vehicle_plate, Incident.category, Incident.status, Incident.received_at)
+        .where(Incident.vehicle_plate.isnot(None)),
+        allowed,
+    ))).all()
+    update_rows = (await db.execute(_scope(
+        select(Incident.vehicle_plate, IncidentUpdate.received_at)
+        .join(Incident, Incident.id == IncidentUpdate.incident_id)
         .where(Incident.vehicle_plate.isnot(None)),
         allowed,
     ))).all()
 
     repeat_since = _aware(now) - timedelta(days=REPEAT_WINDOW_DAYS)
     plates: dict[str, dict] = {}
-    for plate, category, status, received_at in rows:
-        received_at = _aware(received_at)
-        p = plates.setdefault(plate, {
-            "plate": plate, "tickets": 0, "open": 0, "recent": 0,
+
+    def entry(plate: str) -> dict:
+        return plates.setdefault(plate, {
+            "plate": plate, "tickets": 0, "reports": 0, "open": 0, "recent": 0,
             "last_reported": None, "categories": Counter(),
         })
+
+    def report(p: dict, at: datetime) -> None:
+        p["reports"] += 1
+        if at >= repeat_since:
+            p["recent"] += 1
+        if p["last_reported"] is None or at > p["last_reported"]:
+            p["last_reported"] = at
+
+    for plate, category, status, received_at in rows:
+        p = entry(plate)
+        p["tickets"] += 1
+        p["categories"][category] += 1
         if status not in OPEN_EXCLUDED:
             p["open"] += 1
-        if received_at >= repeat_since:
-            p["recent"] += 1
-        if p["last_reported"] is None or received_at > p["last_reported"]:
-            p["last_reported"] = received_at
-        if start <= received_at < end:
-            p["tickets"] += 1
-            p["categories"][category] += 1
+        report(p, _aware(received_at))
+    for plate, received_at in update_rows:
+        report(entry(plate), _aware(received_at))
 
     result = []
     for p in plates.values():
-        top = p["categories"].most_common(1)
         result.append({
             "plate": p["plate"],
             "tickets": p["tickets"],
+            "reports": p["reports"],
             "open": p["open"],
             "recent": p["recent"],
             "repeat": p["recent"] >= REPEAT_THRESHOLD,
             "last_reported": p["last_reported"],
-            "top_category": top[0][0] if top else None,
+            "top_category": p["categories"].most_common(1)[0][0],
         })
-    result.sort(key=lambda r: (-r["open"], -r["tickets"], r["plate"]))
+    result.sort(key=lambda r: (-r["recent"], -r["reports"], r["plate"]))
     return result
 
 

@@ -110,7 +110,7 @@ async def non_fleet_admin(monkeypatch):
 # ── reports.py ──
 
 async def test_fleet_overview_counts(seeded, db_session):
-    start, end, first, last = reports.resolve_range(NAIROBI, 30)
+    start, end, first, last = reports.resolve_range(NAIROBI, "30")
     ov = await reports.fleet_overview(db_session, None, start, end, first, last, NAIROBI)
     assert ov["open_count"] == 5          # 3 A + C + unassigned
     assert ov["vehicles_open"] == 2       # A and C
@@ -125,7 +125,7 @@ async def test_fleet_overview_counts(seeded, db_session):
 
 
 async def test_trend_switches_to_weekly_over_31_days(seeded, db_session):
-    start, end, first, last = reports.resolve_range(NAIROBI, 90)
+    start, end, first, last = reports.resolve_range(NAIROBI, "90")
     ov = await reports.fleet_overview(db_session, None, start, end, first, last, NAIROBI)
     assert ov["trend"]["granularity"] == "week"
     assert len(ov["trend"]["buckets"]) == 13
@@ -133,25 +133,59 @@ async def test_trend_switches_to_weekly_over_31_days(seeded, db_session):
     assert sum(b["new"] for b in ov["trend"]["buckets"]) == 6
 
 
-async def test_plate_table_flags_repeat_and_uses_range(seeded, db_session):
-    start, end, _, _ = reports.resolve_range(NAIROBI, 30)
+async def test_plate_table_is_full_history(seeded, db_session):
     rows = {r["plate"]: r for r in await reports.plate_table(
-        db_session, None, start, end, datetime.now(timezone.utc))}
+        db_session, None, datetime.now(timezone.utc))}
     assert set(rows) == {"KAAA111A", "KBBB222B", "KCCC333C"}
     assert rows["KAAA111A"] | {"last_reported": None} == {
-        "plate": "KAAA111A", "tickets": 3, "open": 3, "recent": 3, "repeat": True,
-        "last_reported": None, "top_category": "brakes",
+        "plate": "KAAA111A", "tickets": 3, "reports": 4, "open": 3, "recent": 4,
+        "repeat": True, "last_reported": None, "top_category": "brakes",
     }
     assert rows["KBBB222B"]["open"] == 0 and rows["KBBB222B"]["repeat"] is False
-    assert rows["KCCC333C"]["tickets"] == 0 and rows["KCCC333C"]["open"] == 1
-    assert rows["KCCC333C"]["top_category"] is None
+    # 60 days old: still listed with its ticket and category, just not recent.
+    c = rows["KCCC333C"]
+    assert (c["tickets"], c["reports"], c["recent"], c["top_category"]) == (1, 1, 0, "brakes")
+
+
+async def test_repeat_flag_counts_follow_ups_on_one_ticket(db_session):
+    """Fleet routing turns repeat reports of an open bike into follow-ups, so
+    one ticket with 2 follow-ups in 30 days is a repeat vehicle."""
+    t = _incident(vehicle_plate="KDDD444D", received_at=_ago(days=10))
+    db_session.add(t)
+    await db_session.flush()
+    for d in (6, 2):
+        db_session.add(IncidentUpdate(incident_id=t.id, message_body="again", received_at=_ago(days=d)))
+    db_session.add(IncidentUpdate(incident_id=t.id, message_body="latest", received_at=_ago(days=1)))
+    await db_session.commit()
+    [row] = await reports.plate_table(db_session, None, datetime.now(timezone.utc))
+    assert (row["tickets"], row["reports"], row["recent"], row["repeat"]) == (1, 4, 4, True)
+    assert row["last_reported"] > _ago(days=1, minutes=1)
+
+
+async def test_all_time_range_starts_at_first_ticket(seeded, db_session):
+    earliest = await reports.earliest_day(db_session, None, NAIROBI)
+    assert earliest == _ago(days=60).astimezone(NAIROBI).date()
+    start, end, first, last = reports.resolve_range(NAIROBI, "all", earliest=earliest)
+    assert first == earliest
+    ov = await reports.fleet_overview(db_session, None, start, end, first, last, NAIROBI)
+    assert ov["new_in_range"] == 6
+    assert ov["trend"]["granularity"] == "week"
+
+
+def test_trend_uses_4_week_buckets_beyond_6_months():
+    from datetime import date
+    t = reports._trend([], [], date(2026, 1, 1), date(2026, 10, 1), NAIROBI)
+    assert t["granularity"] == "4 weeks"
+    assert t["buckets"][-1]["end"] == "2026-10-01"
 
 
 def test_resolve_range_custom_dates_and_fallback():
     _, _, first, last = reports.resolve_range(NAIROBI, None, "2026-09-30", "2026-09-01")
     assert (first.isoformat(), last.isoformat()) == ("2026-09-01", "2026-09-30")
-    _, _, first, last = reports.resolve_range(NAIROBI, 45, "bad", "2026-09-01")
+    _, _, first, last = reports.resolve_range(NAIROBI, "45", "bad", "2026-09-01")
     assert (last - first).days == 29     # unsupported days -> 30
+    _, _, first, last = reports.resolve_range(NAIROBI, "all", earliest=None)
+    assert first == last                 # no tickets yet -> just today
 
 
 # ── routes ──
@@ -235,3 +269,15 @@ async def test_export_csv_filters(seeded, fleet_admin):
 async def test_export_csv_scoped_to_user_groups(seeded, fleet_g1_user):
     rows = _parse_csv((await fleet_g1_user.get("/reports/export.csv")).text)
     assert seeded["b"] not in {int(r[0]) for r in rows[1:]}
+
+
+async def test_export_csv_all_time(seeded, fleet_admin):
+    rows = _parse_csv((await fleet_admin.get("/reports/export.csv?days=all")).text)
+    assert seeded["c"] in {int(r[0]) for r in rows[1:]}
+    assert len(rows) == 7                # header + all 6 tickets
+
+
+async def test_reports_page_all_time_chip(seeded, fleet_admin):
+    html = (await fleet_admin.get("/reports?days=all")).text
+    assert 'class="range-chip active" href="/reports?days=all"' in html
+    assert 'id="stat-new">6<' in html
