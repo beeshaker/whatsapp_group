@@ -36,6 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import httpx
 from sqlalchemy import func, select
 
+import contacts
 import main
 import whatsapp
 from database import AsyncSessionLocal
@@ -135,8 +136,8 @@ async def run(
         group_id = m.get("chatId") or m["from"]
         received_at = datetime.fromtimestamp(m["timestamp"], tz=timezone.utc)
         body = m["body"].strip()[:4000]
-        reporter_name = (m.get("notifyName") or "").strip() or "Unknown"
         reporter_phone = (m.get("author") or "").split("@")[0].strip() or None
+        reporter_name = (m.get("notifyName") or "").strip() or "Unknown"
         group_name = group_names.get(group_id) or group_id.split("@")[0]
         print(f"[{n}/{len(candidates)}] {received_at:%Y-%m-%d %H:%M} | {group_name} | {reporter_name} | {body[:70]!r}")
         if not apply:
@@ -146,6 +147,8 @@ async def run(
             if await _already_ingested(db, group_id, received_at):
                 status = "duplicate"
             else:
+                reporter_name = await contacts.resolve_reporter_name(db, reporter_phone, m.get("notifyName"))
+                await contacts.learn(db, reporter_phone, m.get("notifyName"))
                 outcome = await main._handle_text_ingest(
                     db, group_id, group_name, reporter_name, reporter_phone,
                     body, received_at, m.get("id") or None,

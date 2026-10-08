@@ -488,6 +488,126 @@ describe('BaileysAdapter', () => {
     });
   });
 
+  describe('contact directory (sender resolution)', () => {
+    const lidMsg = (id: string, overrides: Record<string, any> = {}) => ({
+      key: { remoteJid: '123@g.us', participant: '111@lid', id, fromMe: false },
+      message: { conversation: `body ${id}` },
+      messageTimestamp: 1782300000,
+      ...overrides,
+    });
+
+    it('resolves an @lid history sender and name from the contacts in the same sync', async () => {
+      const { handlers } = setupMockSock();
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      await adapter.initialize({});
+      handlers['messaging-history.set']({
+        messages: [lidMsg('h-1')],
+        chats: [],
+        contacts: [{ id: '111@lid', jid: '254711223344@s.whatsapp.net', name: 'Jane Rider' }],
+        isLatest: true,
+      });
+      const historyFile = path.join(tmpDir, 'history', 'test.jsonl');
+      await waitFor(() => fs.existsSync(historyFile));
+
+      expect(await adapter.getHistory()).toEqual([
+        expect.objectContaining({ id: 'h-1', author: '254711223344@c.us', notifyName: 'Jane Rider' }),
+      ]);
+    });
+
+    it('resolves saved history whose mapping is only learned later', async () => {
+      const { handlers } = setupMockSock();
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      await adapter.initialize({});
+      handlers['messaging-history.set']({ messages: [lidMsg('h-1')], chats: [], contacts: [], isLatest: true });
+      const historyFile = path.join(tmpDir, 'history', 'test.jsonl');
+      await waitFor(() => fs.existsSync(historyFile));
+      expect((await adapter.getHistory())[0].author).toBe('111@lid');
+
+      handlers['contacts.upsert']([{ id: '111@lid', jid: '254711223344@s.whatsapp.net', notify: 'Jane' }]);
+
+      expect(await adapter.getHistory()).toEqual([
+        expect.objectContaining({ author: '254711223344@c.us', notifyName: 'Jane' }),
+      ]);
+    });
+
+    it('fills a missing pushName on a live message from group participants', async () => {
+      const { mockSock, handlers } = setupMockSock();
+      mockSock.groupFetchAllParticipating = jest.fn().mockResolvedValue({
+        '123@g.us': {
+          id: '123@g.us',
+          subject: 'Riders',
+          participants: [{ id: '111@lid', jid: '254711223344@s.whatsapp.net' }],
+        },
+      });
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      const onMessage = jest.fn();
+      await adapter.initialize({ onMessage });
+      handlers_forceReady(adapter, mockSock);
+      await waitFor(() => mockSock.groupFetchAllParticipating.mock.calls.length > 0);
+      await new Promise(resolve => setImmediate(resolve));
+
+      handlers['messages.upsert']({ messages: [lidMsg('m-1', { pushName: 'Jane' })] });
+      handlers['messages.upsert']({ messages: [lidMsg('m-2')] });
+      await waitFor(() => onMessage.mock.calls.length === 2);
+
+      expect(onMessage.mock.calls[0][0]).toEqual(
+        expect.objectContaining({ author: '254711223344@c.us', notifyName: 'Jane' }),
+      );
+      expect(onMessage.mock.calls[1][0]).toEqual(
+        expect.objectContaining({ author: '254711223344@c.us', notifyName: 'Jane' }),
+      );
+    });
+
+    it('learns the mapping from participantPn on a message key', async () => {
+      const { handlers } = setupMockSock();
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      const onMessage = jest.fn();
+      await adapter.initialize({ onMessage });
+
+      handlers['messages.upsert']({
+        messages: [
+          lidMsg('m-1', {
+            key: {
+              remoteJid: '123@g.us',
+              participant: '111@lid',
+              participantPn: '254711223344@s.whatsapp.net',
+              id: 'm-1',
+              fromMe: false,
+            },
+            pushName: 'Jane',
+          }),
+        ],
+      });
+      handlers['messages.upsert']({ messages: [lidMsg('m-2')] });
+      await waitFor(() => onMessage.mock.calls.length === 2);
+
+      expect(onMessage.mock.calls[1][0]).toEqual(
+        expect.objectContaining({ author: '254711223344@c.us', notifyName: 'Jane' }),
+      );
+    });
+
+    it('lists learned contacts from getContacts()', async () => {
+      const { handlers } = setupMockSock();
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      await adapter.initialize({});
+      handlers['contacts.upsert']([
+        { id: '254711223344@s.whatsapp.net', name: 'Jane Rider', notify: 'jd' },
+        { id: '999@lid', notify: 'Unmapped' },
+      ]);
+
+      expect(await adapter.getContacts()).toEqual([
+        {
+          id: '254711223344@c.us',
+          name: 'Jane Rider',
+          pushName: 'jd',
+          number: '254711223344',
+          isMyContact: true,
+          isBlocked: false,
+        },
+      ]);
+    });
+  });
+
   describe('messages.reaction handling', () => {
     it('emits an IncomingReaction with chatId/senderId from the outer key and target info from reaction.key', async () => {
       const { handlers } = setupMockSock();

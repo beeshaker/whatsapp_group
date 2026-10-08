@@ -146,7 +146,7 @@ async def test_plate_table_all_time_is_full_history(seeded, db_session):
     assert set(rows) == {"KAAA111A", "KBBB222B", "KCCC333C"}
     assert rows["KAAA111A"] | {"last_reported": None} == {
         "plate": "KAAA111A", "tickets": 3, "reports": 4, "open": 3, "recent": 4,
-        "repeat": True, "last_reported": None, "top_category": "brakes",
+        "repeat": True, "last_reported": None, "top_category": "brakes", "cost": 0.0,
     }
     assert rows["KBBB222B"]["open"] == 0 and rows["KBBB222B"]["repeat"] is False
     # 60 days old: still listed with its ticket and category, just not recent.

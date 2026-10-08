@@ -70,6 +70,26 @@ async def list_groups() -> list[dict] | None:
         return None
 
 
+async def list_contacts() -> list[dict] | None:
+    """Contacts the WhatsApp session knows: [{id, number, name, pushName}, ...].
+
+    Returns None (never raises) if the session can't be resolved or OpenWA
+    is unreachable.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            session_id = await _resolve_session_uuid(client)
+            response = await client.get(
+                f"{OPENWA_URL}/api/sessions/{session_id}/contacts",
+                headers={"X-API-Key": OPENWA_API_KEY},
+            )
+            response.raise_for_status()
+            return response.json()
+    except Exception as exc:
+        logger.warning("Failed to fetch WhatsApp contacts: %s", exc)
+        return None
+
+
 async def send_group_message(chat_id: str, text: str) -> str:
     """Send a plain text message to a WhatsApp group."""
     return await _post_message("messages/send-text", {"chatId": chat_id, "text": text})

@@ -1,6 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Optional
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from database import Base
 
@@ -67,6 +68,26 @@ class IncidentMedia(Base):
     mimetype: Mapped[str] = mapped_column(Text, nullable=False)
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class IncidentCost(Base):
+    """One repair/resolution expense on a ticket (a ticket can have several,
+    e.g. parts and labour on separate invoices), optionally with a receipt."""
+    __tablename__ = "incident_costs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    incident_id: Mapped[int] = mapped_column(Integer, ForeignKey("incidents.id"), nullable=False, index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="KES", server_default="KES")
+    cost_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    vendor: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    incurred_on: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    receipt_filename: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    receipt_mimetype: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    receipt_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class IncidentStatusHistory(Base):
@@ -144,3 +165,16 @@ class IncidentCategory(Base):
     label: Mapped[str] = mapped_column(Text, nullable=False)
     is_protected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class Contact(Base):
+    """Display name for a WhatsApp sender's phone number. `source` is
+    "whatsapp" (learned from WhatsApp, may be refreshed) or "manual" (set by
+    an admin on the Contacts page, never overwritten by WhatsApp)."""
+    __tablename__ = "contacts"
+
+    phone: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(String(10), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

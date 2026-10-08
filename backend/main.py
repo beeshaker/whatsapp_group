@@ -8,6 +8,8 @@ import re
 import sys
 import zoneinfo
 
+from decimal import Decimal, InvalidOperation
+
 import httpx
 from contextlib import asynccontextmanager
 from datetime import date as _date, datetime, timedelta, timezone
@@ -16,13 +18,13 @@ from typing import Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request, status
+from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, field_validator
-from sqlalchemy import func, select, update as sa_update
+from sqlalchemy import delete, func, select, update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
@@ -31,14 +33,15 @@ from auth import require_login, require_admin, require_super_admin, hash_passwor
 from chat import answer_query, answer_sales_query
 from classifier import classify_message, classify_update_or_new, _VALID_TRANSACTION_TYPES
 from database import get_db, init_db, AsyncSessionLocal
-from media import MEDIA_DIR, download_media
-from models import Incident, IncidentCategory, IncidentMedia, IncidentStatusHistory, IncidentUpdate, User, UserGroup, AuditLog, AdminProfile, AdminGroupSubscription
+from media import MEDIA_DIR, download_media, save_upload
+from models import Contact, Incident, IncidentCategory, IncidentCost, IncidentMedia, IncidentStatusHistory, IncidentUpdate, User, UserGroup, AuditLog, AdminProfile, AdminGroupSubscription
 from odoo_stub import push_incident
+import contacts
 import reports
 from summaries import build_summary, format_whatsapp_summary, window_for_date
 from lead_fields import is_valid_phone, normalize_phone
 from vehicle_plate import is_valid_plate, normalize_plate, resolve_plate_for_issue
-from whatsapp import reply_to_message, send_group_message, list_groups as list_whatsapp_groups
+from whatsapp import reply_to_message, send_group_message, list_contacts as list_whatsapp_contacts, list_groups as list_whatsapp_groups
 
 _VALID_STATUSES = {"new", "review", "acknowledged", "resolved", "ignored"}
 _VALID_PRIORITIES = {"low", "medium", "high", "urgent"}
@@ -67,6 +70,14 @@ class CreateUserBody(BaseModel):
 
 class GroupAssignBody(BaseModel):
     group_ids: list[str]
+
+
+class PasswordResetBody(BaseModel):
+    password: str
+
+
+class ContactNameBody(BaseModel):
+    name: Optional[str] = None
 
 
 class TicketGroupAddBody(BaseModel):
@@ -334,6 +345,14 @@ templates = Jinja2Templates(
 # _nav.html shows the Reports link only on fleet tenants; a global so every
 # page that includes the nav gets it without passing it explicitly.
 templates.env.globals["fleet_plate_mode"] = FLEET_PLATE_MODE
+
+
+def _kes(amount) -> str:
+    amount = float(amount or 0)
+    return f"KES {amount:,.0f}" if amount == int(amount) else f"KES {amount:,.2f}"
+
+
+templates.env.filters["kes"] = _kes
 
 
 @asynccontextmanager
@@ -1182,8 +1201,9 @@ async def ingest(
     # of whichever message claimed that null slot first.
     message_id: Optional[str] = data.get("id") or payload.get("deliveryId") or None
 
-    reporter_name = (data.get("notifyName") or "").strip() or "Unknown"
     reporter_phone = (data.get("author") or "").split("@")[0].strip() or None
+    reporter_name = await contacts.resolve_reporter_name(db, reporter_phone, data.get("notifyName"))
+    await contacts.learn(db, reporter_phone, data.get("notifyName"))
     epoch = data.get("timestamp") or datetime.now(timezone.utc).timestamp()
     received_at = datetime.fromtimestamp(epoch, tz=timezone.utc)
 
@@ -1406,6 +1426,7 @@ async def get_incident_detail(
         "status_history": history_rows,
         "audit_log": audit_rows,
         "sibling_tickets": sibling_tickets,
+        **(await _costs_payload(db, incident_id) if FLEET_PLATE_MODE else {}),
     }
 
 
@@ -1770,6 +1791,269 @@ async def reply_to_incident(
     }
 
 
+COST_TYPES = ("parts", "labour", "towing", "other")
+_RECEIPT_MAX_BYTES = 10 * 1024 * 1024
+RECEIPTS_DIR = os.path.join(MEDIA_DIR, "receipts")
+
+
+def _cost_row(c: IncidentCost) -> dict:
+    return {
+        "id": c.id,
+        "amount": float(c.amount),
+        "currency": c.currency,
+        "cost_type": c.cost_type,
+        "description": c.description,
+        "vendor": c.vendor,
+        "incurred_on": c.incurred_on.isoformat(),
+        "receipt_filename": c.receipt_filename,
+        "receipt_url": f"/costs/{c.id}/receipt" if c.receipt_path else None,
+        "created_by": c.created_by,
+        "created_at": c.created_at.isoformat(),
+    }
+
+
+async def _costs_payload(db: AsyncSession, incident_id: int) -> dict:
+    result = await db.execute(
+        select(IncidentCost)
+        .where(IncidentCost.incident_id == incident_id)
+        .order_by(IncidentCost.incurred_on.asc(), IncidentCost.id.asc())
+    )
+    costs = result.scalars().all()
+    return {
+        "costs": [_cost_row(c) for c in costs],
+        "cost_total": float(sum((c.amount for c in costs), Decimal("0"))),
+    }
+
+
+def _require_fleet_mode() -> None:
+    if not FLEET_PLATE_MODE:
+        raise HTTPException(status_code=404, detail="Not found")
+
+
+@app.get("/incidents/{incident_id}/costs")
+async def list_incident_costs(
+    incident_id: int,
+    username: str = Depends(require_login),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_fleet_mode()
+    if not await db.get(Incident, incident_id):
+        raise HTTPException(status_code=404, detail="Incident not found")
+    await check_incident_group_access(username, incident_id, db)
+    return await _costs_payload(db, incident_id)
+
+
+@app.post("/incidents/{incident_id}/costs", status_code=201)
+async def add_incident_cost(
+    incident_id: int,
+    amount: str = Form(...),
+    cost_type: str = Form(...),
+    incurred_on: str = Form(...),
+    description: Optional[str] = Form(None),
+    vendor: Optional[str] = Form(None),
+    receipt: Optional[UploadFile] = File(None),
+    actor: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_fleet_mode()
+    if not await db.get(Incident, incident_id):
+        raise HTTPException(status_code=404, detail="Incident not found")
+    await check_incident_group_access(actor, incident_id, db)
+
+    try:
+        value = Decimal(amount.replace(",", "").strip()).quantize(Decimal("0.01"))
+    except (InvalidOperation, ValueError):
+        raise HTTPException(status_code=422, detail="amount must be a number")
+    if not value.is_finite() or value <= 0 or value >= Decimal("10000000000"):
+        raise HTTPException(status_code=422, detail="amount must be greater than 0")
+    if cost_type not in COST_TYPES:
+        raise HTTPException(status_code=422, detail=f"cost_type must be one of {list(COST_TYPES)}")
+    try:
+        day = _date.fromisoformat(incurred_on)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="incurred_on must be a date (YYYY-MM-DD)")
+
+    cost = IncidentCost(
+        incident_id=incident_id,
+        amount=value,
+        currency="KES",
+        cost_type=cost_type,
+        description=(description or "").strip()[:500] or None,
+        vendor=(vendor or "").strip()[:200] or None,
+        incurred_on=day,
+        created_by=actor,
+        created_at=datetime.now(timezone.utc),
+    )
+
+    if receipt is not None and receipt.filename:
+        mimetype = (receipt.content_type or "").split(";")[0].strip()
+        if not (mimetype.startswith("image/") or mimetype == "application/pdf"):
+            raise HTTPException(status_code=422, detail="receipt must be an image or PDF")
+        data = await receipt.read(_RECEIPT_MAX_BYTES + 1)
+        if len(data) > _RECEIPT_MAX_BYTES:
+            raise HTTPException(status_code=413, detail="receipt must be 10 MB or smaller")
+        _, file_path = await save_upload(data, mimetype, RECEIPTS_DIR)
+        cost.receipt_filename = os.path.basename(receipt.filename)[:200]
+        cost.receipt_mimetype = mimetype
+        cost.receipt_path = file_path
+
+    db.add(cost)
+    db.add(AuditLog(
+        username=actor,
+        action="cost_add",
+        incident_id=incident_id,
+        detail=f"{cost_type} KES {value:,.2f}" + (f" ({cost.vendor})" if cost.vendor else ""),
+        created_at=cost.created_at,
+    ))
+    await db.commit()
+    await db.refresh(cost)
+    return _cost_row(cost)
+
+
+@app.post("/incidents/{incident_id}/costs/{cost_id}/delete")
+async def delete_incident_cost(
+    incident_id: int,
+    cost_id: int,
+    actor: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_fleet_mode()
+    cost = await db.get(IncidentCost, cost_id)
+    if not cost or cost.incident_id != incident_id:
+        raise HTTPException(status_code=404, detail="Cost not found")
+    await check_incident_group_access(actor, incident_id, db)
+    receipt_path = cost.receipt_path
+    await db.delete(cost)
+    db.add(AuditLog(
+        username=actor,
+        action="cost_delete",
+        incident_id=incident_id,
+        detail=f"{cost.cost_type} KES {cost.amount:,.2f}",
+        created_at=datetime.now(timezone.utc),
+    ))
+    await db.commit()
+    if receipt_path and _within_media_dir(receipt_path) and os.path.exists(receipt_path):
+        os.remove(receipt_path)
+    return {"deleted": cost_id}
+
+
+def _within_media_dir(path: str) -> bool:
+    return os.path.realpath(path).startswith(os.path.realpath(MEDIA_DIR) + os.sep)
+
+
+@app.get("/costs/{cost_id}/receipt")
+async def serve_cost_receipt(
+    cost_id: int,
+    username: str = Depends(require_login),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_fleet_mode()
+    cost = await db.get(IncidentCost, cost_id)
+    if not cost or not cost.receipt_path:
+        raise HTTPException(status_code=404, detail="Receipt not found")
+    await check_incident_group_access(username, cost.incident_id, db)
+    if not _within_media_dir(cost.receipt_path):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if not os.path.exists(cost.receipt_path):
+        raise HTTPException(status_code=404, detail="Receipt file not found on disk")
+    return FileResponse(
+        cost.receipt_path,
+        media_type=cost.receipt_mimetype or "application/octet-stream",
+        filename=cost.receipt_filename,
+        content_disposition_type="inline",
+    )
+
+
+@app.get("/contacts", response_class=HTMLResponse)
+async def contacts_page(
+    request: Request,
+    username: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    return templates.TemplateResponse(
+        "contacts.html",
+        {"request": request, "username": username, "role": await _role_for(username, db)},
+    )
+
+
+@app.get("/api/contacts")
+async def list_contacts_api(
+    _: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Every phone that has sent a ticket or update, with its current name."""
+    people: dict[str, dict] = {}
+    for model in (Incident, IncidentUpdate):
+        rows = await db.execute(
+            select(model.reporter_phone, model.reporter_name, model.received_at)
+            .where(model.reporter_phone.isnot(None))
+        )
+        for phone, name, received_at in rows.all():
+            p = people.setdefault(phone, {"messages": 0, "last_seen": None, "seen_name": None})
+            p["messages"] += 1
+            received_at = received_at if received_at.tzinfo else received_at.replace(tzinfo=timezone.utc)
+            if p["last_seen"] is None or received_at > p["last_seen"]:
+                p["last_seen"] = received_at
+                if name and name != contacts.UNKNOWN:
+                    p["seen_name"] = name
+            elif not p["seen_name"] and name and name != contacts.UNKNOWN:
+                p["seen_name"] = name
+    known = {c.phone: c for c in (await db.execute(select(Contact))).scalars().all()}
+    result = []
+    for phone, p in people.items():
+        c = known.get(phone)
+        result.append({
+            "phone": phone,
+            "name": c.name if c else p["seen_name"],
+            "source": c.source if c else ("whatsapp" if p["seen_name"] else None),
+            "unresolved_id": contacts.looks_like_lid(phone),
+            "messages": p["messages"],
+            "last_seen": p["last_seen"].isoformat(),
+        })
+    # Unnamed senders first (they need attention), most recent first within each.
+    result.sort(key=lambda r: r["last_seen"], reverse=True)
+    result.sort(key=lambda r: r["name"] is not None)
+    return result
+
+
+@app.post("/api/contacts/sync")
+async def sync_contacts(
+    actor: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Pull names from the WhatsApp session and fill every still-Unknown sender."""
+    wa_contacts = await list_whatsapp_contacts()
+    if wa_contacts is None:
+        raise HTTPException(status_code=502, detail="Could not reach WhatsApp; check Settings → WhatsApp status")
+    learned = 0
+    for c in wa_contacts:
+        phone = (c.get("number") or (c.get("id") or "").split("@")[0]).strip()
+        if await contacts.learn(db, phone or None, c.get("name") or c.get("pushName")):
+            learned += 1
+    return {"contacts": len(wa_contacts), "learned": learned}
+
+
+@app.post("/api/contacts/{phone}")
+async def set_contact_name(
+    phone: str,
+    body: ContactNameBody,
+    actor: str = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    if not phone.isdigit() or len(phone) > 20:
+        raise HTTPException(status_code=422, detail="phone must be digits only")
+    renamed = await contacts.set_manual_name(db, phone, body.name, actor)
+    db.add(AuditLog(
+        username=actor,
+        action="contact_name",
+        incident_id=0,
+        detail=f"{phone} → {(body.name or '').strip() or '(cleared)'}",
+        created_at=datetime.now(timezone.utc),
+    ))
+    await db.commit()
+    return {"phone": phone, "name": (body.name or "").strip() or None, "renamed_rows": renamed}
+
+
 @app.get("/super-admin/categories", response_class=HTMLResponse)
 async def super_admin_categories_page(
     request: Request,
@@ -1921,9 +2205,48 @@ async def delete_user(
         raise HTTPException(status_code=404, detail="User not found")
     if user.username == actor:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    if user.role == "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin accounts cannot be deleted")
+    # These rows reference users.id with no ON DELETE CASCADE; Postgres
+    # rejects the delete while any of them remain.
+    for model in (UserGroup, AdminGroupSubscription, AdminProfile):
+        await db.execute(delete(model).where(model.user_id == user_id))
     await db.delete(user)
+    db.add(AuditLog(
+        username=actor,
+        action="user_delete",
+        incident_id=0,
+        detail=f"deleted user {user.username} ({user.role})",
+        created_at=datetime.now(timezone.utc),
+    ))
     await db.commit()
     return {"deleted": user_id}
+
+
+@app.post("/users/{user_id}/password")
+async def reset_user_password(
+    user_id: int,
+    body: PasswordResetBody,
+    actor: str = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.role == "super_admin" and user.username != actor:
+        raise HTTPException(status_code=403, detail="Cannot reset another super admin's password")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=422, detail="password must be at least 8 characters")
+    user.hashed_password = hash_password(body.password)
+    db.add(AuditLog(
+        username=actor,
+        action="password_reset",
+        incident_id=0,
+        detail=f"reset password for {user.username}",
+        created_at=datetime.now(timezone.utc),
+    ))
+    await db.commit()
+    return {"reset": user_id}
 
 
 @app.get("/api/groups")
@@ -2355,9 +2678,11 @@ async def reports_page(
     now = datetime.now(timezone.utc)
 
     overview = await reports.fleet_overview(db, allowed, start, end, first_day, last_day, tz)
-    plates = await reports.plate_table(db, allowed, start, end, now)
+    plates = await reports.plate_table(db, allowed, start, end, now, first_day, last_day)
     for p in plates:
-        p["last_reported_local"] = p["last_reported"].astimezone(tz).strftime("%d %b %Y")
+        p["last_reported_local"] = (
+            p["last_reported"].astimezone(tz).strftime("%d %b %Y") if p["last_reported"] else "—"
+        )
     labels = await reports.category_labels(db)
 
     custom = bool(date_from and date_to)
@@ -2408,6 +2733,8 @@ async def plate_report_page(
             "timeline": timeline,
             "open_count": sum(1 for t in timeline if t["incident"].status not in reports.OPEN_EXCLUDED),
             "category_labels": await reports.category_labels(db),
+            "cost_total": sum(t["cost_total"] for t in timeline),
+            "cost_breakdown": reports.cost_breakdown(timeline),
         },
     )
 
@@ -2494,6 +2821,40 @@ async def reports_export(
     # BOM so Excel opens the UTF-8 (emoji, Swahili) text correctly.
     return Response(
         content="﻿" + buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/reports/costs.csv")
+async def reports_costs_export(
+    days: Optional[str] = None,
+    date_from: Optional[str] = Query(None, alias="from"),
+    date_to: Optional[str] = Query(None, alias="to"),
+    plate: Optional[str] = None,
+    username: str = Depends(require_login),
+    db: AsyncSession = Depends(get_db),
+):
+    if not FLEET_PLATE_MODE:
+        raise HTTPException(status_code=404)
+    if plate:
+        if not is_valid_plate(plate):
+            raise HTTPException(status_code=422, detail="Invalid vehicle plate")
+        plate = normalize_plate(plate)
+    tz = zoneinfo.ZoneInfo(SUMMARY_TIMEZONE)
+    allowed = await _get_allowed_groups(username, db)
+    _, _, first_day, last_day = reports.resolve_range(
+        tz, days, date_from, date_to, earliest=await reports.earliest_day(db, allowed, tz),
+    )
+    rows = await reports.cost_export_rows(db, allowed, first_day, last_day, plate=plate)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(reports.COST_EXPORT_COLUMNS)
+    for row in rows:
+        writer.writerow([_csv_safe(v) for v in row])
+    filename = f"repair_costs_{first_day.isoformat()}_{last_day.isoformat()}.csv"
+    return Response(
+        content="\ufeff" + buf.getvalue(),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

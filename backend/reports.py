@@ -6,14 +6,15 @@ is done in Python in the report timezone so it behaves the same on SQLite
 (tests) and Postgres (prod), and fleet ticket volumes are small enough that
 pulling the scoped rows is cheap.
 """
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone, tzinfo
+from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import Incident, IncidentCategory, IncidentStatusHistory, IncidentUpdate
+from models import Incident, IncidentCategory, IncidentCost, IncidentStatusHistory, IncidentUpdate
 
 OPEN_EXCLUDED = ("resolved", "ignored")
 REPEAT_THRESHOLD = 3
@@ -112,6 +113,14 @@ async def fleet_overview(
     )
     resolved = (await db.execute(_scope(resolved_q, allowed))).scalars().all()
 
+    spend = (await db.execute(_scope(
+        select(func.coalesce(func.sum(IncidentCost.amount), 0))
+        .join(Incident, Incident.id == IncidentCost.incident_id)
+        .where(IncidentCost.incurred_on >= first_day)
+        .where(IncidentCost.incurred_on <= last_day),
+        allowed,
+    ))).scalar_one()
+
     priority_counts = Counter(p for p, _, _ in open_rows)
     category_counts = Counter(c for _, c, _ in open_rows)
 
@@ -121,6 +130,7 @@ async def fleet_overview(
         "open_unassigned": sum(1 for _, _, plate in open_rows if not plate),
         "new_in_range": len(received),
         "resolved_in_range": len(resolved),
+        "repair_spend": float(spend or 0),
         "backlog_by_priority": [(p, priority_counts.get(p, 0)) for p in _PRIORITIES],
         "backlog_by_category": category_counts.most_common(),
         "trend": _trend(received, resolved, first_day, last_day, tz),
@@ -167,6 +177,8 @@ async def plate_table(
     start: datetime,
     end: datetime,
     now: datetime,
+    first_day: Optional[date] = None,
+    last_day: Optional[date] = None,
 ) -> list[dict]:
     """One row per plate reported in [start, end) (pass the all-time range
     for every plate). `tickets`, `reports` and `top_category` cover that
@@ -176,7 +188,10 @@ async def plate_table(
     becomes a follow-up on that ticket, not a new ticket, so a bike's ticket
     count understates how often it is reported. `reports` counts tickets plus
     follow-up messages, and the repeat flag uses reports in the last
-    REPEAT_WINDOW_DAYS."""
+    REPEAT_WINDOW_DAYS.
+
+    `cost` is repair spend with incurred_on in [first_day, last_day]; a
+    plate with spend in range but no reports is still listed."""
     rows = (await db.execute(_scope(
         select(Incident.vehicle_plate, Incident.category, Incident.status, Incident.received_at)
         .where(Incident.vehicle_plate.isnot(None)),
@@ -219,9 +234,23 @@ async def plate_table(
     for plate, received_at in update_rows:
         report(entry(plate), _aware(received_at))
 
+    costs: dict[str, Decimal] = {}
+    if first_day is not None and last_day is not None:
+        cost_rows = (await db.execute(_scope(
+            select(Incident.vehicle_plate, func.sum(IncidentCost.amount))
+            .join(Incident, Incident.id == IncidentCost.incident_id)
+            .where(Incident.vehicle_plate.isnot(None))
+            .where(IncidentCost.incurred_on >= first_day)
+            .where(IncidentCost.incurred_on <= last_day)
+            .group_by(Incident.vehicle_plate),
+            allowed,
+        ))).all()
+        costs = {plate: Decimal(total or 0) for plate, total in cost_rows}
+
     result = []
     for p in plates.values():
-        if not p["reports"]:
+        cost = costs.get(p["plate"], Decimal(0))
+        if not p["reports"] and not cost:
             continue
         # A bike reported in range only via follow-ups has no in-range
         # ticket; fall back to its ticket's category.
@@ -235,6 +264,7 @@ async def plate_table(
             "repeat": p["recent"] >= REPEAT_THRESHOLD,
             "last_reported": p["last_reported"],
             "top_category": top[0][0],
+            "cost": float(cost),
         })
     result.sort(key=lambda r: (-r["recent"], -r["reports"], r["plate"]))
     return result
@@ -261,6 +291,14 @@ async def plate_timeline(
     changes = (await db.execute(
         select(IncidentStatusHistory).where(IncidentStatusHistory.incident_id.in_(ids))
     )).scalars().all()
+    cost_items = (await db.execute(
+        select(IncidentCost)
+        .where(IncidentCost.incident_id.in_(ids))
+        .order_by(IncidentCost.incurred_on.asc(), IncidentCost.id.asc())
+    )).scalars().all()
+    costs_by_incident: dict[int, list] = defaultdict(list)
+    for c in cost_items:
+        costs_by_incident[c.incident_id].append(c)
 
     events: dict[int, list[dict]] = {i: [] for i in ids}
     for u in updates:
@@ -279,6 +317,8 @@ async def plate_timeline(
             "incident": i,
             "received_at": _aware(i.received_at),
             "events": sorted(events[i.id], key=lambda e: e["at"]),
+            "costs": costs_by_incident[i.id],
+            "cost_total": float(sum((c.amount for c in costs_by_incident[i.id]), Decimal(0))),
         }
         for i in incidents
     ]
@@ -320,7 +360,7 @@ async def period_tickets(
 
 EXPORT_COLUMNS = [
     "id", "received_at", "vehicle_plate", "category", "priority", "status",
-    "reporter_name", "reporter_phone", "group", "resolved_at", "message",
+    "reporter_name", "reporter_phone", "group", "resolved_at", "repair_cost", "message",
 ]
 
 
@@ -341,8 +381,14 @@ async def export_rows(
         .correlate(Incident)
         .scalar_subquery()
     )
+    cost_sq = (
+        select(func.sum(IncidentCost.amount))
+        .where(IncidentCost.incident_id == Incident.id)
+        .correlate(Incident)
+        .scalar_subquery()
+    )
     q = (
-        select(Incident, resolved_at_sq.label("resolved_at"))
+        select(Incident, resolved_at_sq.label("resolved_at"), cost_sq.label("repair_cost"))
         .where(Incident.received_at >= start)
         .where(Incident.received_at < end)
         .order_by(Incident.received_at.asc())
@@ -364,7 +410,51 @@ async def export_rows(
         [
             i.id, fmt(i.received_at), i.vehicle_plate or "", i.category, i.priority,
             i.status, i.reporter_name or "", i.reporter_phone or "", i.property_name,
-            fmt(resolved_at) if i.status == "resolved" else "", i.message_body,
+            fmt(resolved_at) if i.status == "resolved" else "",
+            f"{Decimal(repair_cost):.2f}" if repair_cost is not None else "", i.message_body,
         ]
-        for i, resolved_at in rows
+        for i, resolved_at, repair_cost in rows
+    ]
+
+
+def cost_breakdown(timeline: list[dict]) -> list[tuple[str, float]]:
+    """Total spend per cost_type across a plate_timeline, largest first."""
+    totals: Counter = Counter()
+    for t in timeline:
+        for c in t["costs"]:
+            totals[c.cost_type] += float(c.amount)
+    return totals.most_common()
+
+
+COST_EXPORT_COLUMNS = [
+    "cost_id", "incurred_on", "vehicle_plate", "ticket_id", "category", "cost_type",
+    "description", "vendor", "amount", "currency", "receipt", "recorded_by",
+]
+
+
+async def cost_export_rows(
+    db: AsyncSession,
+    allowed: Optional[list[str]],
+    first_day: date,
+    last_day: date,
+    plate: Optional[str] = None,
+) -> list[list]:
+    """One row per cost item with incurred_on in [first_day, last_day]."""
+    q = (
+        select(IncidentCost, Incident)
+        .join(Incident, Incident.id == IncidentCost.incident_id)
+        .where(IncidentCost.incurred_on >= first_day)
+        .where(IncidentCost.incurred_on <= last_day)
+        .order_by(IncidentCost.incurred_on.asc(), IncidentCost.id.asc())
+    )
+    if plate:
+        q = q.where(Incident.vehicle_plate == plate)
+    rows = (await db.execute(_scope(q, allowed))).all()
+    return [
+        [
+            c.id, c.incurred_on.isoformat(), i.vehicle_plate or "", i.id, i.category, c.cost_type,
+            c.description or "", c.vendor or "", f"{c.amount:.2f}", c.currency,
+            "yes" if c.receipt_path else "no", c.created_by,
+        ]
+        for c, i in rows
     ]

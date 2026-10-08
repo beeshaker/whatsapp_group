@@ -190,6 +190,7 @@
     }
     .role-badge-admin { background: var(--teal-soft); color: var(--teal); }
     .role-badge-user  { background: var(--surface-2); color: var(--muted); }
+    .role-badge-super_admin { background: var(--teal); color: #fff; }
 
     /* Edit Groups button */
     .btn-edit-groups {
@@ -337,10 +338,24 @@
   </div>
 </div>
 
+<!-- Password reset modal (super admin) -->
+<div class="groups-modal-overlay" id="password-modal-overlay" onclick="if(event.target===this)closePasswordModal()">
+  <div class="groups-modal">
+    <h3 id="password-modal-title">Reset password</h3>
+    <input id="reset-password" type="password" placeholder="New password (min. 8 characters)" autocomplete="new-password"
+           style="width:100%;margin-bottom:1rem;padding:0.5rem 0.75rem;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text)">
+    <div class="groups-modal-actions">
+      <button class="btn-cancel-groups" onclick="closePasswordModal()">Cancel</button>
+      <button class="btn-save-groups" onclick="savePassword()">Save</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
   const CURRENT_USER = {{ username | tojson }};
+  const CURRENT_ROLE = {{ role | tojson }};
   const AVATAR_COLORS = [
     "#0ea5e9","#7c3aed","#22c55e","#f59e0b","#ef4444","#ec4899","#14b8a6"
   ];
@@ -384,8 +399,10 @@
     tbody.innerHTML = _users.map(u => {
       const isSelf = u.username === CURRENT_USER;
       const color = avatarColor(u.username);
-      const roleBadgeClass = u.role === 'admin' ? 'role-badge-admin' : 'role-badge-user';
-      const groupsDisplay = u.role === 'admin'
+      const isSuper = u.role === 'super_admin';
+      const roleBadgeClass = isSuper ? 'role-badge-super_admin' : u.role === 'admin' ? 'role-badge-admin' : 'role-badge-user';
+      const canReset = CURRENT_ROLE === 'super_admin' && (!isSuper || isSelf);
+      const groupsDisplay = u.role !== 'user'
         ? '<em style="color:var(--muted-2)">All groups</em>'
         : (u.group_ids && u.group_ids.length > 0
             ? u.group_ids.map(gid => {
@@ -407,11 +424,12 @@
           <td class="muted">${u.created_by ? escHtml(u.created_by) : "—"}</td>
           <td style="display:flex;gap:0.4rem;align-items:center">
             ${u.role === 'user' ? `<button class="btn-edit-groups" onclick="openGroupsModal(${u.id}, ${JSON.stringify(u.username)})">Edit Groups</button>` : ''}
-            <button
+            ${canReset ? `<button class="btn-edit-groups" onclick="openPasswordModal(${u.id}, ${JSON.stringify(u.username)})">Reset password</button>` : ''}
+            ${isSuper ? '' : `<button
               class="btn-remove"
               ${isSelf ? "disabled title=\"Cannot remove your own account\"" : ""}
               onclick="removeUser(${u.id}, ${JSON.stringify(u.username)})"
-            >Remove</button>
+            >Remove</button>`}
           </td>
         </tr>`;
     }).join("");
@@ -466,6 +484,39 @@
     const el = document.getElementById("form-error");
     el.textContent = msg;
     el.classList.add("visible");
+  }
+
+  let _passwordUser = null;
+
+  function openPasswordModal(id, name) {
+    _passwordUser = { id, name };
+    document.getElementById("password-modal-title").textContent = `Reset password for ${name}`;
+    document.getElementById("reset-password").value = "";
+    document.getElementById("password-modal-overlay").classList.add("open");
+    document.getElementById("reset-password").focus();
+  }
+
+  function closePasswordModal() {
+    document.getElementById("password-modal-overlay").classList.remove("open");
+    _passwordUser = null;
+  }
+
+  async function savePassword() {
+    const password = document.getElementById("reset-password").value;
+    if (password.length < 8) { showToast("Password must be at least 8 characters.", true); return; }
+    const { id, name } = _passwordUser;
+    const res = await fetch(`/users/${id}/password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    if (res.ok) {
+      closePasswordModal();
+      showToast(`Password for "${name}" updated.`);
+    } else {
+      const data = await res.json().catch(() => ({}));
+      showToast(data.detail || `Error ${res.status}`, true);
+    }
   }
 
   async function removeUser(id, name) {

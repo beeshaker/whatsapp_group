@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contacts — Ops Ticketing</title>
+  <link rel="stylesheet" href="/static/css/base.css">
+  <style>
+    .page { max-width: 960px; margin: 0 auto; padding: 2.5rem 1.5rem; }
+    .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .page-title { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
+    .page-subtitle { font-size: 0.875rem; color: var(--muted); margin-top: 0.25rem; max-width: 560px; }
+    .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+    .toolbar input[type=search] {
+      flex: 1; min-width: 200px; padding: 0.5rem 0.75rem; font-size: 0.875rem;
+      border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); color: var(--text);
+    }
+    .toolbar label { font-size: 0.8125rem; color: var(--muted-2); display: flex; gap: 6px; align-items: center; }
+    .table-wrap { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-xl); overflow-x: auto; }
+    .phone { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .muted { color: var(--muted); font-size: 0.8125rem; white-space: nowrap; }
+    .name-input {
+      width: 100%; min-width: 160px; padding: 0.35rem 0.5rem; font-size: 0.875rem;
+      border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text);
+    }
+    .name-input:hover { border-color: var(--line); }
+    .name-input:focus { border-color: var(--teal); outline: none; background: var(--surface); }
+    .name-input::placeholder { color: var(--red); opacity: .8; }
+    .src { font-size: 0.6875rem; font-weight: 600; padding: 2px 6px; border-radius: 999px; white-space: nowrap; }
+    .src-manual { background: var(--teal-soft); color: var(--teal-deep); }
+    .src-whatsapp { background: var(--green-soft); color: var(--green); }
+    .src-lid { background: var(--amber-soft); color: var(--amber); }
+    .empty-state { text-align: center; color: var(--muted); padding: 2rem; }
+    @media (max-width: 640px) { .page { padding: 1.5rem 16px; } }
+  </style>
+</head>
+<body>
+
+{% set active_page = 'contacts' %}
+{% include "_nav.html" %}
+
+<main class="page">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Contacts</div>
+      <div class="page-subtitle" id="contact-count">
+        Everyone who has reported in a ticket group. Type a name to label a number. It applies to all their past and future tickets.
+      </div>
+    </div>
+    <button class="btn btn-primary" id="btn-sync" onclick="syncFromWhatsApp()">⟳ Sync names from WhatsApp</button>
+  </div>
+
+  <div class="toolbar">
+    <input type="search" id="search" placeholder="Search name or number…" oninput="render()">
+    <label><input type="checkbox" id="unnamed-only" onchange="render()"> Unnamed only</label>
+  </div>
+
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr><th>Number</th><th>Name</th><th></th><th class="num">Messages</th><th>Last seen</th></tr>
+      </thead>
+      <tbody id="contact-tbody"><tr><td colspan="5" class="empty-state">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  (function() {
+    const el = document.getElementById('nav-avatar');
+    const username = {{ username | tojson }};
+    if (el && username) el.textContent = username.slice(0, 2).toUpperCase();
+  })();
+
+  let _contacts = [];
+
+  function escHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function showToast(msg, isError = false) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.background = isError ? 'var(--red)' : '';
+    t.classList.add('show');
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => t.classList.remove('show'), 3000);
+  }
+
+  function sourceBadge(c) {
+    if (c.unresolved_id) return '<span class="src src-lid" title="WhatsApp hid this person\'s number. Sync from WhatsApp may reveal it.">hidden number</span>';
+    if (c.source === 'manual') return '<span class="src src-manual">set by admin</span>';
+    if (c.source === 'whatsapp') return '<span class="src src-whatsapp">from WhatsApp</span>';
+    return '';
+  }
+
+  async function load() {
+    const res = await fetch('/api/contacts');
+    if (!res.ok) { showToast(`Error ${res.status}`, true); return; }
+    _contacts = await res.json();
+    render();
+  }
+
+  function render() {
+    const q = document.getElementById('search').value.trim().toLowerCase();
+    const unnamedOnly = document.getElementById('unnamed-only').checked;
+    const rows = _contacts.filter(c =>
+      (!unnamedOnly || !c.name) &&
+      (!q || c.phone.includes(q) || (c.name || '').toLowerCase().includes(q)));
+    const unnamed = _contacts.filter(c => !c.name).length;
+    document.getElementById('contact-count').textContent =
+      `${_contacts.length} senders · ${unnamed} without a name. Type a name to label a number. It applies to all their past and future tickets.`;
+    const tbody = document.getElementById('contact-tbody');
+    if (rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No matching senders.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(c => `
+      <tr>
+        <td class="phone">${c.unresolved_id ? escHtml(c.phone) : '+' + escHtml(c.phone)}</td>
+        <td><input class="name-input" value="${escHtml(c.name || '')}" placeholder="Unknown, add a name"
+                   data-phone="${escHtml(c.phone)}" data-original="${escHtml(c.name || '')}"
+                   onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape'){this.value=this.dataset.original;this.blur()}"
+                   onblur="saveName(this)"></td>
+        <td>${sourceBadge(c)}</td>
+        <td class="num">${c.messages}</td>
+        <td class="muted">${new Date(c.last_seen).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</td>
+      </tr>`).join('');
+  }
+
+  async function saveName(input) {
+    const name = input.value.trim();
+    if (name === input.dataset.original) return;
+    const phone = input.dataset.phone;
+    const res = await fetch(`/api/contacts/${encodeURIComponent(phone)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      showToast(data.detail || `Error ${res.status}`, true);
+      input.value = input.dataset.original;
+      return;
+    }
+    const data = await res.json();
+    showToast(name ? `Saved. ${data.renamed_rows} message(s) relabelled.` : 'Name cleared.');
+    await load();
+  }
+
+  async function syncFromWhatsApp() {
+    const btn = document.getElementById('btn-sync');
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/contacts/sync', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(data.detail || `Error ${res.status}`, true); return; }
+      showToast(`WhatsApp knows ${data.contacts} contacts. ${data.learned} name(s) updated.`);
+      await load();
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  load();
+</script>
+</body>
+</html>

@@ -40,3 +40,13 @@ async def download_media(url: str, dest_dir: str = MEDIA_DIR) -> tuple[str, str,
 def _write_file(path: str, data: bytes) -> None:
     with open(path, "wb") as f:
         f.write(data)
+
+
+async def save_upload(data: bytes, mimetype: str, dest_dir: str) -> tuple[str, str]:
+    """Save uploaded bytes under dest_dir with a random name. Returns (filename, file_path)."""
+    Path(dest_dir).mkdir(parents=True, exist_ok=True)
+    ext = _MIMETYPE_EXT_FIXES.get(mimetype) or mimetypes.guess_extension(mimetype) or ".bin"
+    filename = f"{uuid.uuid4().hex}{ext}"
+    file_path = os.path.join(dest_dir, filename)
+    await asyncio.to_thread(_write_file, file_path, data)
+    return filename, file_path

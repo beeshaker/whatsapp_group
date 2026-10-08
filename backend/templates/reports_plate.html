@@ -42,6 +42,12 @@
     .event-who { color: var(--muted-2); font-weight: 600; margin-right: 6px; }
     .event-text { white-space: pre-wrap; word-break: break-word; }
 
+    .ticket-costs { margin-top: 10px; font-size: 0.8125rem; border-top: 1px dashed var(--line); padding-top: 8px; }
+    .ticket-costs li { list-style: none; display: flex; gap: 8px; justify-content: space-between; padding: 2px 0; }
+    .ticket-costs .amt { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .ticket-costs .total { font-weight: 700; }
+    .cost-summary { font-size: 0.8125rem; color: var(--muted-2); margin-top: 0.25rem; }
+
     @media (max-width: 760px) {
       .page { padding: 1.5rem 16px; }
       .ticket-meta { margin-left: 0; width: 100%; }
@@ -58,9 +64,13 @@
   <div class="page-header">
     <div>
       <div class="page-title">{{ plate }}</div>
-      <div class="page-subtitle">{{ timeline | length }} ticket{{ '' if timeline | length == 1 else 's' }} · {{ open_count }} open</div>
+      <div class="page-subtitle">{{ timeline | length }} ticket{{ '' if timeline | length == 1 else 's' }} · {{ open_count }} open{% if cost_total %} · <strong>{{ cost_total | kes }}</strong> repair cost{% endif %}</div>
+      {% if cost_breakdown %}<div class="cost-summary">{% for kind, amount in cost_breakdown %}{{ kind | capitalize }} {{ amount | kes }}{{ " · " if not loop.last }}{% endfor %}</div>{% endif %}
     </div>
-    <a class="btn btn-ghost" href="/reports/export.csv?days=all&plate={{ plate }}">⬇ Export full history</a>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <a class="btn btn-ghost" href="/reports/export.csv?days=all&plate={{ plate }}">⬇ Export full history</a>
+      {% if cost_total %}<a class="btn btn-ghost" href="/reports/costs.csv?days=all&plate={{ plate }}">⬇ Export costs</a>{% endif %}
+    </div>
   </div>
 
   {% for t in timeline %}
@@ -75,6 +85,17 @@
     </div>
     <div class="ticket-body">{{ i.message_body }}</div>
     {% if i.reporter_name %}<div class="ticket-reporter">Reported by {{ i.reporter_name }}</div>{% endif %}
+    {% if t.costs %}
+    <ul class="ticket-costs">
+      {% for c in t.costs %}
+      <li>
+        <span>{{ c.incurred_on.isoformat() }} · {{ c.cost_type | capitalize }}{% if c.description %} · {{ c.description }}{% endif %}{% if c.vendor %} · {{ c.vendor }}{% endif %}{% if c.receipt_path %} · <a href="/costs/{{ c.id }}/receipt" target="_blank" rel="noopener">📎 receipt</a>{% endif %}</span>
+        <span class="amt">{{ c.amount | kes }}</span>
+      </li>
+      {% endfor %}
+      {% if t.costs | length > 1 %}<li class="total"><span>Total</span><span class="amt">{{ t.cost_total | kes }}</span></li>{% endif %}
+    </ul>
+    {% endif %}
     {% if t.events %}
     <ul class="events">
       {% for e in t.events %}

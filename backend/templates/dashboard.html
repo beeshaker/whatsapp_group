@@ -460,6 +460,22 @@
     .audit-detail { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .audit-time { color: var(--muted-2); text-align: right; white-space: nowrap; }
 
+    .cost-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .cost-table td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    .cost-table td.cost-amount { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .cost-table tr.cost-total td { font-weight: 700; border-bottom: none; }
+    .cost-meta { color: var(--muted); font-size: 12px; }
+    .cost-del { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 13px; padding: 0 4px; }
+    .cost-del:hover { color: var(--red); }
+    .cost-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-top: 10px; }
+    .cost-form input, .cost-form select {
+      width: 100%; padding: 6px 8px; font-size: 13px; border: 1px solid var(--line);
+      border-radius: 6px; background: var(--surface); color: var(--text);
+    }
+    .cost-form .cost-form-actions { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; }
+    .cost-form button { padding: 6px 14px; border-radius: 6px; border: none; background: var(--teal); color: #fff; cursor: pointer; font-size: 13px; }
+    .cost-form button:disabled { opacity: .6; cursor: default; }
+    .cost-error { color: var(--red); font-size: 12px; }
     .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
     .media-thumb {
       aspect-ratio: 1;
@@ -1171,10 +1187,89 @@ function renderDetailModal(detail) {
       <div class="modal-section-label">Activity</div>
       ${auditHtml}
     </div>
+    ${FLEET_PLATE_MODE ? renderCostsSection(detail) : ''}
     <div>
       <div class="modal-section-label">Attachments (${detail.media.length})</div>
       ${mediaHtml}
     </div>`;
+}
+
+const COST_TYPE_LABELS = { parts: 'Parts', labour: 'Labour', towing: 'Towing', other: 'Other' };
+const CAN_EDIT_COSTS = CURRENT_ROLE === 'admin' || CURRENT_ROLE === 'super_admin';
+
+function formatKes(amount) {
+  return 'KES ' + Number(amount).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+function renderCostsSection(detail) {
+  const costs = detail.costs || [];
+  const rows = costs.map(c => `
+    <tr>
+      <td>
+        <div><strong>${esc(COST_TYPE_LABELS[c.cost_type] || c.cost_type)}</strong>${c.description ? ' · ' + esc(c.description) : ''}</div>
+        <div class="cost-meta">${esc(c.incurred_on)}${c.vendor ? ' · ' + esc(c.vendor) : ''} · by ${esc(c.created_by)}
+          ${c.receipt_url ? ` · <a href="${c.receipt_url}" target="_blank" rel="noopener">📎 ${esc(c.receipt_filename || 'Receipt')}</a>` : ''}</div>
+      </td>
+      <td class="cost-amount">${formatKes(c.amount)}</td>
+      <td style="width:1%">${CAN_EDIT_COSTS ? `<button class="cost-del" title="Remove cost" onclick="deleteCost(${detail.id}, ${c.id})">✕</button>` : ''}</td>
+    </tr>`).join('');
+  const table = costs.length === 0
+    ? '<div style="color:var(--muted);font-size:13px">No costs recorded.</div>'
+    : `<table class="cost-table">${rows}
+        <tr class="cost-total"><td>Total</td><td class="cost-amount">${formatKes(detail.cost_total)}</td><td></td></tr>
+      </table>`;
+  const today = new Date().toISOString().slice(0, 10);
+  const form = !CAN_EDIT_COSTS ? '' : `
+    <form class="cost-form" id="cost-form" onsubmit="addCost(event, ${detail.id})">
+      <input name="amount" type="number" min="0.01" step="0.01" placeholder="Amount (KES)" required>
+      <select name="cost_type">${Object.entries(COST_TYPE_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
+      <input name="incurred_on" type="date" value="${today}" required>
+      <input name="vendor" type="text" maxlength="200" placeholder="Vendor / garage">
+      <input name="description" type="text" maxlength="500" placeholder="What was done" style="grid-column: span 2">
+      <input name="receipt" type="file" accept="image/*,application/pdf">
+      <div class="cost-form-actions">
+        <button type="submit">Add cost</button>
+        <span class="cost-error" id="cost-error"></span>
+      </div>
+    </form>`;
+  return `<div>
+    <div class="modal-section-label">Repair costs${costs.length ? ` (${formatKes(detail.cost_total)})` : ''}</div>
+    ${table}
+    ${form}
+  </div>`;
+}
+
+async function addCost(event, incidentId) {
+  event.preventDefault();
+  const form = event.target;
+  const button = form.querySelector('button[type=submit]');
+  const errorEl = document.getElementById('cost-error');
+  errorEl.textContent = '';
+  button.disabled = true;
+  try {
+    const res = await fetch(`/incidents/${incidentId}/costs`, { method: 'POST', body: new FormData(form) });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      errorEl.textContent = typeof data.detail === 'string' ? data.detail : `Error ${res.status}`;
+      return;
+    }
+    showToast('Cost added');
+    await openDetailModal(incidentId);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function deleteCost(incidentId, costId) {
+  if (!confirm('Remove this cost? Its receipt will be deleted too.')) return;
+  const res = await fetch(`/incidents/${incidentId}/costs/${costId}/delete`, { method: 'POST' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    showToast(data.detail || `Error ${res.status}`);
+    return;
+  }
+  showToast('Cost removed');
+  await openDetailModal(incidentId);
 }
 
 async function sendReplyFromBar() {

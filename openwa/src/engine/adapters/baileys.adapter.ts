@@ -42,6 +42,7 @@ import {
   mapBaileysMessageType,
 } from './baileys-jid.util';
 import { BaileysSessionStore } from './baileys-session-store';
+import { BaileysContactDirectory } from './baileys-contact-directory';
 
 export interface BaileysAdapterConfig {
   sessionId: string;
@@ -88,9 +89,13 @@ export class BaileysAdapter implements IWhatsAppEngine {
   private pushName: string | null = null;
   private callbacks: EngineEventCallbacks = {};
   private readonly store = new BaileysSessionStore();
+  private readonly contacts: BaileysContactDirectory;
   private readonly logger = createLogger('BaileysAdapter');
 
-  constructor(private readonly config: BaileysAdapterConfig) {}
+  constructor(private readonly config: BaileysAdapterConfig) {
+    // Outside <authDir>/<sessionId> (wiped on re-link), like the history file.
+    this.contacts = new BaileysContactDirectory(path.join(config.authDir, 'contacts', `${config.sessionId}.json`));
+  }
 
   async initialize(callbacks: EngineEventCallbacks): Promise<void> {
     this.callbacks = callbacks;
@@ -178,8 +183,37 @@ export class BaileysAdapter implements IWhatsAppEngine {
     // The phone pushes recent chat history once, right after a device is
     // linked. It is never dispatched live (old messages must not trigger
     // auto-replies); it is kept on disk for one-off backfills via getHistory().
-    this.sock.ev.on('messaging-history.set', ({ messages, syncType, isLatest }) => {
+    this.sock.ev.on('messaging-history.set', ({ contacts, messages, syncType, isLatest }) => {
+      // Contacts first: they carry the lid -> phone mappings and names the
+      // messages in the same chunk need.
+      for (const contact of contacts ?? []) {
+        this.contacts.learnContact(contact);
+      }
       void this.saveHistory(messages, syncType, isLatest);
+    });
+
+    this.sock.ev.on('contacts.upsert', contacts => {
+      for (const contact of contacts) {
+        this.contacts.learnContact(contact);
+      }
+    });
+
+    this.sock.ev.on('contacts.update', updates => {
+      for (const contact of updates) {
+        this.contacts.learnContact(contact);
+      }
+    });
+
+    this.sock.ev.on('chats.phoneNumberShare', ({ lid, jid }) => {
+      this.contacts.learnContact({ lid, jid });
+    });
+
+    this.sock.ev.on('groups.upsert', groups => {
+      for (const group of groups) {
+        for (const participant of group.participants ?? []) {
+          this.contacts.learnContact(participant);
+        }
+      }
     });
 
     this.sock.ev.on('messages.reaction', reactions => {
@@ -218,6 +252,21 @@ export class BaileysAdapter implements IWhatsAppEngine {
     this.qrCode = null;
     this.setStatus(EngineStatus.READY);
     this.callbacks.onReady?.(this.phoneNumber || '', this.pushName || '');
+    void this.learnGroupParticipants();
+  }
+
+  /** Group participant lists carry the lid <-> phone mapping for every member. */
+  private async learnGroupParticipants(): Promise<void> {
+    try {
+      const groups = await this.sock!.groupFetchAllParticipating();
+      for (const meta of Object.values(groups)) {
+        for (const participant of meta.participants) {
+          this.contacts.learnContact(participant);
+        }
+      }
+    } catch (error) {
+      this.logger.warn('Could not fetch group participants for the contact directory', String(error));
+    }
   }
 
   private async handleIncomingMessage(msg: WAMessage): Promise<void> {
@@ -254,8 +303,11 @@ export class BaileysAdapter implements IWhatsAppEngine {
 
   /** Normalizes a Baileys message to the engine-neutral shape (no media download). */
   private toIncomingMessage(msg: WAMessage): IncomingMessage {
-    const chatId = resolveRemoteJid(msg.key) || '';
+    this.learnFromKey(msg.key);
+    const chatId = this.contacts.resolve(resolveRemoteJid(msg.key)) || '';
     const isGroup = chatId.endsWith('@g.us');
+    const author = this.contacts.resolve(resolveParticipantJid(msg.key));
+    this.contacts.learnPushName(isGroup ? author : chatId, msg.pushName);
     const incomingMessage: IncomingMessage = {
       id: msg.key.id || '',
       from: chatId,
@@ -272,8 +324,8 @@ export class BaileysAdapter implements IWhatsAppEngine {
       timestamp: timestampToNumber(msg.messageTimestamp),
       fromMe: msg.key.fromMe || false,
       isGroup,
-      author: resolveParticipantJid(msg.key),
-      notifyName: msg.pushName || undefined,
+      author,
+      notifyName: msg.pushName || this.contacts.nameFor(isGroup ? author : chatId),
       media: undefined,
     };
     const quoted = this.extractQuotedMessage(msg);
@@ -323,7 +375,10 @@ export class BaileysAdapter implements IWhatsAppEngine {
         // a torn final line from a crash mid-append -- skip it
       }
     }
+    // Resolve again on read: mappings learned after a message was saved
+    // (e.g. from a later history chunk) still apply.
     return [...byId.values()]
+      .map(msg => this.withResolvedSender(msg))
       .filter(
         msg =>
           (!opts.chatId || msg.chatId === opts.chatId) &&
@@ -331,6 +386,33 @@ export class BaileysAdapter implements IWhatsAppEngine {
           (opts.until === undefined || msg.timestamp <= opts.until),
       )
       .sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  private withResolvedSender(msg: IncomingMessage): IncomingMessage {
+    const chatId = this.contacts.resolve(msg.chatId) || msg.chatId;
+    const author = this.contacts.resolve(msg.author);
+    const sender = msg.isGroup ? author : chatId;
+    return {
+      ...msg,
+      chatId,
+      from: msg.isGroup ? msg.from : chatId,
+      author,
+      notifyName: msg.notifyName || this.contacts.nameFor(sender),
+    };
+  }
+
+  /** Baileys 6.x keys carry the phone number next to an @lid when WhatsApp disclosed it. */
+  private learnFromKey(key: WAMessageKey): void {
+    if (key.participant?.endsWith('@lid') && key.participantPn) {
+      this.contacts.learnContact({ lid: key.participant, jid: key.participantPn });
+    } else if (key.participantLid && key.participant) {
+      this.contacts.learnContact({ lid: key.participantLid, jid: key.participant });
+    }
+    if (key.remoteJid?.endsWith('@lid') && key.senderPn) {
+      this.contacts.learnContact({ lid: key.remoteJid, jid: key.senderPn });
+    } else if (key.senderLid && key.remoteJid?.endsWith('@s.whatsapp.net')) {
+      this.contacts.learnContact({ lid: key.senderLid, jid: key.remoteJid });
+    }
   }
 
   private extractBody(msg: WAMessage): string {
@@ -385,8 +467,8 @@ export class BaileysAdapter implements IWhatsAppEngine {
     key: WAMessageKey;
     reaction: { key?: WAMessageKey | null; text?: string | null };
   }): void {
-    const chatId = resolveRemoteJid(reaction.key) || '';
-    const senderId = resolveParticipantJid(reaction.key) || chatId;
+    const chatId = this.contacts.resolve(resolveRemoteJid(reaction.key)) || '';
+    const senderId = this.contacts.resolve(resolveParticipantJid(reaction.key)) || chatId;
     const targetKey = reaction.reaction.key;
     const stored = targetKey?.id ? this.store.findById(chatId, targetKey.id) : undefined;
 
@@ -395,7 +477,7 @@ export class BaileysAdapter implements IWhatsAppEngine {
       emoji: reaction.reaction.text || '',
       senderId,
       targetMessageId: targetKey?.id || undefined,
-      targetAuthor: targetKey ? resolveParticipantJid(targetKey) : undefined,
+      targetAuthor: targetKey ? this.contacts.resolve(resolveParticipantJid(targetKey)) : undefined,
       targetTimestamp: stored?.timestamp,
     };
     this.callbacks.onMessageReaction?.(incomingReaction);
@@ -441,6 +523,11 @@ export class BaileysAdapter implements IWhatsAppEngine {
     this.sock?.ev.removeAllListeners('messaging-history.set');
     this.sock?.ev.removeAllListeners('messages.reaction');
     this.sock?.ev.removeAllListeners('messages.update');
+    this.sock?.ev.removeAllListeners('contacts.upsert');
+    this.sock?.ev.removeAllListeners('contacts.update');
+    this.sock?.ev.removeAllListeners('chats.phoneNumberShare');
+    this.sock?.ev.removeAllListeners('groups.upsert');
+    void this.contacts.save().catch(error => this.logger.warn('Saving contact directory failed:', String(error)));
     try {
       this.sock?.end(undefined);
     } catch (error) {
@@ -519,6 +606,7 @@ export class BaileysAdapter implements IWhatsAppEngine {
     const ownJid = this.sock!.user ? resolveContactJid(this.sock!.user) : undefined;
 
     return Object.values(groupsMeta).map(meta => {
+      meta.participants.forEach(participant => this.contacts.learnContact(participant));
       const ownParticipant = meta.participants.find(p => resolveContactJid(p) === ownJid);
       return {
         id: meta.id,
@@ -588,8 +676,14 @@ export class BaileysAdapter implements IWhatsAppEngine {
   }
 
   async getContacts(): Promise<Contact[]> {
-    this.logger.warn('getContacts not implemented in baileys adapter');
-    return [];
+    return this.contacts.list().map(entry => ({
+      id: entry.id,
+      name: entry.savedName || entry.verifiedName,
+      pushName: entry.pushName,
+      number: entry.id.split('@')[0],
+      isMyContact: Boolean(entry.savedName),
+      isBlocked: false,
+    }));
   }
 
   async getContactById(_contactId: string): Promise<Contact | null> {

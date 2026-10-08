@@ -39,7 +39,7 @@
     .card .card-sub { font-size: 0.8125rem; color: var(--muted); margin-bottom: 14px; }
     .section { margin-bottom: 1.25rem; }
 
-    .stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .stat-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
     .stat { padding: 16px 18px; }
     .stat .n { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
     .stat .l { font-size: 0.8125rem; color: var(--muted-2); margin-top: 2px; }
@@ -140,6 +140,7 @@
       <div class="hint">{% if overview.open_unassigned %}<a href="/?{{ open_qs }}&plate=no" title="Show open tickets without a plate">+ {{ overview.open_unassigned }} open without a plate</a>{% else %}right now{% endif %}</div></div>
     <div class="card stat"><a class="stat-link" href="/reports/tickets?kind=new&{{ range_qs }}" title="Show tickets received in this period"><div class="n" id="stat-new">{{ overview.new_in_range }}</div><div class="l">New tickets</div></a><div class="hint">in this period</div></div>
     <div class="card stat"><a class="stat-link" href="/reports/tickets?kind=resolved&{{ range_qs }}" title="Show tickets resolved in this period"><div class="n" id="stat-resolved">{{ overview.resolved_in_range }}</div><div class="l">Resolved</div></a><div class="hint">in this period</div></div>
+    <div class="card stat"><a class="stat-link" href="/reports/costs.csv?{{ range_qs }}" title="Download every repair cost in this period"><div class="n" id="stat-spend">{{ overview.repair_spend | kes }}</div><div class="l">Repair spend</div></a><div class="hint">in this period</div></div>
   </div>
 
   <!-- ── Trend ── -->
@@ -237,6 +238,7 @@
             <th class="sortable num" data-key="open">Open now</th>
             <th class="sortable num" data-key="recent">Reports, last {{ repeat_window_days }}d</th>
             <th class="sortable" data-key="last">Last reported</th>
+            <th class="sortable num" data-key="cost">Repair cost</th>
             <th>Top issue</th>
             <th></th>
           </tr>
@@ -244,13 +246,14 @@
         <tbody>
           {% for p in plates %}
           <tr data-plate="{{ p.plate }}" data-tickets="{{ p.tickets }}" data-reports="{{ p.reports }}" data-open="{{ p.open }}"
-              data-recent="{{ p.recent }}" data-last="{{ p.last_reported.isoformat() }}" data-repeat="{{ 1 if p.repeat else 0 }}">
+              data-recent="{{ p.recent }}" data-last="{{ p.last_reported.isoformat() }}" data-repeat="{{ 1 if p.repeat else 0 }}" data-cost="{{ p.cost }}">
             <td><a class="plate-link" href="/reports/plate/{{ p.plate }}">{{ p.plate }}</a></td>
             <td class="num">{{ p.tickets }}</td>
             <td class="num">{{ p.reports }}</td>
             <td class="num">{{ p.open }}</td>
             <td class="num">{{ p.recent }}</td>
             <td>{{ p.last_reported_local }}</td>
+            <td class="num">{{ p.cost | kes if p.cost else "—" }}</td>
             <td>{{ category_labels.get(p.top_category, p.top_category) }}</td>
             <td>{% if p.repeat %}<span class="badge badge-repeat">repeat</span>{% endif %}</td>
           </tr>
@@ -292,6 +295,23 @@
           <option value="{{ s }}">{{ s | capitalize }}</option>
           {% endfor %}
         </select>
+      </label>
+      <button class="btn btn-primary" type="submit">⬇ Download CSV</button>
+    </form>
+  </div>
+
+  <div class="card section">
+    <h2>Export repair costs</h2>
+    <div class="card-sub">One line per cost recorded {{ first_day }} → {{ last_day }}, with plate, ticket, type, vendor and amount.</div>
+    <form class="export-form" method="get" action="/reports/costs.csv">
+      {% if range_days %}
+      <input type="hidden" name="days" value="{{ range_days }}">
+      {% else %}
+      <input type="hidden" name="from" value="{{ first_day }}">
+      <input type="hidden" name="to" value="{{ last_day }}">
+      {% endif %}
+      <label>Plate
+        <input type="text" name="plate" placeholder="Any" pattern="[Kk][A-Za-z]{3}\s?\d{3}[A-Za-z]?">
       </label>
       <button class="btn btn-primary" type="submit">⬇ Download CSV</button>
     </form>
