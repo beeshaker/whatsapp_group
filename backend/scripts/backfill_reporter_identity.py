@@ -95,7 +95,6 @@ async def _unknown_count(db) -> int:
     for model in (Incident, IncidentUpdate):
         total += await db.scalar(
             select(func.count()).select_from(model)
-            .where(model.reporter_phone.isnot(None))
             .where((model.reporter_name == contacts.UNKNOWN) | model.reporter_name.is_(None))
         )
     return total

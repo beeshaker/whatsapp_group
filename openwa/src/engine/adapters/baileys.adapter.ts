@@ -306,7 +306,12 @@ export class BaileysAdapter implements IWhatsAppEngine {
     this.learnFromKey(msg.key);
     const chatId = this.contacts.resolve(resolveRemoteJid(msg.key)) || '';
     const isGroup = chatId.endsWith('@g.us');
-    const author = this.contacts.resolve(resolveParticipantJid(msg.key));
+    // History-sync group messages carry the sender on WebMessageInfo.participant
+    // rather than key.participant; live messages use the key.
+    const author = this.contacts.resolve(
+      resolveParticipantJid(msg.key) ||
+        (msg.participant ? resolveParticipantJid({ participant: msg.participant }) : undefined),
+    );
     this.contacts.learnPushName(isGroup ? author : chatId, msg.pushName);
     const incomingMessage: IncomingMessage = {
       id: msg.key.id || '',

@@ -514,6 +514,33 @@ describe('BaileysAdapter', () => {
       ]);
     });
 
+    it('reads a history sender from WebMessageInfo.participant when the key has none', async () => {
+      const { handlers } = setupMockSock();
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      await adapter.initialize({});
+      handlers['contacts.upsert']([{ id: '111@lid', jid: '254711223344@s.whatsapp.net', notify: 'Jane' }]);
+      handlers['messaging-history.set']({
+        messages: [
+          { ...lidMsg('h-1'), key: { remoteJid: '123@g.us', id: 'h-1', fromMe: false }, participant: '111@lid' },
+          {
+            ...lidMsg('h-2'),
+            key: { remoteJid: '123@g.us', id: 'h-2', fromMe: false },
+            participant: '254700000009@s.whatsapp.net',
+          },
+        ],
+        chats: [],
+        contacts: [],
+        isLatest: true,
+      });
+      const historyFile = path.join(tmpDir, 'history', 'test.jsonl');
+      await waitFor(() => fs.existsSync(historyFile));
+
+      expect(await adapter.getHistory()).toEqual([
+        expect.objectContaining({ id: 'h-1', author: '254711223344@c.us', notifyName: 'Jane' }),
+        expect.objectContaining({ id: 'h-2', author: '254700000009@c.us' }),
+      ]);
+    });
+
     it('resolves saved history whose mapping is only learned later', async () => {
       const { handlers } = setupMockSock();
       const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
