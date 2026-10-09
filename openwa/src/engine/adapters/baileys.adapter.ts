@@ -132,9 +132,11 @@ export class BaileysAdapter implements IWhatsAppEngine {
           ? {
               syncFullHistory: true,
               // WhatsApp only sends full history to desktop-class companions.
-              // Literal tuple rather than Browsers.macOS() so the module stays
+              // Must be Ubuntu: since 2026-10 WhatsApp terminates registration
+              // with 428 (before a QR) for 'Mac OS' or 'Windows' + full sync.
+              // Literal tuple rather than Browsers.ubuntu() so the module stays
               // loadable where '@whiskeysockets/baileys' is jest-mocked.
-              browser: ['Mac OS', 'Desktop', '14.4.1'] as [string, string, string],
+              browser: ['Ubuntu', 'Desktop', '22.04.4'] as [string, string, string],
             }
           : {}),
       });
