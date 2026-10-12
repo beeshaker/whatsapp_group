@@ -11,7 +11,11 @@ services:
     volumes:
       - media_data:/app/media
     networks:
-      - client-net
+      client-net:
+        # Stable name for openwa's webhook (see /api/webhook-url in main.py);
+        # the container IP changes on every recreate.
+        aliases:
+          - backend.internal
 
   openwa:
     build:
