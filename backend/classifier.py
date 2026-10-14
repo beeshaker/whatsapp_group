@@ -17,9 +17,11 @@ CLASSIFIER_CONTEXT = os.getenv(
     "Properties include residential blocks, lifts, water systems, electrical infrastructure.",
 )
 
+from vehicle_plate import strip_unknown_plates
 from lead_fields import extract_agent_tag, extract_contact_name, extract_source_tag, is_valid_phone, normalize_phone, resolve_phone_for_issue
 
 LEAD_MODE = os.getenv("LEAD_MODE", "false").lower() == "true"
+FLEET_PLATE_MODE = os.getenv("FLEET_PLATE_MODE", "false").lower() == "true"
 LEAD_DEFAULT_PRIORITY = "low"
 _VALID_TRANSACTION_TYPES = {"sale", "rent", "unknown"}
 
@@ -53,6 +55,52 @@ def _build_prompt(message: str, categories: list[str]) -> str:
         '    "confidence": 0.0 to 1.0\n'
         "  }\n"
         "]\n\n"
+        f"Message: {safe_message}"
+    )
+
+
+def _build_fleet_prompt(message: str, categories: list[str]) -> str:
+    """Fleet groups double as the maintenance log: mechanics post completed
+    work ("KMGQ 372A Brake fluid adjustment done") at least as often as riders
+    post faults, and both must become records. The generic prompt only
+    accepts problems "requiring maintenance", so it dropped most repair
+    reports as noise. The "outcome" field isn't consumed downstream; asking
+    for it makes the model weigh fault-vs-done explicitly, which is what
+    stopped it discarding repair reports (checked against real Pixiilive
+    messages)."""
+    safe_message = json.dumps(message)
+    pipe_cats = "|".join(categories)
+    return (
+        f"{CLASSIFIER_CONTEXT}\n"
+        "This group is the fleet's maintenance log. Riders and mechanics post two kinds of records, "
+        "and BOTH must be returned:\n"
+        "- FAULT: something on a vehicle is broken, damaged, missing or needed — including a vehicle "
+        "that has stalled or broken down, and a request for spare parts.\n"
+        "- DONE: repair work on a vehicle was carried out — a part replaced, installed or fixed, "
+        "an adjustment made, a problem resolved.\n"
+        'Vehicles are usually identified by number plates such as "KMGQ 372A" or "KTWD 981F", '
+        "but a message with no plate is still a record if it reports a fault or completed work.\n"
+        "Return one entry per vehicle per kind of job: if a message covers several vehicles, or "
+        "different kinds of job on one vehicle (e.g. brakes and motor), return a separate entry for "
+        "each. Lines about the same kind of job on the same vehicle belong in one entry. When the "
+        "message names a plate, start that entry's message_snippet with it (even when the message only "
+        "writes it once, at the top), followed by the lines for that entry. Never add a plate the "
+        "message does not contain — if it names none, the snippet has none.\n"
+        "Pick the most specific category for each entry; use \"other\" only when none fits.\n"
+        "NOT a record: greetings, thanks, questions, scheduling, chat that reports no fault and no work.\n\n"
+        "Return ONLY valid JSON, no explanation, no markdown — a JSON array, one entry per record "
+        "(empty array if there are none):\n"
+        "[\n"
+        "  {\n"
+        '    "message_snippet": "<the plate, then the lines for this entry>",\n'
+        f'    "category": "{pipe_cats}",\n'
+        '    "priority": "low|medium|high|urgent",\n'
+        '    "outcome": "fault|done",\n'
+        '    "confidence": 0.0 to 1.0\n'
+        "  }\n"
+        "]\n"
+        'Use "outcome": "done" only when all the work described in that entry is completed; '
+        'if anything is still broken or needed, use "fault".\n\n'
         f"Message: {safe_message}"
     )
 
@@ -176,12 +224,16 @@ async def classify_message(message: str, db: AsyncSession) -> dict:
         if not slugs:
             slugs = ["other"]
         valid_set = set(slugs)
-        prompt = _build_prompt(message, slugs)
+        request_body = {"model": OLLAMA_MODEL, "stream": False}
+        if FLEET_PLATE_MODE:
+            request_body["prompt"] = _build_fleet_prompt(message, slugs)
+            # Deterministic: near-identical repair reports were flipping
+            # between 0.00 and 1.00 confidence at the default temperature.
+            request_body["options"] = {"temperature": 0}
+        else:
+            request_body["prompt"] = _build_prompt(message, slugs)
         async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
-            response = await client.post(
-                f"{OLLAMA_HOST}/api/generate",
-                json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
-            )
+            response = await client.post(f"{OLLAMA_HOST}/api/generate", json=request_body)
             response.raise_for_status()
             raw = response.json().get("response", "")
             parsed = json.loads(raw)
@@ -195,11 +247,14 @@ async def classify_message(message: str, db: AsyncSession) -> dict:
                 raw_category = str(item.get("category", "other")).lower()
                 raw_priority = str(item.get("priority", "medium")).lower()
                 raw_confidence = float(item.get("confidence", 0.0))
+                snippet = str(item.get("message_snippet", message))
+                if FLEET_PLATE_MODE:
+                    snippet = strip_unknown_plates(snippet, message)
                 issues.append({
                     "category": raw_category if raw_category in valid_set else "other",
                     "priority": raw_priority if raw_priority in _VALID_PRIORITIES else "medium",
                     "confidence": max(0.0, min(1.0, raw_confidence)),
-                    "message_snippet": str(item.get("message_snippet", message)),
+                    "message_snippet": snippet,
                 })
 
             if len(issues) > _MAX_ISSUES:

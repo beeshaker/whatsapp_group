@@ -19,7 +19,7 @@ def _restore_main_module_state():
 async def test_route_issue_delegates_to_llm_router_when_fleet_mode_off(monkeypatch):
     monkeypatch.setenv("FLEET_PLATE_MODE", "false")
     importlib.reload(main_module)
-    issue = {"message_snippet": "brakes grinding on KMGQ 947Z"}
+    issue = {"message_snippet": "brakes grinding on KMGQ 947Z", "category": "brakes"}
     open_tickets = [{"id": 1, "category": "brakes", "message_body": "old", "vehicle_plate": "KMGQ947Z"}]
     with patch("main.classify_update_or_new", new=AsyncMock(return_value={"routing": "update", "ticket_id": 1})):
         result = await main_module._route_issue(issue, issue["message_snippet"], open_tickets)
@@ -39,7 +39,7 @@ async def test_route_issue_skips_llm_call_when_no_open_tickets_and_fleet_mode_of
 async def test_route_issue_threads_matching_plate_to_open_ticket(monkeypatch):
     monkeypatch.setenv("FLEET_PLATE_MODE", "true")
     importlib.reload(main_module)
-    issue = {"message_snippet": "brakes grinding on KMGQ 947Z"}
+    issue = {"message_snippet": "brakes grinding on KMGQ 947Z", "category": "brakes"}
     open_tickets = [{"id": 5, "category": "brakes", "message_body": "old", "vehicle_plate": "KMGQ947Z"}]
     with patch("main.classify_update_or_new", new=AsyncMock()) as mock_router:
         result = await main_module._route_issue(issue, issue["message_snippet"], open_tickets)
@@ -50,8 +50,17 @@ async def test_route_issue_threads_matching_plate_to_open_ticket(monkeypatch):
 async def test_route_issue_creates_new_when_plate_resolves_but_no_match(monkeypatch):
     monkeypatch.setenv("FLEET_PLATE_MODE", "true")
     importlib.reload(main_module)
-    issue = {"message_snippet": "brakes grinding on KMGQ 947Z"}
+    issue = {"message_snippet": "brakes grinding on KMGQ 947Z", "category": "brakes"}
     open_tickets = [{"id": 5, "category": "brakes", "message_body": "old", "vehicle_plate": "KZZT501M"}]
+    result = await main_module._route_issue(issue, issue["message_snippet"], open_tickets)
+    assert result == {"routing": "new", "vehicle_plate": "KMGQ947Z"}
+
+
+async def test_route_issue_creates_new_when_plate_matches_but_category_differs(monkeypatch):
+    monkeypatch.setenv("FLEET_PLATE_MODE", "true")
+    importlib.reload(main_module)
+    issue = {"message_snippet": "KMGQ 947Z brake pad replacement done", "category": "brakes"}
+    open_tickets = [{"id": 5, "category": "motor", "message_body": "motor down", "vehicle_plate": "KMGQ947Z"}]
     result = await main_module._route_issue(issue, issue["message_snippet"], open_tickets)
     assert result == {"routing": "new", "vehicle_plate": "KMGQ947Z"}
 
@@ -59,7 +68,7 @@ async def test_route_issue_creates_new_when_plate_resolves_but_no_match(monkeypa
 async def test_route_issue_always_new_when_no_plate_resolved(monkeypatch):
     monkeypatch.setenv("FLEET_PLATE_MODE", "true")
     importlib.reload(main_module)
-    issue = {"message_snippet": "brakes grinding, no plate mentioned"}
+    issue = {"message_snippet": "brakes grinding, no plate mentioned", "category": "brakes"}
     open_tickets = [{"id": 5, "category": "brakes", "message_body": "old", "vehicle_plate": "KZZT501M"}]
     with patch("main.classify_update_or_new", new=AsyncMock()) as mock_router:
         result = await main_module._route_issue(issue, issue["message_snippet"], open_tickets)

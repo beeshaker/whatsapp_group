@@ -425,3 +425,52 @@ async def test_lead_mode_off_uses_original_maintenance_classifier(monkeypatch):
         result = await classifier_module.classify_message("pump leaking", mock_db)
     assert result["issues"][0]["category"] == "plumbing"
     assert "contact_phone" not in result["issues"][0]
+
+
+async def test_fleet_mode_uses_fleet_prompt_deterministically(monkeypatch):
+    import classifier
+    monkeypatch.setattr(classifier, "FLEET_PLATE_MODE", True)
+    mock_db = _make_mock_db()
+    with patch("classifier.httpx.AsyncClient") as mock_client:
+        _mock_response(mock_client, '''
+            [{"message_snippet": "KMGQ 372A Brake fluid adjustment done", "category": "other",
+              "priority": "low", "outcome": "done", "confidence": 0.95},
+             {"message_snippet": "KTWD 976F needs welding", "category": "other",
+              "priority": "high", "outcome": "unsure", "confidence": 0.9}]
+        ''')
+        result = await classify_message(
+            "KMGQ 372A Brake fluid adjustment done\nKTWD 976F needs welding", mock_db
+        )
+        sent = mock_client.return_value.__aenter__.return_value.post.call_args.kwargs["json"]
+    assert "maintenance log" in sent["prompt"]
+    assert sent["options"] == {"temperature": 0}
+    assert [i["message_snippet"] for i in result["issues"]] == [
+        "KMGQ 372A Brake fluid adjustment done", "KTWD 976F needs welding",
+    ]
+    assert all("outcome" not in i for i in result["issues"])
+
+
+async def test_non_fleet_mode_keeps_generic_prompt():
+    mock_db = _make_mock_db()
+    with patch("classifier.httpx.AsyncClient") as mock_client:
+        _mock_response(mock_client, '''
+            [{"message_snippet": "Lift stuck", "category": "lift", "priority": "high",
+              "outcome": "done", "confidence": 0.9}]
+        ''')
+        result = await classify_message("Lift stuck", mock_db)
+        sent = mock_client.return_value.__aenter__.return_value.post.call_args.kwargs["json"]
+    assert "maintenance log" not in sent["prompt"]
+    assert "options" not in sent
+
+
+async def test_fleet_mode_drops_plates_the_model_invented(monkeypatch):
+    import classifier
+    monkeypatch.setattr(classifier, "FLEET_PLATE_MODE", True)
+    mock_db = _make_mock_db()
+    with patch("classifier.httpx.AsyncClient") as mock_client:
+        _mock_response(mock_client, '''
+            [{"message_snippet": "KMGQ 372A We need these connectors urgently", "category": "electrical",
+              "priority": "high", "outcome": "fault", "confidence": 0.95}]
+        ''')
+        result = await classify_message("We need these connectors urgently", mock_db)
+    assert result["issues"][0]["message_snippet"] == "We need these connectors urgently"

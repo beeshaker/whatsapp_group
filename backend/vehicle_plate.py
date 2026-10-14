@@ -24,5 +24,15 @@ def resolve_plate_for_issue(message_snippet: str, full_text: str) -> Optional[st
     return None
 
 
+def strip_unknown_plates(snippet: str, full_text: str) -> str:
+    """Removes plates from an LLM-written snippet that never appear in the
+    original message. Asked to start each snippet with the plate, the model
+    invents one (copied from the prompt's examples) for plateless messages,
+    which would file the ticket against the wrong vehicle."""
+    known = set(extract_plates(full_text))
+    cleaned = _PLATE_RE.sub(lambda m: m.group(0) if normalize_plate(m.group(0)) in known else "", snippet)
+    return cleaned.strip(" \t\n:-,/") or full_text
+
+
 def is_valid_plate(value: str) -> bool:
     return bool(_PLATE_RE.fullmatch(value.strip()))

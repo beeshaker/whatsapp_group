@@ -529,7 +529,8 @@ async def _route_issue(issue: dict, full_text: str, open_tickets: list[dict]) ->
     When FLEET_PLATE_MODE is on, this fully replaces the LLM-based
     classify_update_or_new call for this issue with a deterministic exact-plate
     match — mixing a reliable identity signal with a fuzzy LLM judgment risks
-    threading two different bikes' issues together.
+    threading two different bikes' issues together. The category must match
+    too, so brake work on a bike never lands on that bike's open motor ticket.
 
     When LEAD_MODE is on, every enquiry is always a new lead — there's no
     natural "update to an existing lead" concept the way a recurring
@@ -542,7 +543,7 @@ async def _route_issue(issue: dict, full_text: str, open_tickets: list[dict]) ->
         plate = resolve_plate_for_issue(issue["message_snippet"], full_text)
         if plate is not None:
             for ticket in open_tickets:
-                if ticket.get("vehicle_plate") == plate:
+                if ticket.get("vehicle_plate") == plate and ticket.get("category") == issue["category"]:
                     return {"routing": "update", "ticket_id": ticket["id"], "vehicle_plate": plate}
         return {"routing": "new", "vehicle_plate": plate}
 

@@ -140,3 +140,95 @@ async def test_two_issue_message_tags_each_with_its_own_plate(client):
         )
         incidents = result.scalars().all()
     assert [i.vehicle_plate for i in incidents] == ["KMGQ947Z", "KZZT501M"]
+
+
+
+async def _status_and_history(message_id):
+    from sqlalchemy import select
+    from models import Incident, IncidentStatusHistory
+    from tests.conftest import _TestSession
+    async with _TestSession() as session:
+        incident = (await session.execute(select(Incident).where(Incident.message_id == message_id))).scalar_one()
+        history = (await session.execute(
+            select(IncidentStatusHistory.to_status).where(IncidentStatusHistory.incident_id == incident.id)
+        )).scalars().all()
+    return incident, history
+
+
+async def test_repair_report_without_open_ticket_goes_to_review(client):
+    body = "KXDB 202B\nFootrest replacement done"
+    with patch("main.classify_message", new=AsyncMock(return_value=_single_issue(body, category="other"))):
+        with patch("main.push_incident", new=AsyncMock()):
+            r = await client.post("/api/v1/ops/ingest", headers={"X-API-Key": GATEWAY_TOKEN},
+                                  json=_payload("done-1", body))
+    assert r.json()["tickets_created"] == 1
+    incident, history = await _status_and_history("done-1")
+    assert (incident.vehicle_plate, incident.status, history) == ("KXDB202B", "review", ["review"])
+
+
+async def test_repair_report_on_open_ticket_adds_update_and_leaves_it_open(client):
+    fault = "KXDA 101A brake cable snapped"
+    with patch("main.classify_message", new=AsyncMock(return_value=_single_issue(fault))):
+        with patch("main.push_incident", new=AsyncMock()):
+            await client.post("/api/v1/ops/ingest", headers={"X-API-Key": GATEWAY_TOKEN},
+                              json=_payload("done-2", fault))
+
+    done = "KXDA 101A\nBrake cable replacement done"
+    with patch("main.classify_message", new=AsyncMock(return_value=_single_issue(done))):
+        with patch("main.push_incident", new=AsyncMock()):
+            r = await client.post("/api/v1/ops/ingest", headers={"X-API-Key": GATEWAY_TOKEN},
+                                  json=_payload("done-3", done))
+    assert r.json() == {"status": "staged", "tickets_created": 0, "updates_created": 1}
+    incident, history = await _status_and_history("done-2")
+    assert (incident.status, history) == ("review", ["review"])
+
+
+async def test_one_vehicle_two_job_kinds_logs_one_ticket_per_category(client):
+    body = "KXDF 501F\nBrake pad replacement done\nFootrest bar replacement done"
+    classification = {"issues": [
+        {"category": "brakes", "priority": "low", "confidence": 0.95,
+         "message_snippet": "KXDF 501F\nBrake pad replacement done"},
+        {"category": "structural", "priority": "low", "confidence": 0.95,
+         "message_snippet": "KXDF 501F\nFootrest bar replacement done"},
+    ]}
+    with patch("main.classify_message", new=AsyncMock(return_value=classification)):
+        with patch("main.push_incident", new=AsyncMock()):
+            r = await client.post("/api/v1/ops/ingest", headers={"X-API-Key": GATEWAY_TOKEN},
+                                  json=_payload("done-5", body))
+    assert r.json() == {"status": "staged", "tickets_created": 2, "updates_created": 0}
+
+    later = "KXDF 501F brakes squeaking again"
+    with patch("main.classify_message", new=AsyncMock(return_value=_single_issue(later, category="brakes"))):
+        with patch("main.push_incident", new=AsyncMock()):
+            r = await client.post("/api/v1/ops/ingest", headers={"X-API-Key": GATEWAY_TOKEN},
+                                  json=_payload("done-6", later))
+    assert r.json() == {"status": "staged", "tickets_created": 0, "updates_created": 1}
+
+    motor = "KXDF 501F motor down"
+    with patch("main.classify_message", new=AsyncMock(return_value=_single_issue(motor, category="motor"))):
+        with patch("main.push_incident", new=AsyncMock()):
+            r = await client.post("/api/v1/ops/ingest", headers={"X-API-Key": GATEWAY_TOKEN},
+                                  json=_payload("done-7", motor))
+    assert r.json() == {"status": "staged", "tickets_created": 1, "updates_created": 0}
+
+
+async def test_multi_vehicle_repair_report_logs_one_ticket_per_plate(client):
+    body = "NEW MOTOR INSTALLATION\n\nKXDD 401D\nMotor No.C1\n\nKXDE 402E\nMotor No.C2"
+    classification = {"issues": [
+        {"category": "motor", "priority": "low", "confidence": 0.95, "message_snippet": "KXDD 401D\nMotor No.C1"},
+        {"category": "motor", "priority": "low", "confidence": 0.95, "message_snippet": "KXDE 402E\nMotor No.C2"},
+    ]}
+    with patch("main.classify_message", new=AsyncMock(return_value=classification)):
+        with patch("main.push_incident", new=AsyncMock()):
+            r = await client.post("/api/v1/ops/ingest", headers={"X-API-Key": GATEWAY_TOKEN},
+                                  json=_payload("done-4", body))
+    assert r.json()["tickets_created"] == 2
+
+    from sqlalchemy import select
+    from models import Incident
+    from tests.conftest import _TestSession
+    async with _TestSession() as session:
+        incidents = (await session.execute(
+            select(Incident).where(Incident.message_id == "done-4").order_by(Incident.issue_index)
+        )).scalars().all()
+    assert [(i.vehicle_plate, i.status) for i in incidents] == [("KXDD401D", "review"), ("KXDE402E", "review")]
