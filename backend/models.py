@@ -62,12 +62,24 @@ class IncidentMedia(Base):
     __tablename__ = "incident_media"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    incident_id: Mapped[int] = mapped_column(Integer, ForeignKey("incidents.id"), nullable=False, index=True)
+    # NULL while a WhatsApp photo couldn't be tied to a ticket yet: it waits in
+    # the dashboard's unassigned list until the sender's follow-up text (or a
+    # staff member) attaches it.
+    incident_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("incidents.id"), nullable=True, index=True)
     update_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("incident_updates.id"), nullable=True)
     filename: Mapped[str] = mapped_column(Text, nullable=False)
     mimetype: Mapped[str] = mapped_column(Text, nullable=False)
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    group_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True, index=True)
+    # WhatsApp message id. Not unique: one photo whose caption names several
+    # issues gets one row per resulting ticket, all sharing the same file.
+    message_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True, index=True)
+    reporter_phone: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reporter_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    caption: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # quote | caption | plate | proximity | sweep | manual | upload
+    link_method: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class IncidentCost(Base):

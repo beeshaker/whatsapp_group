@@ -175,7 +175,7 @@ async def test_media_download_failure_still_creates_incident_from_caption(client
     assert len(incidents) == 1
 
 
-async def test_media_caption_split_attaches_media_only_to_highest_confidence_issue(client, db_session):
+async def test_media_caption_split_attaches_media_to_every_issue(client, db_session):
     from sqlalchemy import select
     from models import Incident, IncidentMedia
 
@@ -214,9 +214,10 @@ async def test_media_caption_split_attaches_media_only_to_highest_confidence_iss
 
     media_result = await db_session.execute(select(IncidentMedia))
     media_rows = media_result.scalars().all()
-    assert len(media_rows) == 1
-    lift_incident = next(i for i in incidents if i.category == "lift")
-    assert media_rows[0].incident_id == lift_incident.id
+    assert sorted(m.incident_id for m in media_rows) == sorted(i.id for i in incidents)
+    # One saved file, shared by both tickets' rows.
+    assert {m.file_path for m in media_rows} == {"/app/media/split.jpg"}
+    assert {m.link_method for m in media_rows} == {"caption"}
 
 
 async def test_media_partial_retry_does_not_reattach_media_to_unrelated_ticket(client, db_session):
@@ -299,8 +300,11 @@ async def test_media_partial_retry_does_not_reattach_media_to_unrelated_ticket(c
     )
     assert pump_result.scalar_one_or_none() is not None
 
-    # No media should have been attached anywhere — not on the unrelated ticket,
-    # and not re-attached to the already-existing lift ticket either.
+    # The media goes only on the ticket this delivery created — not on the
+    # unrelated ticket, and not re-attached to the already-existing lift ticket.
     media_result = await db_session.execute(select(IncidentMedia))
     media_rows = media_result.scalars().all()
-    assert len(media_rows) == 0
+    pump = (await db_session.execute(
+        select(Incident).where(Incident.message_id == retry_message_id, Incident.issue_index == 0)
+    )).scalar_one()
+    assert [m.incident_id for m in media_rows] == [pump.id]

@@ -1,15 +1,33 @@
 import asyncio
+import base64
+import binascii
 import logging
 import mimetypes
 import os
 import uuid
 from pathlib import Path
+from typing import Optional
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
 MEDIA_DIR = os.getenv("MEDIA_DIR", "/app/media")
+MAX_MEDIA_BYTES = int(os.getenv("MAX_MEDIA_BYTES", str(16 * 1024 * 1024)))
+
+
+def decode_inline_media(b64: str) -> Optional[bytes]:
+    """Decode the base64 file OpenWA embeds in a message.received webhook
+    (data.media.data). Returns None if it's malformed or over MAX_MEDIA_BYTES."""
+    # base64 is 4 chars per 3 bytes; reject before allocating the decoded copy.
+    if len(b64) * 3 // 4 > MAX_MEDIA_BYTES:
+        logger.warning("Inline media too large (~%d bytes), skipping", len(b64) * 3 // 4)
+        return None
+    try:
+        return base64.b64decode(b64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        logger.warning("Inline media is not valid base64: %s", exc)
+        return None
 
 _MIMETYPE_EXT_FIXES = {
     "image/jpeg": ".jpg",

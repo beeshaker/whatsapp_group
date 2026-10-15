@@ -5,6 +5,7 @@ import {
   resolveParticipantJid,
   resolveContactJid,
   mapBaileysMessageType,
+  unwrapMessageContent,
 } from './baileys-jid.util';
 
 describe('baileys-jid.util', () => {
@@ -100,6 +101,39 @@ describe('baileys-jid.util', () => {
 
     it('falls back to id when phoneNumber is absent', () => {
       expect(resolveContactJid({ id: '254711223344@s.whatsapp.net' })).toBe('254711223344@c.us');
+    });
+  });
+
+  describe('unwrapMessageContent', () => {
+    const image = { imageMessage: { caption: 'KMGQ 372A' } };
+
+    it('returns plain content unchanged', () => {
+      expect(unwrapMessageContent(image)).toBe(image);
+    });
+
+    it('unwraps a disappearing-message (ephemeral) wrapper, text and media alike', () => {
+      expect(unwrapMessageContent({ ephemeralMessage: { message: image } })).toBe(image);
+      const text = { conversation: 'brakes gone' };
+      expect(mapBaileysMessageType(unwrapMessageContent({ ephemeralMessage: { message: text } }))).toBe('chat');
+    });
+
+    it('unwraps a document sent with a caption', () => {
+      const doc = { documentMessage: { mimetype: 'image/jpeg', caption: 'hd photo' } };
+      expect(unwrapMessageContent({ documentWithCaptionMessage: { message: doc } })).toBe(doc);
+    });
+
+    it('drops view-once media, wrapped or flagged, even inside a disappearing message', () => {
+      expect(unwrapMessageContent({ viewOnceMessageV2: { message: image } })).toBeUndefined();
+      expect(
+        unwrapMessageContent({ ephemeralMessage: { message: { viewOnceMessage: { message: image } } } }),
+      ).toBeUndefined();
+      expect(unwrapMessageContent({ imageMessage: { viewOnce: true } })).toBeUndefined();
+      expect(mapBaileysMessageType(unwrapMessageContent({ viewOnceMessageV2: { message: image } }))).toBe('unknown');
+    });
+
+    it('handles missing content', () => {
+      expect(unwrapMessageContent(undefined)).toBeUndefined();
+      expect(unwrapMessageContent(null)).toBeUndefined();
     });
   });
 

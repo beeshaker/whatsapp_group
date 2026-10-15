@@ -321,6 +321,72 @@ describe('BaileysAdapter', () => {
       expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'image', media: undefined }));
     });
 
+    it('carries the quoted message id on a photo sent as a quote-reply, inside a disappearing-message wrapper', async () => {
+      const { handlers } = setupMockSock();
+      mockDownloadMediaMessage.mockResolvedValue(Buffer.from('reply-photo'));
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      const onMessage = jest.fn();
+      await adapter.initialize({ onMessage });
+
+      handlers['messages.upsert']({
+        type: 'notify',
+        messages: [
+          {
+            key: { remoteJid: '120363@g.us', participant: '254711223344@s.whatsapp.net', id: 'wa-q1', fromMe: false },
+            message: {
+              ephemeralMessage: {
+                message: {
+                  imageMessage: {
+                    mimetype: 'image/jpeg',
+                    contextInfo: { stanzaId: 'wa-original', quotedMessage: { conversation: 'KMGQ 372A brakes' } },
+                  },
+                },
+              },
+            },
+            messageTimestamp: 1782300010,
+          },
+        ],
+      });
+      await new Promise(process.nextTick);
+      await new Promise(process.nextTick);
+
+      expect(onMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'image',
+          quotedMessage: { id: 'wa-original', body: 'KMGQ 372A brakes' },
+          media: expect.objectContaining({ data: Buffer.from('reply-photo').toString('base64') }),
+        }),
+      );
+    });
+
+    it('skips downloading media larger than the inline limit but still delivers the message', async () => {
+      const { handlers } = setupMockSock();
+      mockDownloadMediaMessage.mockClear();
+      const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });
+      const onMessage = jest.fn();
+      await adapter.initialize({ onMessage });
+
+      handlers['messages.upsert']({
+        type: 'notify',
+        messages: [
+          {
+            key: { remoteJid: '254711223344@s.whatsapp.net', id: 'wa-big', fromMe: false },
+            message: {
+              videoMessage: { mimetype: 'video/mp4', caption: 'engine noise', fileLength: 200 * 1024 * 1024 },
+            },
+            messageTimestamp: 1782300011,
+          },
+        ],
+      });
+      await new Promise(process.nextTick);
+      await new Promise(process.nextTick);
+
+      expect(mockDownloadMediaMessage).not.toHaveBeenCalled();
+      expect(onMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'video', body: 'engine noise', media: undefined }),
+      );
+    });
+
     it('does not call onMessage for the echo of a message this session itself sent (key.fromMe: true)', async () => {
       const { handlers } = setupMockSock();
       const adapter = new BaileysAdapter({ sessionId: 'test', authDir: tmpDir });

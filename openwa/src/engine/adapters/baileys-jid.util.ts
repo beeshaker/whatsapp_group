@@ -1,3 +1,5 @@
+import type { proto } from '@whiskeysockets/baileys';
+
 const ENGINE_INDIVIDUAL_DOMAIN = 'c.us';
 const BAILEYS_INDIVIDUAL_DOMAIN = 's.whatsapp.net';
 
@@ -87,6 +89,34 @@ export function resolveContactJid(contact: ContactJidSource): string {
   return toEngineJid(contact.phoneNumber || contact.jid || contact.id);
 }
 
+/**
+ * Returns the message content inside Baileys' wrappers, so type/body/quote
+ * extraction sees an imageMessage rather than an ephemeralMessage:
+ * disappearing-message groups wrap *every* message (text too) in
+ * ephemeralMessage, and a file sent via the Document picker with a caption
+ * arrives as documentWithCaptionMessage. View-once media returns undefined
+ * (-> type "unknown", not ingested): it's meant to vanish, so the product
+ * deliberately doesn't keep a copy. Unlike Baileys' own
+ * normalizeMessageContent, which unwraps view-once too.
+ */
+export function unwrapMessageContent(content: proto.IMessage | null | undefined): proto.IMessage | undefined {
+  let current = content ?? undefined;
+  for (let depth = 0; current && depth < 5; depth++) {
+    if (current.viewOnceMessage || current.viewOnceMessageV2 || current.viewOnceMessageV2Extension) {
+      return undefined;
+    }
+    const inner = current.ephemeralMessage || current.documentWithCaptionMessage;
+    if (!inner) {
+      break;
+    }
+    current = inner.message ?? undefined;
+  }
+  if (current?.imageMessage?.viewOnce || current?.videoMessage?.viewOnce) {
+    return undefined;
+  }
+  return current;
+}
+
 const BAILEYS_MEDIA_TYPE_MAP: Record<string, string> = {
   imageMessage: 'image',
   videoMessage: 'video',
@@ -102,7 +132,7 @@ const BAILEYS_MEDIA_TYPE_MAP: Record<string, string> = {
  * Baileys' different content-key names must be translated here rather than
  * passed through raw.
  */
-export function mapBaileysMessageType(messageContent: Record<string, unknown> | null | undefined): string {
+export function mapBaileysMessageType(messageContent: object | null | undefined): string {
   if (!messageContent) {
     return 'unknown';
   }

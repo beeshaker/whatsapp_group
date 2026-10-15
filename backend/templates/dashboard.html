@@ -484,7 +484,15 @@
       border: 1px solid var(--line);
       background: var(--surface-2);
     }
-    .media-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .media-thumb img, .media-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .media-item { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .media-item > a.media-thumb { display: block; }
+    .media-tools { display: flex; gap: 4px; }
+    .media-tools select { flex: 1; min-width: 0; padding: 2px 4px; font-size: 0.6875rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
+    .media-tools button { padding: 2px 6px; font-size: 0.6875rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--muted); cursor: pointer; }
+    .media-tools button:hover { color: var(--red); border-color: var(--red-soft); }
+    .media-upload { margin-top: 8px; font-size: 0.75rem; color: var(--teal); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+    .media-upload input { display: none; }
     .media-file-row {
       display: flex;
       align-items: center;
@@ -1107,15 +1115,33 @@ function renderDetailModal(detail) {
           <div class="audit-time">${formatTime(a.created_at)}</div>
         </div>`).join('');
 
-  const mediaHtml = detail.media.length === 0
+  const moveOpts = _openIncidents.map(i =>
+    `<option value="${i.id}">#${i.id}${i.vehicle_plate ? ' ' + esc(i.vehicle_plate) : ''} — ${esc(i.property_name)}</option>`
+  ).join('');
+  const mediaUpload = `
+    <label class="media-upload">＋ Add photo
+      <input type="file" accept="image/*,video/*,application/pdf" onchange="uploadMedia(${detail.id}, this)">
+    </label>`;
+  const mediaHtml = (detail.media.length === 0
     ? '<div style="color:var(--muted);font-size:13px">No attachments.</div>'
     : `<div class="media-grid">${detail.media.map(m => {
         const url = `/media/${m.id}`;
-        if (m.mimetype.startsWith('image/')) {
-          return `<a href="${url}" target="_blank" class="media-thumb"><img src="${url}" alt="${esc(m.filename)}" loading="lazy"></a>`;
-        }
-        return `<a href="${url}" target="_blank" class="media-file-row" download="${esc(m.filename)}">📄 ${esc(m.filename)}</a>`;
-      }).join('')}</div>`;
+        const tip = esc([m.reporter_name, m.caption].filter(Boolean).join(': '));
+        const preview = m.mimetype.startsWith('image/')
+          ? `<a href="${url}" target="_blank" class="media-thumb" title="${tip}"><img src="${url}" alt="${esc(m.filename)}" loading="lazy"></a>`
+          : m.mimetype.startsWith('video/')
+            ? `<a href="${url}" target="_blank" class="media-thumb" title="${tip}"><video src="${url}" preload="metadata" muted></video></a>`
+            : `<a href="${url}" target="_blank" class="media-file-row" title="${tip}">📄 ${esc(m.filename)}</a>`;
+        return `<div class="media-item">${preview}
+          <div class="media-tools">
+            <select onchange="moveMedia(${m.id}, this.value, ${detail.id})">
+              <option value="">Move…</option>
+              <option value="unassigned">Not this ticket</option>
+              ${moveOpts}
+            </select>
+            <button title="Delete photo" onclick="deleteMedia(${m.id}, ${detail.id})">✕</button>
+          </div></div>`;
+      }).join('')}</div>`) + mediaUpload;
 
   const siblingsHtml = (detail.sibling_tickets && detail.sibling_tickets.length > 0)
     ? `<div>
@@ -1129,7 +1155,7 @@ function renderDetailModal(detail) {
 
   if (LEAD_MODE) {
     // Renders the four lead-panel tabs: Overview / Activity / History / Matches.
-    const attachmentsInline = detail.media.length === 0 ? '' : `
+    const attachmentsInline = `
       <div style="margin-top:8px">
         <div class="modal-section-label">Attachments (${detail.media.length})</div>
         ${mediaHtml}
@@ -1316,6 +1342,45 @@ async function updateTicketField(incidentId, field, value) {
   } catch (e) {
     showToast('Could not update ticket. Please try again.');
   }
+}
+
+async function moveMedia(mediaId, value, currentIncidentId) {
+  if (!value) return;
+  const incidentId = value === 'unassigned' ? null : parseInt(value, 10);
+  const res = await fetch(`/media/${mediaId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ incident_id: incidentId }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    showToast(data.detail || 'Could not move photo');
+  } else {
+    showToast(incidentId ? `Photo moved to #${incidentId}` : 'Photo sent to Unassigned photos');
+  }
+  await openDetailModal(currentIncidentId);
+}
+
+async function deleteMedia(mediaId, currentIncidentId) {
+  if (!confirm('Delete this photo?')) return;
+  const res = await fetch(`/media/${mediaId}`, { method: 'DELETE' });
+  showToast(res.ok ? 'Photo deleted' : 'Could not delete photo');
+  await openDetailModal(currentIncidentId);
+}
+
+async function uploadMedia(incidentId, input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`/incidents/${incidentId}/media`, { method: 'POST', body: form });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    showToast(data.detail || 'Upload failed');
+  } else {
+    showToast('Photo added');
+  }
+  await openDetailModal(incidentId);
 }
 
 async function relinkUpdate(updateId, currentIncidentId) {

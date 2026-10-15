@@ -124,7 +124,10 @@ async def test_serve_media_returns_file(client, db_session):
 
 
 async def test_serve_media_requires_auth(client):
-    r = await client.get("/media/1")
+    from httpx import ASGITransport, AsyncClient
+    from main import app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as anon:
+        r = await anon.get("/media/1")
     assert r.status_code == 401
 
 

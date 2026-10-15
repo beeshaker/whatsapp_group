@@ -40,6 +40,7 @@ import {
   resolveContactJid,
   toBaileysJid,
   mapBaileysMessageType,
+  unwrapMessageContent,
 } from './baileys-jid.util';
 import { BaileysSessionStore } from './baileys-session-store';
 import { BaileysContactDirectory } from './baileys-contact-directory';
@@ -51,6 +52,9 @@ export interface BaileysAdapterConfig {
   // backfills). Off by default: the normal sync only covers recent messages.
   fullHistory?: boolean;
 }
+
+// Matches the backend's MAX_MEDIA_BYTES default.
+const MAX_INLINE_MEDIA_BYTES = Number(process.env.MAX_MEDIA_BYTES) || 16 * 1024 * 1024;
 
 function timestampToNumber(ts: unknown): number {
   if (typeof ts === 'number') {
@@ -289,11 +293,22 @@ export class BaileysAdapter implements IWhatsAppEngine {
       this.store.add({ id, chatId, author, timestamp, raw: msg });
 
       if (type !== 'chat' && type !== 'unknown') {
-        try {
-          const buffer = await downloadMediaMessage(msg, 'buffer', {});
-          incomingMessage.media = { ...this.extractMediaMeta(msg), data: buffer.toString('base64') };
-        } catch (error) {
-          this.logger.error('Error downloading media', String(error));
+        const meta = this.extractMediaMeta(msg);
+        if (meta.size > MAX_INLINE_MEDIA_BYTES) {
+          // The file travels base64 inside the webhook JSON (and sits in the
+          // webhook outbox until delivered), so very large videos are skipped.
+          this.logger.warn(`Skipping ${meta.size}-byte media on ${id}: over ${MAX_INLINE_MEDIA_BYTES} bytes`);
+        } else {
+          try {
+            const buffer = await downloadMediaMessage(msg, 'buffer', {});
+            incomingMessage.media = {
+              mimetype: meta.mimetype,
+              filename: meta.filename,
+              data: buffer.toString('base64'),
+            };
+          } catch (error) {
+            this.logger.error('Error downloading media', String(error));
+          }
         }
       }
 
@@ -327,7 +342,7 @@ export class BaileysAdapter implements IWhatsAppEngine {
       // signature, unlike the Record<string, unknown> that mapBaileysMessageType
       // (baileys-jid.util, Task 2) declares for its parameter -- cast at the
       // call site rather than touching that already-completed file.
-      type: mapBaileysMessageType(msg.message as Record<string, unknown> | null | undefined),
+      type: mapBaileysMessageType(unwrapMessageContent(msg.message)),
       timestamp: timestampToNumber(msg.messageTimestamp),
       fromMe: msg.key.fromMe || false,
       isGroup,
@@ -423,7 +438,7 @@ export class BaileysAdapter implements IWhatsAppEngine {
   }
 
   private extractBody(msg: WAMessage): string {
-    const content = msg.message;
+    const content = unwrapMessageContent(msg.message);
     return (
       content?.conversation ||
       content?.extendedTextMessage?.text ||
@@ -434,39 +449,53 @@ export class BaileysAdapter implements IWhatsAppEngine {
     );
   }
 
-  private extractMediaMeta(msg: WAMessage): { mimetype: string; filename?: string } {
-    const content = msg.message;
+  private extractMediaMeta(msg: WAMessage): { mimetype: string; filename?: string; size: number } {
+    const content = unwrapMessageContent(msg.message);
+    // fileLength is a protobuf Long (or number); Number() handles both.
+    const sizeOf = (media: { fileLength?: unknown } | null | undefined): number => Number(media?.fileLength ?? 0) || 0;
     if (content?.imageMessage) {
-      return { mimetype: content.imageMessage.mimetype || 'image/jpeg' };
+      return { mimetype: content.imageMessage.mimetype || 'image/jpeg', size: sizeOf(content.imageMessage) };
     }
     if (content?.videoMessage) {
-      return { mimetype: content.videoMessage.mimetype || 'video/mp4' };
+      return { mimetype: content.videoMessage.mimetype || 'video/mp4', size: sizeOf(content.videoMessage) };
     }
     if (content?.audioMessage) {
-      return { mimetype: content.audioMessage.mimetype || 'audio/ogg' };
+      return { mimetype: content.audioMessage.mimetype || 'audio/ogg', size: sizeOf(content.audioMessage) };
     }
     if (content?.documentMessage) {
       return {
         mimetype: content.documentMessage.mimetype || 'application/octet-stream',
         filename: content.documentMessage.fileName || undefined,
+        size: sizeOf(content.documentMessage),
       };
     }
-    return { mimetype: 'application/octet-stream' };
+    return { mimetype: 'application/octet-stream', size: 0 };
   }
 
-  // Only reads contextInfo off extendedTextMessage; Baileys also carries it on
-  // imageMessage/videoMessage/documentMessage, so a quote-reply to a media
-  // message currently loses its quotedMessage link. Not extended to those yet
-  // because IncomingMessage.quotedMessage has no consumer today (Phase 1
-  // scope) — revisit if/when something reads it.
+  // A quote-reply's contextInfo sits on whichever content the reply is: text
+  // (extendedTextMessage) or a photo/video/document sent as the reply. The
+  // backend uses the quoted id to put a reply photo on the quoted ticket.
   private extractQuotedMessage(msg: WAMessage): { id: string; body: string } | undefined {
-    const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+    const content = unwrapMessageContent(msg.message);
+    const contextInfo =
+      content?.extendedTextMessage?.contextInfo ||
+      content?.imageMessage?.contextInfo ||
+      content?.videoMessage?.contextInfo ||
+      content?.documentMessage?.contextInfo ||
+      content?.audioMessage?.contextInfo;
     if (!contextInfo?.quotedMessage || !contextInfo.stanzaId) {
       return undefined;
     }
+    const quoted = unwrapMessageContent(contextInfo.quotedMessage);
     return {
       id: contextInfo.stanzaId,
-      body: contextInfo.quotedMessage.conversation || contextInfo.quotedMessage.extendedTextMessage?.text || '',
+      body:
+        quoted?.conversation ||
+        quoted?.extendedTextMessage?.text ||
+        quoted?.imageMessage?.caption ||
+        quoted?.videoMessage?.caption ||
+        quoted?.documentMessage?.caption ||
+        '',
     };
   }
 

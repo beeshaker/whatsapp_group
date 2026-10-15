@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, field_validator
-from sqlalchemy import delete, func, select, update as sa_update
+from sqlalchemy import delete, func, or_, select, update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
@@ -33,20 +33,21 @@ from auth import require_login, require_admin, require_super_admin, hash_passwor
 from chat import answer_query, answer_sales_query
 from classifier import classify_message, classify_update_or_new, _VALID_TRANSACTION_TYPES
 from database import get_db, init_db, AsyncSessionLocal
-from media import MEDIA_DIR, download_media, save_upload
+from media import MAX_MEDIA_BYTES, MEDIA_DIR, decode_inline_media, download_media, save_upload
 from models import Contact, Incident, IncidentCategory, IncidentCost, IncidentMedia, IncidentStatusHistory, IncidentUpdate, User, UserGroup, AuditLog, AdminProfile, AdminGroupSubscription
 from odoo_stub import push_incident
 import contacts
 import reports
 from summaries import build_summary, format_whatsapp_summary, window_for_date
 from lead_fields import is_valid_phone, normalize_phone
-from vehicle_plate import is_valid_plate, normalize_plate, resolve_plate_for_issue
+from vehicle_plate import extract_plates, is_valid_plate, normalize_plate, resolve_plate_for_issue
 from whatsapp import reply_to_message, send_group_message, list_contacts as list_whatsapp_contacts, list_groups as list_whatsapp_groups
 
 _VALID_STATUSES = {"new", "review", "acknowledged", "resolved", "ignored"}
 _VALID_PRIORITIES = {"low", "medium", "high", "urgent"}
 _VALID_REMINDER_OFFSETS = {0, 1, 6, 24}
-_MEDIA_TYPES = {"image", "video", "document", "audio"}
+# Voice notes ("audio") aren't attached to tickets yet.
+_MEDIA_TYPES = {"image", "video", "document"}
 
 
 class StatusUpdate(BaseModel):
@@ -54,6 +55,10 @@ class StatusUpdate(BaseModel):
 
 
 class RelinkBody(BaseModel):
+    incident_id: Optional[int]
+
+
+class MediaAssignBody(BaseModel):
     incident_id: Optional[int]
 
 
@@ -207,6 +212,10 @@ BILLING_WEBHOOK_SECRET = os.getenv("BILLING_WEBHOOK_SECRET", "")
 CLIENT_SUBDOMAIN = os.getenv("CLIENT_SUBDOMAIN", "")
 FLEET_PLATE_MODE = os.getenv("FLEET_PLATE_MODE", "false").lower() == "true"
 LEAD_MODE = os.getenv("LEAD_MODE", "false").lower() == "true"
+# How far apart a sender's photo and their explaining text may be and still be
+# linked (either order). WhatsApp users send "text then photos" or "photos then
+# text" within a minute or two; 10 min leaves room for slow uploads.
+MEDIA_LINK_WINDOW = timedelta(minutes=int(os.getenv("MEDIA_LINK_WINDOW_MINUTES", "10")))
 # Only ever enabled on the ops/marketing WhatsApp number's own deployment —
 # NEVER on a client deployment, where an unknown DM is a client's own
 # customer/tenant, not a prospect for this SaaS. Default off preserves the
@@ -684,17 +693,29 @@ async def _handle_text_ingest(
     message_body: str,
     received_at: datetime,
     message_id: Optional[str],
+    quoted_message_id: Optional[str] = None,
 ) -> dict:
     classification = await classify_message(message_body, db)
     all_issues = classification["issues"]
     survivor_count = sum(1 for i in all_issues if i["confidence"] >= MIN_CONFIDENCE)
     if survivor_count == 0:
+        # "Photos then just the plate": not an issue on its own, but it says
+        # which bike the sender's waiting photos belong to.
+        plate_incident = await _plate_target(db, group_id, message_body)
+        if plate_incident is not None:
+            if await _sweep_unassigned_media(
+                db, group_id, reporter_phone, received_at, plate_incident, None, quoted_message_id,
+            ):
+                await db.commit()
         return {"status": "noise", "message": "Message classified as non-incident"}
 
     open_tickets = await _get_open_tickets(db, group_id, limit=(50 if FLEET_PLATE_MODE else 5))
     tickets_created = 0
     updates_created = 0
     duplicates_skipped = 0
+    # (confidence, incident_id, update_id) of the strongest issue persisted, so
+    # the sender's photos that arrived before this text can follow it.
+    media_target: Optional[tuple[float, int, Optional[int]]] = None
 
     for issue_index, issue in enumerate(all_issues):
         if issue["confidence"] < MIN_CONFIDENCE:
@@ -735,6 +756,8 @@ async def _handle_text_ingest(
                     parent.updated_at = received_at
                 await db.commit()
                 updates_created += 1
+                if media_target is None or issue["confidence"] > media_target[0]:
+                    media_target = (issue["confidence"], incident_id, update.id)
             except IntegrityError:
                 await db.rollback()
                 duplicates_skipped += 1
@@ -778,6 +801,8 @@ async def _handle_text_ingest(
             await db.commit()
             await db.refresh(incident)
             tickets_created += 1
+            if media_target is None or issue["confidence"] > media_target[0]:
+                media_target = (issue["confidence"], incident.id, None)
         except IntegrityError:
             await db.rollback()
             duplicates_skipped += 1
@@ -805,7 +830,196 @@ async def _handle_text_ingest(
     if tickets_created == 0 and updates_created == 0 and duplicates_skipped > 0:
         return {"status": "duplicate", "message": "Message already processed"}
 
-    return {"status": "staged", "tickets_created": tickets_created, "updates_created": updates_created}
+    media_attached = 0
+    if media_target is not None:
+        _, target_incident, target_update = media_target
+        try:
+            media_attached = await _sweep_unassigned_media(
+                db, group_id, reporter_phone, received_at, target_incident, target_update, quoted_message_id,
+            )
+            if media_attached:
+                await db.commit()
+        except Exception as exc:
+            await db.rollback()
+            logger.error("Attaching earlier photos failed: %s", exc)
+            media_attached = 0
+
+    result = {"status": "staged", "tickets_created": tickets_created, "updates_created": updates_created}
+    if media_attached:
+        result["media_attached"] = media_attached
+    return result
+
+
+async def _resolve_quoted_target(
+    db: AsyncSession, group_id: str, quoted_message_id: Optional[str],
+) -> Optional[tuple[int, Optional[int]]]:
+    """A quote-reply names the exact message being answered: the ticket it
+    created, the update it became (bot replies sent from the dashboard are
+    stored as updates too), or a photo already attached to a ticket."""
+    if not quoted_message_id:
+        return None
+    incident_id = await db.scalar(
+        select(Incident.id)
+        .where(Incident.group_id == group_id, Incident.message_id == quoted_message_id)
+        .order_by(Incident.issue_index)
+        .limit(1)
+    )
+    if incident_id is not None:
+        return incident_id, None
+    row = (await db.execute(
+        select(IncidentUpdate.incident_id, IncidentUpdate.id)
+        .join(Incident, Incident.id == IncidentUpdate.incident_id)
+        .where(Incident.group_id == group_id, IncidentUpdate.message_id == quoted_message_id)
+        .limit(1)
+    )).first()
+    if row:
+        return row[0], row[1]
+    row = (await db.execute(
+        select(IncidentMedia.incident_id, IncidentMedia.update_id)
+        .where(
+            IncidentMedia.group_id == group_id,
+            IncidentMedia.message_id == quoted_message_id,
+            IncidentMedia.incident_id.isnot(None),
+        )
+        .limit(1)
+    )).first()
+    return (row[0], row[1]) if row else None
+
+
+async def _plate_target(db: AsyncSession, group_id: str, text: str) -> Optional[int]:
+    """Newest open ticket for the one plate named in `text` (any category), so
+    a photo captioned just "KMGQ 372A" lands on that bike."""
+    if not FLEET_PLATE_MODE:
+        return None
+    plates = set(extract_plates(text))
+    if len(plates) != 1:
+        return None
+    return await db.scalar(
+        select(Incident.id)
+        .where(
+            Incident.group_id == group_id,
+            Incident.vehicle_plate == plates.pop(),
+            ~Incident.status.in_(["resolved", "ignored"]),
+        )
+        .order_by(Incident.received_at.desc())
+        .limit(1)
+    )
+
+
+async def _proximity_target(
+    db: AsyncSession,
+    group_id: str,
+    reporter_phone: Optional[str],
+    received_at: datetime,
+    message_id: Optional[str],
+) -> Optional[tuple[int, Optional[int]]]:
+    """The ticket/update this sender's own nearest message (text or an already
+    linked photo) went to, within MEDIA_LINK_WINDOW either side. Covers "text
+    then photos" and the rest of an album after its captioned photo. Never
+    borrows another sender's context."""
+    if not reporter_phone:
+        return None
+    lo, hi = received_at - MEDIA_LINK_WINDOW, received_at + MEDIA_LINK_WINDOW
+    candidates: list[tuple[datetime, int, Optional[int]]] = []
+
+    rows = await db.execute(
+        select(Incident.received_at, Incident.id)
+        .where(
+            Incident.group_id == group_id,
+            Incident.reporter_phone == reporter_phone,
+            Incident.received_at.between(lo, hi),
+        )
+    )
+    candidates += [(at, inc_id, None) for at, inc_id in rows.all()]
+
+    rows = await db.execute(
+        select(IncidentUpdate.received_at, IncidentUpdate.incident_id, IncidentUpdate.id)
+        .join(Incident, Incident.id == IncidentUpdate.incident_id)
+        .where(
+            Incident.group_id == group_id,
+            IncidentUpdate.reporter_phone == reporter_phone,
+            IncidentUpdate.received_at.between(lo, hi),
+        )
+    )
+    candidates += [(at, inc_id, upd_id) for at, inc_id, upd_id in rows.all()]
+
+    media_q = (
+        select(IncidentMedia.received_at, IncidentMedia.incident_id, IncidentMedia.update_id)
+        .where(
+            IncidentMedia.group_id == group_id,
+            IncidentMedia.reporter_phone == reporter_phone,
+            IncidentMedia.incident_id.isnot(None),
+            IncidentMedia.received_at.between(lo, hi),
+        )
+    )
+    if message_id:
+        media_q = media_q.where(IncidentMedia.message_id != message_id)
+    candidates += [tuple(r) for r in (await db.execute(media_q)).all()]
+
+    if not candidates:
+        return None
+    _, incident_id, update_id = min(candidates, key=lambda c: abs(_aware(c[0]) - received_at))
+    return incident_id, update_id
+
+
+async def _sweep_unassigned_media(
+    db: AsyncSession,
+    group_id: str,
+    reporter_phone: Optional[str],
+    received_at: datetime,
+    incident_id: int,
+    update_id: Optional[int],
+    quoted_message_id: Optional[str] = None,
+) -> int:
+    """Attach photos that arrived before the message that explains them: this
+    sender's unassigned photos within MEDIA_LINK_WINDOW, plus a photo this
+    message quote-replied to. The caller commits."""
+    conditions = []
+    if reporter_phone:
+        conditions.append(
+            (IncidentMedia.reporter_phone == reporter_phone)
+            & IncidentMedia.received_at.between(received_at - MEDIA_LINK_WINDOW, received_at + MEDIA_LINK_WINDOW)
+        )
+    if quoted_message_id:
+        conditions.append(IncidentMedia.message_id == quoted_message_id)
+    if not conditions:
+        return 0
+    result = await db.execute(
+        select(IncidentMedia).where(
+            IncidentMedia.group_id == group_id,
+            IncidentMedia.incident_id.is_(None),
+            or_(*conditions),
+        )
+    )
+    swept = result.scalars().all()
+    for m in swept:
+        m.incident_id = incident_id
+        m.update_id = update_id
+        m.link_method = "quote" if quoted_message_id and m.message_id == quoted_message_id else "sweep"
+    if swept:
+        parent = await db.get(Incident, incident_id)
+        if parent:
+            parent.updated_at = max(_aware(parent.updated_at or received_at), received_at)
+    return len(swept)
+
+
+async def _store_message_file(
+    media_bytes: Optional[bytes], mimetype: Optional[str], media_url: Optional[str],
+) -> Optional[tuple[str, str, str]]:
+    """Save a message's file: the inline bytes OpenWA sends, or a URL download
+    for payloads that carry one. Returns (filename, mimetype, file_path)."""
+    try:
+        if media_bytes is not None:
+            mimetype = mimetype or "application/octet-stream"
+            filename, file_path = await save_upload(media_bytes, mimetype, MEDIA_DIR)
+            return filename, mimetype, file_path
+        if media_url:
+            return await download_media(media_url, MEDIA_DIR)
+    except Exception as exc:
+        logger.error("Media save failed: %s", exc)
+        return None
+    logger.warning("Media message carried no file data — nothing to save")
+    return None
 
 
 async def _handle_media_ingest(
@@ -818,11 +1032,17 @@ async def _handle_media_ingest(
     media_url: Optional[str],
     received_at: datetime,
     message_id: Optional[str],
+    media_bytes: Optional[bytes] = None,
+    mimetype: Optional[str] = None,
+    quoted_message_id: Optional[str] = None,
 ) -> dict:
-    incident_id: Optional[int] = None
-    update_id: Optional[int] = None
+    """Link a WhatsApp photo/video/document to a ticket. First match wins:
+    quoted message, the caption's own tickets, the one plate in the caption,
+    the sender's nearest message. Otherwise it's kept unassigned, for the
+    sender's next text to sweep up or staff to attach from the dashboard."""
+    # (incident_id, update_id) per caption issue, highest confidence first.
+    caption_targets: list[tuple[float, int, Optional[int]]] = []
     _created_incidents: list[Incident] = []
-    caption_had_survivors = False
 
     if caption:
         classification = await classify_message(caption, db)
@@ -831,14 +1051,10 @@ async def _handle_media_ingest(
             if issue["confidence"] >= MIN_CONFIDENCE
         ]
         if survivors:
-            caption_had_survivors = True
             open_tickets = await _get_open_tickets(db, group_id, limit=(50 if FLEET_PLATE_MODE else 5))
-            highest_idx = max(survivors, key=lambda pair: pair[1]["confidence"])[0]
             tickets_created = 0
             updates_created = 0
             duplicates_skipped = 0
-            media_target_incident_id: Optional[int] = None
-            media_target_update_id: Optional[int] = None
 
             for issue_index, issue in survivors:
                 dup_incident = await db.execute(
@@ -877,9 +1093,7 @@ async def _handle_media_ingest(
                                 parent.updated_at = received_at
                             await db.flush()
                         updates_created += 1
-                        if issue_index == highest_idx:
-                            media_target_incident_id = parent_id
-                            media_target_update_id = upd.id
+                        caption_targets.append((issue["confidence"], parent_id, upd.id))
                     except IntegrityError:
                         duplicates_skipped += 1
                 else:
@@ -915,41 +1129,97 @@ async def _handle_media_ingest(
                             "vehicle_plate": new_inc.vehicle_plate,
                         })
                         _created_incidents.append(new_inc)
-                        if issue_index == highest_idx:
-                            media_target_incident_id = new_inc.id
+                        caption_targets.append((issue["confidence"], new_inc.id, None))
                     except IntegrityError:
                         duplicates_skipped += 1
 
             if tickets_created == 0 and updates_created == 0 and duplicates_skipped > 0:
                 return {"status": "duplicate", "message": "Message already processed"}
 
-            incident_id = media_target_incident_id
-            update_id = media_target_update_id
+    caption_targets.sort(key=lambda t: t[0], reverse=True)
+    targets: list[tuple[int, Optional[int]]] = []
+    link_method: Optional[str] = None
 
-    if incident_id is None and media_url and not caption_had_survivors:
-        open_tickets = await _get_open_tickets(db, group_id)
-        if open_tickets:
-            incident_id = open_tickets[0]["id"]
+    quoted = await _resolve_quoted_target(db, group_id, quoted_message_id)
+    if quoted:
+        targets, link_method = [quoted], "quote"
+    elif caption_targets:
+        # One photo whose caption names several bikes/issues goes on each ticket.
+        targets, link_method = [(inc_id, upd_id) for _, inc_id, upd_id in caption_targets], "caption"
+    else:
+        plate_incident = await _plate_target(db, group_id, caption) if caption else None
+        if plate_incident is not None:
+            targets, link_method = [(plate_incident, None)], "plate"
+        else:
+            nearby = await _proximity_target(db, group_id, reporter_phone, received_at, message_id)
+            if nearby:
+                targets, link_method = [nearby], "proximity"
 
-    if media_url and incident_id is not None:
-        try:
-            filename, mimetype, file_path = await download_media(media_url, MEDIA_DIR)
-            media_rec = IncidentMedia(
-                incident_id=incident_id,
-                update_id=update_id,
+    # A redelivered message reuses the file already saved for it and only adds
+    # rows for targets it doesn't have yet.
+    existing: list[IncidentMedia] = []
+    if message_id:
+        existing = list((await db.execute(
+            select(IncidentMedia).where(IncidentMedia.message_id == message_id)
+        )).scalars().all())
+    if existing:
+        stored: Optional[tuple[str, str, str]] = (existing[0].filename, existing[0].mimetype, existing[0].file_path)
+    else:
+        stored = await _store_message_file(media_bytes, mimetype, media_url)
+
+    attached_ids: list[int] = []
+    unassigned = False
+    if stored:
+        filename, saved_mimetype, file_path = stored
+        have = {m.incident_id for m in existing}
+        spare = [m for m in existing if m.incident_id is None]
+        for inc_id, upd_id in targets:
+            if inc_id in have:
+                continue
+            if spare:
+                rec = spare.pop()
+                rec.incident_id, rec.update_id, rec.link_method = inc_id, upd_id, link_method
+            else:
+                db.add(IncidentMedia(
+                    incident_id=inc_id,
+                    update_id=upd_id,
+                    filename=filename,
+                    mimetype=saved_mimetype,
+                    file_path=file_path,
+                    received_at=received_at,
+                    group_id=group_id,
+                    message_id=message_id,
+                    reporter_phone=reporter_phone,
+                    reporter_name=reporter_name,
+                    caption=caption or None,
+                    link_method=link_method,
+                ))
+            have.add(inc_id)
+            attached_ids.append(inc_id)
+            parent = await db.get(Incident, inc_id)
+            if parent:
+                parent.updated_at = max(_aware(parent.updated_at or received_at), received_at)
+        if not targets and not existing:
+            db.add(IncidentMedia(
+                incident_id=None,
                 filename=filename,
-                mimetype=mimetype,
+                mimetype=saved_mimetype,
                 file_path=file_path,
                 received_at=received_at,
-            )
-            db.add(media_rec)
-            parent = await db.get(Incident, incident_id)
-            if parent:
-                parent.updated_at = received_at
-        except Exception as exc:
-            logger.error("Media download failed: %s", exc)
-    elif media_url is None:
-        logger.warning("Media message has no mediaUrl — skipping download")
+                group_id=group_id,
+                message_id=message_id,
+                reporter_phone=reporter_phone,
+                reporter_name=reporter_name,
+                caption=caption or None,
+            ))
+            unassigned = True
+
+    # The captioned photo of an album often isn't the first to arrive: pull the
+    # sender's earlier uncaptioned ones onto the same ticket.
+    if link_method == "caption":
+        await db.flush()
+        inc_id, upd_id = targets[0]
+        await _sweep_unassigned_media(db, group_id, reporter_phone, received_at, inc_id, upd_id)
 
     try:
         await db.commit()
@@ -964,11 +1234,18 @@ async def _handle_media_ingest(
         except Exception as exc:
             logger.error("push_incident failed for media incident: %s", exc)
 
-    if incident_id is None:
-        logger.warning("Orphaned media: no open ticket in group %s and no classified caption", group_id)
-        return {"status": "staged_media", "message": "Media saved but no open ticket found"}
+    if not targets:
+        logger.info("Media from %s in group %s kept unassigned (no quote, caption, plate or nearby message)",
+                    reporter_phone, group_id)
+        return {"status": "staged_media", "unassigned": unassigned,
+                "message": "Media saved; not linked to a ticket yet"}
 
-    return {"status": "staged_media", "incident_id": incident_id}
+    return {"status": "staged_media", "incident_id": targets[0][0], "link_method": link_method,
+            "attached_to": attached_ids}
+
+
+def _quoted_message_id(data: dict) -> Optional[str]:
+    return ((data.get("quotedMessage") or {}).get("id") or "").strip() or None
 
 
 async def _forward_to_billing(subdomain: str, event_body: dict) -> None:
@@ -1225,17 +1502,26 @@ async def ingest(
         return await _handle_text_ingest(
             db, group_id, group_name, reporter_name, reporter_phone,
             message_body, received_at, message_id,
+            quoted_message_id=_quoted_message_id(data),
         )
 
     # Media message
     billing_status = await _get_client_billing_status()
     if billing_status in ("billing_only", "closed"):
         return {"status": "billing_only_drop"}
-    caption = (data.get("caption") or "").strip()[:4000]
+    # OpenWA (both engines) puts a media message's caption in `body` and the
+    # file itself, base64, in `media.data`. `caption`/`mediaUrl` are kept as
+    # fallbacks for any other gateway that sends them.
+    caption = (data.get("body") or data.get("caption") or "").strip()[:4000]
+    media = data.get("media") or {}
+    media_bytes = decode_inline_media(media["data"]) if media.get("data") else None
     media_url: Optional[str] = data.get("mediaUrl") or None
     return await _handle_media_ingest(
         db, group_id, group_name, reporter_name, reporter_phone,
         caption, media_url, received_at, message_id,
+        media_bytes=media_bytes,
+        mimetype=(media.get("mimetype") or "").split(";")[0].strip() or None,
+        quoted_message_id=_quoted_message_id(data),
     )
 
 
@@ -1273,6 +1559,7 @@ async def list_incidents(
     return [
         {
             "id": i.id,
+            "group_id": i.group_id,
             "property_name": i.property_name,
             "reporter_name": i.reporter_name,
             "reporter_phone": i.reporter_phone,
@@ -1344,6 +1631,9 @@ async def get_incident_detail(
             "filename": m.filename,
             "mimetype": m.mimetype,
             "update_id": m.update_id,
+            "caption": m.caption,
+            "reporter_name": m.reporter_name,
+            "link_method": m.link_method,
         }
         for m in media_result.scalars().all()
     ]
@@ -1431,25 +1721,199 @@ async def get_incident_detail(
     }
 
 
+async def _check_media_access(actor: Optional[str], media: IncidentMedia, db: AsyncSession) -> None:
+    if media.incident_id is not None:
+        await check_incident_group_access(actor, media.incident_id, db)
+        return
+    if actor is None:
+        return
+    allowed = await _get_allowed_groups(actor, db)
+    if allowed is not None and media.group_id not in allowed:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+
+def _media_json(m: IncidentMedia) -> dict:
+    return {
+        "id": m.id,
+        "url": f"/media/{m.id}",
+        "filename": m.filename,
+        "mimetype": m.mimetype,
+        "incident_id": m.incident_id,
+        "group_id": m.group_id,
+        "reporter_name": m.reporter_name,
+        "reporter_phone": m.reporter_phone,
+        "caption": m.caption,
+        "link_method": m.link_method,
+        "received_at": _aware(m.received_at).isoformat(),
+    }
+
+
+# Declared before /media/{media_id} so "unassigned" isn't parsed as an id.
+@app.get("/media/unassigned")
+async def list_unassigned_media(
+    username: str = Depends(require_login),
+    db: AsyncSession = Depends(get_db),
+):
+    """WhatsApp photos no rule could tie to a ticket, newest first."""
+    query = (
+        select(IncidentMedia)
+        .where(IncidentMedia.incident_id.is_(None))
+        .order_by(IncidentMedia.received_at.desc())
+        .limit(200)
+    )
+    allowed = await _get_allowed_groups(username, db)
+    if allowed is not None:
+        query = query.where(IncidentMedia.group_id.in_(allowed))
+    return [_media_json(m) for m in (await db.execute(query)).scalars().all()]
+
+
 @app.get("/media/{media_id}")
 async def serve_media(
     media_id: int,
-    x_api_key: str = Header(None, alias="X-API-Key"),
+    actor: Optional[str] = Depends(require_write_auth),
     db: AsyncSession = Depends(get_db),
 ):
-    if not hmac.compare_digest(x_api_key or "", GATEWAY_SECRET_TOKEN):
-        raise HTTPException(status_code=401, detail="Unauthorized")
     result = await db.execute(select(IncidentMedia).where(IncidentMedia.id == media_id))
     media = result.scalar_one_or_none()
     if not media:
         raise HTTPException(status_code=404, detail="Media not found")
+    await _check_media_access(actor, media, db)
     if not os.path.exists(media.file_path):
         raise HTTPException(status_code=404, detail="Media file not found on disk")
-    media_root = os.path.realpath(MEDIA_DIR)
-    file_real = os.path.realpath(media.file_path)
-    if not file_real.startswith(media_root + os.sep):
+    if not _within_media_dir(media.file_path):
         raise HTTPException(status_code=403, detail="Forbidden")
-    return FileResponse(media.file_path, media_type=media.mimetype, filename=media.filename)
+    return FileResponse(
+        media.file_path, media_type=media.mimetype, filename=media.filename, content_disposition_type="inline",
+    )
+
+
+@app.patch("/media/{media_id}")
+async def assign_media(
+    media_id: int,
+    body: MediaAssignBody,
+    actor: Optional[str] = Depends(require_write_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Attach an unassigned photo to a ticket, move it to another ticket, or
+    (incident_id null) send it back to the unassigned list."""
+    media = await db.get(IncidentMedia, media_id)
+    if not media:
+        raise HTTPException(status_code=404, detail="Media not found")
+    await _check_media_access(actor, media, db)
+    from_incident = media.incident_id
+    now = datetime.now(timezone.utc)
+
+    if body.incident_id is not None:
+        target = await db.get(Incident, body.incident_id)
+        if not target:
+            raise HTTPException(status_code=404, detail="Target incident not found")
+        await check_incident_group_access(actor, body.incident_id, db)
+        dup = await db.scalar(
+            select(IncidentMedia.id).where(
+                IncidentMedia.incident_id == body.incident_id,
+                IncidentMedia.file_path == media.file_path,
+                IncidentMedia.id != media.id,
+            )
+        )
+        if dup is not None:
+            raise HTTPException(status_code=409, detail="That ticket already has this photo")
+        target.updated_at = now
+        media.group_id = media.group_id or target.group_id
+
+    media.incident_id = body.incident_id
+    media.update_id = None
+    media.link_method = "manual" if body.incident_id is not None else None
+    audit_incident = body.incident_id or from_incident
+    if actor and audit_incident is not None:
+        db.add(AuditLog(
+            username=actor,
+            action="media_assign",
+            incident_id=audit_incident,
+            detail=f"media {media_id} moved from {from_incident or 'unassigned'} to {body.incident_id or 'unassigned'}",
+            created_at=now,
+        ))
+    await db.commit()
+    return _media_json(media)
+
+
+@app.delete("/media/{media_id}")
+async def delete_media(
+    media_id: int,
+    actor: Optional[str] = Depends(require_write_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Dismiss a photo that doesn't belong on any ticket (memes, duplicates).
+    The file is removed once no other ticket shares it."""
+    media = await db.get(IncidentMedia, media_id)
+    if not media:
+        raise HTTPException(status_code=404, detail="Media not found")
+    await _check_media_access(actor, media, db)
+    file_path, incident_id = media.file_path, media.incident_id
+    await db.delete(media)
+    if actor and incident_id is not None:
+        db.add(AuditLog(
+            username=actor,
+            action="media_delete",
+            incident_id=incident_id,
+            detail=f"media {media_id} ({media.filename}) removed",
+            created_at=datetime.now(timezone.utc),
+        ))
+    await db.commit()
+    still_used = await db.scalar(select(IncidentMedia.id).where(IncidentMedia.file_path == file_path).limit(1))
+    if still_used is None and _within_media_dir(file_path):
+        try:
+            os.remove(file_path)
+        except FileNotFoundError:
+            pass
+    return {"deleted": media_id}
+
+
+@app.post("/incidents/{incident_id}/media")
+async def upload_incident_media(
+    incident_id: int,
+    file: UploadFile = File(...),
+    actor: Optional[str] = Depends(require_write_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Staff add a photo from their own device, e.g. one a rider sent them privately."""
+    incident = await db.get(Incident, incident_id)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    await check_incident_group_access(actor, incident_id, db)
+    mimetype = (file.content_type or "").split(";")[0].strip()
+    if not (mimetype.startswith(("image/", "video/")) or mimetype == "application/pdf"):
+        raise HTTPException(status_code=422, detail="file must be an image, video or PDF")
+    data = await file.read(MAX_MEDIA_BYTES + 1)
+    if len(data) > MAX_MEDIA_BYTES:
+        raise HTTPException(status_code=413, detail=f"file is larger than {MAX_MEDIA_BYTES // (1024 * 1024)} MB")
+    if not data:
+        raise HTTPException(status_code=422, detail="file is empty")
+    filename, file_path = await save_upload(data, mimetype, MEDIA_DIR)
+    now = datetime.now(timezone.utc)
+    media = IncidentMedia(
+        incident_id=incident_id,
+        filename=filename,
+        mimetype=mimetype,
+        file_path=file_path,
+        received_at=now,
+        group_id=incident.group_id,
+        reporter_name=actor or "API",
+        caption=None,
+        link_method="upload",
+    )
+    db.add(media)
+    incident.updated_at = now
+    if actor:
+        db.add(AuditLog(
+            username=actor,
+            action="media_upload",
+            incident_id=incident_id,
+            detail=(file.filename or filename)[:120],
+            created_at=now,
+        ))
+    await db.commit()
+    await db.refresh(media)
+    return _media_json(media)
 
 
 @app.patch("/incidents/{update_id}/relink")
@@ -1962,6 +2426,18 @@ async def serve_cost_receipt(
         media_type=cost.receipt_mimetype or "application/octet-stream",
         filename=cost.receipt_filename,
         content_disposition_type="inline",
+    )
+
+
+@app.get("/photos", response_class=HTMLResponse)
+async def photos_page(
+    request: Request,
+    username: str = Depends(require_login),
+    db: AsyncSession = Depends(get_db),
+):
+    return templates.TemplateResponse(
+        "photos.html",
+        {"request": request, "username": username, "role": await _role_for(username, db)},
     )
 
 

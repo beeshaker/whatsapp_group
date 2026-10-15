@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Photos — Ops Ticketing</title>
+  <link rel="stylesheet" href="/static/css/base.css">
+  <style>
+    .page { max-width: 1100px; margin: 0 auto; padding: 2.5rem 1.5rem; }
+    .page-header { margin-bottom: 1.5rem; }
+    .page-title { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
+    .page-subtitle { font-size: 0.875rem; color: var(--muted); margin-top: 0.25rem; max-width: 640px; }
+    .photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+    .photo-card {
+      background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-xl);
+      overflow: hidden; display: flex; flex-direction: column;
+    }
+    .photo-thumb { display: block; aspect-ratio: 4 / 3; background: var(--line); }
+    .photo-thumb img, .photo-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .photo-file { display: flex; align-items: center; justify-content: center; font-size: 0.875rem; color: var(--muted); height: 100%; }
+    .photo-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+    .photo-who { font-size: 0.8125rem; font-weight: 600; }
+    .photo-when { font-size: 0.75rem; color: var(--muted); font-weight: 400; }
+    .photo-caption { font-size: 0.8125rem; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+    .photo-actions { display: flex; gap: 6px; margin-top: auto; }
+    .photo-actions select {
+      flex: 1; min-width: 0; padding: 5px 8px; font-size: 0.75rem;
+      border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--text);
+    }
+    .btn-sm { padding: 5px 10px; font-size: 0.75rem; }
+    .empty-state { text-align: center; color: var(--muted); padding: 3rem 1rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-xl); }
+    @media (max-width: 640px) { .page { padding: 1.5rem 16px; } }
+  </style>
+</head>
+<body>
+
+{% set active_page = 'photos' %}
+{% include "_nav.html" %}
+
+<main class="page">
+  <div class="page-header">
+    <div class="page-title">Unassigned photos</div>
+    <div class="page-subtitle" id="photo-count">
+      Photos from WhatsApp that couldn't be matched to a ticket automatically (no caption, not a reply, and no message from the same person nearby). Pick the ticket each one belongs to, or dismiss it.
+    </div>
+  </div>
+  <div id="photo-grid" class="photo-grid"><div class="empty-state">Loading…</div></div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  (function() {
+    const el = document.getElementById('nav-avatar');
+    const username = {{ username | tojson }};
+    if (el && username) el.textContent = username.slice(0, 2).toUpperCase();
+  })();
+
+  let _photos = [];
+  let _openTickets = [];
+
+  function escHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function showToast(msg, isError = false) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.background = isError ? 'var(--red)' : '';
+    t.classList.add('show');
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => t.classList.remove('show'), 3000);
+  }
+
+  function fmtTime(iso) {
+    return new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  }
+
+  function ticketLabel(t) {
+    const what = [t.vehicle_plate, t.category].filter(Boolean).join(' · ');
+    return `#${t.id} — ${what || t.property_name} · ${t.reporter_name} · ${fmtTime(t.received_at)}`;
+  }
+
+  // Same group only; the sender's own tickets first, then nearest in time.
+  function ticketOptions(photo) {
+    const at = new Date(photo.received_at).getTime();
+    return _openTickets
+      .filter(t => t.group_id === photo.group_id)
+      .sort((a, b) =>
+        ((b.reporter_phone === photo.reporter_phone) - (a.reporter_phone === photo.reporter_phone)) ||
+        (Math.abs(new Date(a.received_at).getTime() - at) - Math.abs(new Date(b.received_at).getTime() - at)))
+      .map(t => `<option value="${t.id}">${escHtml(ticketLabel(t))}</option>`)
+      .join('');
+  }
+
+  function thumb(p) {
+    if (p.mimetype.startsWith('image/')) return `<img src="${p.url}" alt="" loading="lazy">`;
+    if (p.mimetype.startsWith('video/')) return `<video src="${p.url}" preload="metadata" muted></video>`;
+    return `<div class="photo-file">📄 ${escHtml(p.filename)}</div>`;
+  }
+
+  function render() {
+    const grid = document.getElementById('photo-grid');
+    document.getElementById('photo-count').textContent = _photos.length === 0
+      ? 'Every WhatsApp photo is attached to a ticket.'
+      : `${_photos.length} photo(s) couldn't be matched to a ticket automatically (no caption, not a reply, and no message from the same person nearby). Pick the ticket each one belongs to, or dismiss it.`;
+    if (_photos.length === 0) {
+      grid.innerHTML = '<div class="empty-state">Nothing to sort. 🎉</div>';
+      return;
+    }
+    grid.innerHTML = _photos.map(p => `
+      <div class="photo-card">
+        <a class="photo-thumb" href="${p.url}" target="_blank">${thumb(p)}</a>
+        <div class="photo-body">
+          <div class="photo-who">${escHtml(p.reporter_name || (p.reporter_phone ? '+' + p.reporter_phone : 'Unknown'))}
+            <span class="photo-when">· ${fmtTime(p.received_at)}</span></div>
+          ${p.caption ? `<div class="photo-caption">${escHtml(p.caption)}</div>` : ''}
+          <div class="photo-actions">
+            <select id="pick-${p.id}"><option value="">Attach to ticket…</option>${ticketOptions(p)}</select>
+            <button class="btn btn-primary btn-sm" onclick="attach(${p.id})">Attach</button>
+            <button class="btn btn-ghost btn-sm" onclick="dismiss(${p.id})" title="Not a ticket photo">✕</button>
+          </div>
+        </div>
+      </div>`).join('');
+  }
+
+  async function load() {
+    const [photosRes, ticketsRes] = await Promise.all([fetch('/media/unassigned'), fetch('/incidents')]);
+    if (!photosRes.ok || !ticketsRes.ok) { showToast(`Error ${photosRes.status}`, true); return; }
+    _photos = await photosRes.json();
+    _openTickets = (await ticketsRes.json()).filter(t => !['resolved', 'ignored'].includes(t.status));
+    render();
+  }
+
+  async function attach(mediaId) {
+    const incidentId = parseInt(document.getElementById(`pick-${mediaId}`).value, 10);
+    if (!incidentId) { showToast('Pick a ticket first', true); return; }
+    const res = await fetch(`/media/${mediaId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ incident_id: incidentId }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      showToast(data.detail || `Error ${res.status}`, true);
+      return;
+    }
+    showToast(`Attached to #${incidentId}`);
+    _photos = _photos.filter(p => p.id !== mediaId);
+    render();
+  }
+
+  async function dismiss(mediaId) {
+    if (!confirm('Dismiss this photo? It will be deleted.')) return;
+    const res = await fetch(`/media/${mediaId}`, { method: 'DELETE' });
+    if (!res.ok) { showToast(`Error ${res.status}`, true); return; }
+    _photos = _photos.filter(p => p.id !== mediaId);
+    render();
+  }
+
+  load();
+</script>
+</body>
+</html>

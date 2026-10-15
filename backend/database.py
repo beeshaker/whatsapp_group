@@ -390,3 +390,28 @@ async def init_db():
             await conn.execute(text("ALTER TABLE incidents ADD COLUMN lead_source TEXT"))
     except Exception:
         pass
+
+    # WhatsApp photos that can't be tied to a ticket yet are kept unassigned.
+    # Postgres only; SQLite can't drop NOT NULL in place (fresh SQLite DBs get
+    # the nullable column from create_all above).
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE incident_media ALTER COLUMN incident_id DROP NOT NULL"))
+    except Exception:
+        pass
+
+    for column in ("group_id", "message_id", "reporter_phone", "reporter_name", "caption", "link_method"):
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(f"ALTER TABLE incident_media ADD COLUMN {column} TEXT"))
+        except Exception:
+            pass
+
+    for column in ("group_id", "message_id"):
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    f"CREATE INDEX IF NOT EXISTS ix_incident_media_{column} ON incident_media ({column})"
+                ))
+        except Exception:
+            pass
