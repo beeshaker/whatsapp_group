@@ -22,6 +22,7 @@ import {
 import { createLogger } from '../../common/services/logger.service';
 import { EventsGateway } from '../events/events.gateway';
 import { WebhookService } from '../webhook/webhook.service';
+import { WebhookOutboxService } from '../webhook/webhook-outbox.service';
 import { HookManager } from '../../core/hooks';
 
 interface ReconnectState {
@@ -77,7 +78,16 @@ export class SessionService implements OnModuleDestroy, OnModuleInit, OnApplicat
     private readonly eventsGateway: EventsGateway,
     private readonly webhookService: WebhookService,
     private readonly hookManager: HookManager,
-  ) {}
+    webhookOutbox: WebhookOutboxService,
+  ) {
+    // Delivery alerts go out over WhatsApp, which doesn't depend on the
+    // endpoint that is failing.
+    webhookOutbox.setMessageSender((sessionId, chatId, text) => {
+      const engine = this.engines.get(sessionId);
+      if (!engine) return Promise.reject(new Error(`Session ${sessionId} is not running`));
+      return engine.sendTextMessage(chatId, text);
+    });
+  }
 
   /**
    * On backend startup, reset all active session statuses to disconnected

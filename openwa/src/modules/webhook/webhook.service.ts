@@ -4,13 +4,14 @@ import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import * as crypto from 'crypto';
 import { Webhook } from './entities/webhook.entity';
 import { CreateWebhookDto, UpdateWebhookDto } from './dto';
 import { createLogger } from '../../common/services/logger.service';
 import { QUEUE_NAMES } from '../queue/queue-names';
 import { generateIdempotencyKey, generateDeliveryId } from './utils/idempotency.util';
 import { HookManager } from '../../core/hooks';
+import { WebhookOutboxService } from './webhook-outbox.service';
+import { buildWebhookHeaders, isPermanentFailure, postWebhook, signWebhookBody } from './utils/post-webhook.util';
 
 export interface WebhookPayload {
   event: string;
@@ -42,6 +43,7 @@ export class WebhookService {
     private readonly webhookRepository: Repository<Webhook>,
     private readonly configService: ConfigService,
     private readonly hookManager: HookManager,
+    private readonly outbox: WebhookOutboxService,
     @Optional()
     @InjectQueue(QUEUE_NAMES.WEBHOOK)
     private readonly webhookQueue?: Queue<WebhookJobData>,
@@ -194,16 +196,7 @@ export class WebhookService {
       // Use potentially modified payload
       const finalPayload = (hookResult as { payload: WebhookPayload }).payload;
 
-      // Build headers
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'User-Agent': 'OpenWA-Webhook/1.0.0',
-        'X-OpenWA-Event': event,
-        'X-OpenWA-Idempotency-Key': idempotencyKey,
-        'X-OpenWA-Delivery-Id': deliveryId,
-        'X-OpenWA-Retry-Count': '0',
-        ...webhook.headers,
-      };
+      const headers = buildWebhookHeaders(webhook, { ...finalPayload, event, idempotencyKey, deliveryId });
 
       // Use queue if available, otherwise fallback to direct delivery
       if (this.queueEnabled && this.webhookQueue) {
@@ -261,6 +254,12 @@ export class WebhookService {
           });
         }
       } else {
+        // Events already waiting in the outbox go first, so don't overtake them.
+        if (await this.outbox.hasPending(webhook.id)) {
+          await this.outbox.add(webhook, finalPayload);
+          continue;
+        }
+
         // Direct delivery when queue is disabled
         try {
           await this.deliverWebhook(webhook, finalPayload, headers);
@@ -290,6 +289,11 @@ export class WebhookService {
             webhookId: webhook.id,
             action: 'webhook_delivery_failed',
           });
+
+          // Keep it for the outbox to replay instead of losing the event.
+          if (!isPermanentFailure(error)) {
+            await this.outbox.add(webhook, finalPayload, String(error));
+          }
         }
       }
     }
@@ -304,27 +308,11 @@ export class WebhookService {
     headers: Record<string, string>,
     attempt = 1,
   ): Promise<void> {
-    const body = JSON.stringify(payload);
-
     // Update retry count header
     headers['X-OpenWA-Retry-Count'] = String(attempt - 1);
 
-    // Add signature if secret is configured and not already present
-    if (webhook.secret && !headers['X-OpenWA-Signature']) {
-      headers['X-OpenWA-Signature'] = this.generateSignature(body, webhook.secret);
-    }
-
     try {
-      const response = await fetch(webhook.url, {
-        method: 'POST',
-        headers,
-        body,
-        signal: AbortSignal.timeout(this.configService.get<number>('webhook.timeout', 10000)),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
+      await postWebhook(webhook, payload, headers, this.configService.get<number>('webhook.timeout', 10000));
 
       // Update last triggered timestamp
       await this.webhookRepository.update(webhook.id, {
@@ -354,9 +342,7 @@ export class WebhookService {
   }
 
   private generateSignature(payload: string, secret: string): string {
-    const hmac = crypto.createHmac('sha256', secret);
-    hmac.update(payload);
-    return `sha256=${hmac.digest('hex')}`;
+    return signWebhookBody(payload, secret);
   }
 
   private delay(ms: number): Promise<void> {

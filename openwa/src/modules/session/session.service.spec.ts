@@ -15,6 +15,7 @@ import { EngineFactory } from '../../engine/engine.factory';
 import { EngineStatus, EngineEventCallbacks } from '../../engine/interfaces/whatsapp-engine.interface';
 import { EventsGateway } from '../events/events.gateway';
 import { WebhookService } from '../webhook/webhook.service';
+import { WebhookOutboxService } from '../webhook/webhook-outbox.service';
 import { HookManager } from '../../core/hooks';
 
 async function flushPromises(): Promise<void> {
@@ -114,6 +115,7 @@ describe('SessionService', () => {
         { provide: EventsGateway, useValue: eventsGateway },
         { provide: WebhookService, useValue: webhookService },
         { provide: HookManager, useValue: hookManager },
+        { provide: WebhookOutboxService, useValue: { setMessageSender: jest.fn() } },
       ],
     }).compile();
 

@@ -61,6 +61,22 @@ export default () => ({
     timeout: parseInt(process.env.WEBHOOK_TIMEOUT || '90000', 10),
     maxRetries: parseInt(process.env.WEBHOOK_MAX_RETRIES || '3', 10),
     retryDelay: parseInt(process.env.WEBHOOK_RETRY_DELAY || '5000', 10),
+    // Events that fail direct delivery are kept and replayed (direct mode only)
+    outbox: {
+      intervalMs: parseInt(process.env.WEBHOOK_OUTBOX_INTERVAL_MS || '30000', 10),
+      maxAgeHours: parseInt(process.env.WEBHOOK_OUTBOX_MAX_AGE_HOURS || '168', 10),
+      batchSize: parseInt(process.env.WEBHOOK_OUTBOX_BATCH_SIZE || '200', 10),
+    },
+    // WhatsApp alert when deliveries keep failing; phones are digits, comma-separated
+    alert: {
+      phones: (process.env.WEBHOOK_ALERT_PHONES || '')
+        .split(',')
+        .map(p => p.replace(/\D/g, ''))
+        .filter(Boolean),
+      label: process.env.WEBHOOK_ALERT_LABEL || '',
+      afterMs: parseInt(process.env.WEBHOOK_ALERT_AFTER_MS || '120000', 10),
+      reminderMs: parseInt(process.env.WEBHOOK_ALERT_REMINDER_MS || '21600000', 10),
+    },
   },
 
   // API configuration

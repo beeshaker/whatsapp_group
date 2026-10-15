@@ -25,6 +25,11 @@ services:
       - "127.0.0.1:${OPENWA_PORT}:2785"
     volumes:
       - openwa_data:/app/data
+    environment:
+      # WhatsApp alert when messages can't reach the backend (comma-separated
+      # numbers with country code, digits only). Empty: failures are only logged.
+      WEBHOOK_ALERT_PHONES: ${WEBHOOK_ALERT_PHONES:-}
+      WEBHOOK_ALERT_LABEL: ${CLIENT_SUBDOMAIN:-}
     networks:
       - client-net
     depends_on:

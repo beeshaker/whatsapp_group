@@ -141,6 +141,24 @@ Two actions, exposed on **both** the tenant `/settings` page and the billing adm
 
 Both work from any state. A backend/billing deployed against an older OpenWA falls back to `stop`+`start` for Restart, and reports that Link needs an OpenWA deploy.
 
+### When OpenWA can't reach the backend: outbox and alerts
+
+If a webhook delivery still fails after its retries (backend down, being rebuilt, unreachable), OpenWA keeps the event in its `webhook_outbox` table instead of dropping it. Every 30s it replays kept events oldest first. New messages queue behind them, so tickets keep their order. Replays go to the webhook's current URL, so fixing a broken URL also delivers the backlog. The backend dedupes by message id, and tickets keep the message's original time.
+
+- Endpoint unreachable or timing out: the event is kept, and the replay stops until the next pass.
+- 5xx on one event: that event is kept for a later pass, and the ones after it still go through.
+- 4xx (other than 408/429): dropped, because sending it again won't help. So are events older than 7 days (`WEBHOOK_OUTBOX_MAX_AGE_HOURS`). Each drop is logged as `webhook_outbox_dropped`.
+- Queue mode (`QUEUE_ENABLED=true`) is unchanged; this covers direct delivery only, which every client uses.
+
+After 2 minutes of failing delivery, the bot WhatsApps `WEBHOOK_ALERT_PHONES` (set in the client's `.env`). It sends a reminder every 6 hours, and a "reachable again" message with the number of delivered messages once the backlog is empty. A short blip (for example a backend redeploy) that clears within 2 minutes sends nothing. Without phones set, alerts are only logged (`webhook_alert`).
+
+```bash
+docker compose exec openwa node -e "
+require('http').get({host:'localhost',port:2785,path:'/api/webhooks/outbox',headers:{'X-API-Key':'dev-admin-key'}},
+r=>{let b='';r.on('data',c=>b+=c);r.on('end',()=>console.log(r.statusCode,b))})"   # [] = nothing waiting
+docker compose logs openwa | grep -E 'webhook_outbox|webhook_alert'
+```
+
 ### Backfilling messages missed during an outage (Baileys only)
 
 When a Baileys session is linked, the phone pushes a sync of recent chat history. OpenWA stores it (never dispatched live) in `data/baileys/history/<session>.jsonl` and serves it at `GET /api/sessions/:id/history?chatId=&since=&until=` (epoch seconds). Because the sync only happens **at link time**, the OpenWA build with this capture must already be running *before* the re-link you want history from.

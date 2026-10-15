@@ -6,6 +6,7 @@ import { NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import { WebhookService, WebhookPayload } from './webhook.service';
+import { WebhookOutboxService } from './webhook-outbox.service';
 import { Webhook } from './entities/webhook.entity';
 import { HookManager } from '../../core/hooks';
 import { QUEUE_NAMES } from '../queue/queue-names';
@@ -35,6 +36,7 @@ describe('WebhookService', () => {
   let configService: jest.Mocked<Partial<ConfigService>>;
   let hookManager: jest.Mocked<Partial<HookManager>>;
   let webhookQueue: jest.Mocked<Record<string, jest.Mock>>;
+  let outbox: { hasPending: jest.Mock; add: jest.Mock };
 
   beforeEach(async () => {
     repository = {
@@ -66,6 +68,11 @@ describe('WebhookService', () => {
       add: jest.fn().mockResolvedValue(undefined),
     };
 
+    outbox = {
+      hasPending: jest.fn().mockResolvedValue(false),
+      add: jest.fn().mockResolvedValue(undefined),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WebhookService,
@@ -73,6 +80,7 @@ describe('WebhookService', () => {
         { provide: ConfigService, useValue: configService },
         { provide: HookManager, useValue: hookManager },
         { provide: getQueueToken(QUEUE_NAMES.WEBHOOK), useValue: webhookQueue },
+        { provide: WebhookOutboxService, useValue: outbox },
       ],
     }).compile();
 
@@ -273,6 +281,39 @@ describe('WebhookService', () => {
       expect(mockFetch).toHaveBeenCalled();
     });
 
+    it('keeps the event in the outbox when every attempt fails', async () => {
+      (repository.find as jest.Mock).mockResolvedValue([createMockWebhook()]);
+      mockFetch.mockRejectedValue(new TypeError('fetch failed'));
+
+      await service.dispatch('sess-1', 'message.received', {});
+
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+      expect(outbox.add).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'wh-uuid-1' }),
+        expect.anything(),
+        'TypeError: fetch failed',
+      );
+    });
+
+    it('does not keep an event the endpoint refused with a 4xx', async () => {
+      (repository.find as jest.Mock).mockResolvedValue([createMockWebhook({ retryCount: 1 })]);
+      mockFetch.mockResolvedValue({ ok: false, status: 401, statusText: 'Unauthorized' });
+
+      await service.dispatch('sess-1', 'message.received', {});
+
+      expect(outbox.add).not.toHaveBeenCalled();
+    });
+
+    it('queues behind earlier undelivered events instead of overtaking them', async () => {
+      (repository.find as jest.Mock).mockResolvedValue([createMockWebhook()]);
+      outbox.hasPending.mockResolvedValue(true);
+
+      await service.dispatch('sess-1', 'message.received', {});
+
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(outbox.add).toHaveBeenCalledWith(expect.objectContaining({ id: 'wh-uuid-1' }), expect.anything());
+    });
+
     it('should skip dispatch when plugin cancels via hook', async () => {
       const webhook = createMockWebhook({ events: ['message.received'] });
       (repository.find as jest.Mock).mockResolvedValue([webhook]);
@@ -362,6 +403,7 @@ describe('WebhookService', () => {
           },
           { provide: HookManager, useValue: hookManager },
           { provide: getQueueToken(QUEUE_NAMES.WEBHOOK), useValue: webhookQueue },
+          { provide: WebhookOutboxService, useValue: outbox },
         ],
       }).compile();
 
